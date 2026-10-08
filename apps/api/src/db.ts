@@ -1,0 +1,13 @@
+import { config } from "dotenv";
+import { drizzle } from "drizzle-orm/node-postgres";
+import { Pool } from "pg";
+import { resolve } from "node:path";
+import * as schema from "./schema.js";
+
+config({ path: resolve(import.meta.dirname, "../../../.env") });
+
+const connectionString = process.env.DATABASE_URL;
+if (!connectionString) throw new Error("DATABASE_URL is required. Copy .env.example to .env.");
+
+export const pool = new Pool({ connectionString });
+export const db = drizzle(pool, { schema });
