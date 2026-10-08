@@ -1,0 +1,15 @@
+{
+  "name": "hive",
+  "private": true,
+  "version": "0.1.0",
+  "workspaces": ["apps/api", "apps/web"],
+  "scripts": {
+    "dev": "concurrently -k -n api,web -c cyan,magenta \"npm:dev -w @hive/api\" \"npm:dev -w @hive/web\"",
+    "dev:db": "docker compose up -d db",
+    "db:push": "npm run db:push -w @hive/api",
+    "db:studio": "npm run db:studio -w @hive/api",
+    "build": "npm run build -w @hive/api && npm run build -w @hive/web",
+    "typecheck": "npm run typecheck -w @hive/api && npm run typecheck -w @hive/web"
+  },
+  "devDependencies": { "concurrently": "^9.2.1" }
+}

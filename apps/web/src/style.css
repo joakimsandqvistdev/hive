@@ -1,0 +1,17 @@
+:root { font-family: 'Segoe UI', sans-serif; color: #eff1e8; background: #101a17; font-synthesis: none; text-rendering: optimizeLegibility; }
+* { box-sizing: border-box; }
+body { margin: 0; min-width: 320px; min-height: 100vh; background: radial-gradient(ellipse at 52% 45%, #1c3027 0%, #101a17 62%); }
+.shell { width: min(100% - 40px, 620px); margin: 0 auto; min-height: 100vh; display: flex; flex-direction: column; justify-content: center; padding: 64px 0; }
+.eyebrow, .status-heading, footer { font-family: Consolas, monospace; font-size: 11px; letter-spacing: .13em; color: #a1af9f; }
+.bee { color: #c5e27b; font-size: 17px; vertical-align: -1px; margin-right: 8px; }
+h1 { font-size: clamp(54px, 10vw, 76px); line-height: 1.05; letter-spacing: -.055em; margin: 31px 0 14px; font-weight: 600; }
+h1 em { color: #c5e27b; font-family: Georgia, serif; font-weight: 500; }
+.intro { color: #abb8ad; font-size: 17px; line-height: 1.7; max-width: 440px; margin: 0 0 42px; }
+.status-card { border: 1px solid #34443b; border-radius: 13px; background: #17231fbd; padding: 23px 26px 12px; box-shadow: 0 20px 80px #0002; }
+.status-heading { display: flex; align-items: center; gap: 10px; margin-bottom: 13px; }
+.pulse { width: 7px; height: 7px; border-radius: 50%; background: #c5e27b; box-shadow: 0 0 12px #c5e27b88; }
+.service { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 52px; border-top: 1px solid #2b3932; font-size: 14px; color: #d3dbd2; }
+.service strong { font-size: 12px; font-weight: 500; text-align: right; }
+.online { color: #c5e27b; }.waiting { color: #c7ad6e; }
+footer { margin-top: 34px; font-size: 10px; } footer span { color: #c5e27b; padding: 0 8px; }
+@media (max-width: 480px) { .service { align-items: flex-start; flex-direction: column; justify-content: center; gap: 5px; padding: 12px 0; } .service strong { text-align: left; } }
