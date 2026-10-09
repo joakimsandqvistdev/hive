@@ -1,5 +1,5 @@
 import { Burger, Group, Text } from "@mantine/core";
-import { LoginButton } from "./LoginButton";
+import { AuthControl } from "./AuthControl";
 
 export function AppHeader({
   mobileNavOpened,
@@ -22,7 +22,7 @@ export function AppHeader({
         </Group>
         <Text className="header-context" visibleFrom="sm">A little room to grow</Text>
       </Group>
-      <LoginButton />
+      <AuthControl />
     </Group>
   );
 }
