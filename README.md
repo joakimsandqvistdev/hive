@@ -21,7 +21,7 @@ The GitHub Actions workflow runs the TypeScript checks and production build on p
 6. Start the API and web app: `npm run dev`
 7. Open <http://localhost:5173>. The API runs at <http://localhost:3001>.
 
-The API exposes `GET /api/health` and `GET /api/tasks`. The web page calls the API to show its database connection status.
+The API exposes `GET /api/health`. The web page calls the API to show its database connection status.
 
 For tracked schema changes, update `apps/api/src/schema.ts`, generate a migration with `npm run db:generate -w @hive/api`, then apply it with `npm run db:migrate -w @hive/api`.
 

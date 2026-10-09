@@ -1,3 +1,14 @@
+import {
+  Badge,
+  Card,
+  Container,
+  Divider,
+  Group,
+  Stack,
+  Text,
+  ThemeIcon,
+  Title,
+} from "@mantine/core";
 import { useEffect, useState } from "react";
 
 type Health = { status: string; database: string };
@@ -13,18 +24,70 @@ export default function App() {
       .catch(() => setHealth({ status: "unavailable", database: "unavailable" }));
   }, [apiUrl]);
 
+  const apiConnected = health?.status === "ok";
+  const databaseConnected = health?.database === "connected";
+
   return (
-    <main className="shell">
-      <div className="eyebrow"><span className="bee">✳</span> YOUR PROJECT STARTS HERE</div>
-      <h1>Welcome to <em>Hive.</em></h1>
-      <p className="intro">Your workspace is ready. A clean foundation for the ideas you’ll build next.</p>
-      <section className="status-card">
-        <div className="status-heading"><span className="pulse" /> LOCAL DEVELOPMENT</div>
-        <div className="service"><span>Web app</span><strong className="online">Running · React + Vite</strong></div>
-        <div className="service"><span>API server</span><strong className={health?.status === "ok" ? "online" : "waiting"}>{health?.status === "ok" ? "Connected · Express" : "Waiting · Express"}</strong></div>
-        <div className="service"><span>Database</span><strong className={health?.database === "connected" ? "online" : "waiting"}>{health?.database === "connected" ? "Connected · PostgreSQL" : "Start Docker to connect"}</strong></div>
-      </section>
-      <footer>BUILT TO GROW <span>·</span> NODE · REACT · POSTGRES</footer>
-    </main>
+    <Container size="sm" className="shell">
+      <Stack gap="xl">
+        <Group gap="sm">
+          <ThemeIcon color="lime" variant="light" radius="xl" size="md" aria-hidden="true">
+            ✳
+          </ThemeIcon>
+          <Text className="eyebrow">Your project starts here</Text>
+        </Group>
+
+        <Stack gap="sm">
+          <Title order={1} className="title">
+            Welcome to <Text span inherit c="lime.4" fs="italic" className="brand-name">Hive.</Text>
+          </Title>
+          <Text className="intro">
+            Your workspace is ready. A clean foundation for the ideas you’ll build next.
+          </Text>
+        </Stack>
+
+        <Card withBorder radius="lg" padding="xl" className="status-card">
+          <Stack gap="md">
+            <Group gap="xs">
+              <ThemeIcon
+                color="lime"
+                variant="filled"
+                radius="xl"
+                size={8}
+                aria-hidden="true"
+              />
+              <Text className="status-heading">Local development</Text>
+            </Group>
+
+            <ServiceStatus label="Web app" status="Running · React + Vite" color="lime" />
+            <Divider />
+            <ServiceStatus
+              label="API server"
+              status={apiConnected ? "Connected · Express" : "Waiting · Express"}
+              color={apiConnected ? "lime" : "yellow"}
+            />
+            <Divider />
+            <ServiceStatus
+              label="Database"
+              status={databaseConnected ? "Connected · PostgreSQL" : "Start Docker to connect"}
+              color={databaseConnected ? "lime" : "yellow"}
+            />
+          </Stack>
+        </Card>
+
+        <Text className="footer">Built to grow <span>·</span> Node · React · Postgres</Text>
+      </Stack>
+    </Container>
+  );
+}
+
+function ServiceStatus({ label, status, color }: { label: string; status: string; color: string }) {
+  return (
+    <Group justify="space-between" className="service">
+      <Text>{label}</Text>
+      <Badge color={color} variant="light" radius="sm" className="service-badge">
+        {status}
+      </Badge>
+    </Group>
   );
 }
