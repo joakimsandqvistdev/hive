@@ -21,6 +21,18 @@ The GitHub Actions workflow runs the TypeScript checks and production build on p
 6. Start the API and web app: `npm run dev`
 7. Open <http://localhost:5173>. The API runs at <http://localhost:3001>.
 
+## Google sign-in setup
+
+Google sign-in uses an authorization-code flow handled by the API. The API validates Google's signed OpenID Connect ID token, keeps only a hashed, random session identifier in PostgreSQL, and sends the browser an HTTP-only session cookie. Google credentials stay on the server and must never use a `VITE_` variable.
+
+1. In Google Cloud Console, create an OAuth client with application type **Web application**.
+2. Add `http://localhost:3001/api/auth/google/callback` as an authorized redirect URI.
+3. Add the client ID and secret to `.env` as `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET`.
+4. Keep `GOOGLE_REDIRECT_URI` set to the exact callback URI above and restart `npm run dev`.
+5. Open the app, choose **Log in**, then **Continue with Google**.
+
+For a deployed environment, register that environment's exact HTTPS callback URI and set `GOOGLE_REDIRECT_URI`, `WEB_ORIGIN`, `GOOGLE_CLIENT_ID`, and `GOOGLE_CLIENT_SECRET` accordingly. Never commit `.env` or expose the client secret in frontend configuration.
+
 The API exposes `GET /api/health`. The web page calls the API to show its database connection status.
 
 For tracked schema changes, update `apps/api/src/schema.ts`, generate a migration with `npm run db:generate -w @hive/api`, then apply it with `npm run db:migrate -w @hive/api`.
