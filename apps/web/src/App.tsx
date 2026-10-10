@@ -9,12 +9,13 @@ import { WorkflowsPage } from "./pages/WorkflowsPage";
 import { RunsPage } from "./pages/RunsPage";
 import { SignInRequiredPage } from "./pages/SignInRequiredPage";
 import { useAuth } from "./auth";
+import { LicensesPage } from "./pages/LicensesPage";
 
-export type AppView = "home" | "agents" | "workflows" | "runs";
+export type AppView = "home" | "agents" | "workflows" | "runs" | "licenses";
 
 function viewFromHash(): AppView {
   const view = window.location.hash.slice(1);
-  return view === "agents" || view === "workflows" || view === "runs" ? view : "home";
+  return view === "agents" || view === "workflows" || view === "runs" || view === "licenses" ? view : "home";
 }
 
 export default function App() {
@@ -42,12 +43,13 @@ export default function App() {
 
 function AppContent({ view, onNavigate }: { view: AppView; onNavigate: (view: AppView) => void }) {
   const { user, loading } = useAuth();
-  const isProtectedView = view !== "home";
+  const isProtectedView = view === "agents" || view === "workflows" || view === "runs";
   const page = isProtectedView && loading ? <SignInRequiredPage loading />
     : isProtectedView && !user ? <SignInRequiredPage />
       : view === "agents" ? <AgentsPage />
         : view === "workflows" ? <WorkflowsPage onNavigate={onNavigate} />
           : view === "runs" ? <RunsPage onNavigate={onNavigate} />
+            : view === "licenses" ? <LicensesPage />
             : <HomePage onNavigate={onNavigate} />;
 
   return (
