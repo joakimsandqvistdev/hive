@@ -1,6 +1,6 @@
 import { AppShell, Box, Burger, Group, Stack, Text } from "@mantine/core";
 import { NavigationButton } from "./NavigationButton";
-import type { AppView } from "../App";
+import type { AppView } from "../navigation/navigationState";
 import { useAuth } from "../auth";
 
 function GridIcon() { return <svg width="19" height="19" viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="4" y="4" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1.7"/><rect x="14" y="4" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1.7"/><rect x="4" y="14" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1.7"/><rect x="14" y="14" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1.7"/></svg>; }

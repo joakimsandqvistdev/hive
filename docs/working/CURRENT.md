@@ -1,5 +1,11 @@
 # Current work
 
+## 2026-10-10 — Add behavior checks and extract navigation state
+
+- Added a root `npm test` command with navigation-state unit tests and workflow API integration coverage for graph save/load/replacement, cycle validation, database edge storage, and agent deletion constraints.
+- Extracted hash routing and sidebar persistence/transitions into `src/navigation/navigationState.ts` and `useAppNavigation.ts`; `App.tsx` now composes the navigation hook with the view shell.
+- Navigation tests, API integration tests, API/web typechecks, production build, and `git diff --check` passed. Integration tests use temporary records in the configured development database and clean them up. Vite continues to report its >500 kB bundle-size advisory.
+
 ## 2026-10-10 — Keep only the current workflow definition
 
 - Replaced version-scoped graph storage with workflow-scoped node and edge tables. Workflow saves now replace the current graph transactionally, and the editor no longer shows version status.
