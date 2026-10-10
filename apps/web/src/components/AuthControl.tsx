@@ -25,14 +25,14 @@ export function AuthControl() {
     if (authError) open();
   }, [authError, open]);
 
-  if (loading) return <Loader size="sm" color="hiveGreen" aria-label="Loading account" />;
+  if (loading) return <Loader size="sm" color="hiveSky" aria-label="Loading account" />;
 
   if (user) {
     return (
       <Menu position="bottom-end" withinPortal>
         <Menu.Target>
-          <UnstyledButton aria-label={`User menu for ${user.name || user.email}`} title="Account menu">
-            <Avatar src={user.avatarUrl} alt="" color="hiveGreen" radius="xl" size={40}>
+          <UnstyledButton className="user-menu-trigger" aria-label={`User menu for ${user.name || user.email}`} title="Account menu">
+            <Avatar src={user.avatarUrl} alt="" color="hiveSky" size={40}>
               <UserGlyph />
             </Avatar>
           </UnstyledButton>
@@ -65,7 +65,7 @@ export function AuthControl() {
 
   return (
     <>
-      <Button className="login-button" color="hiveGreen" radius="xl" onClick={open}>
+      <Button className="login-button" color="hiveSky" onClick={open}>
         Log in
       </Button>
       <Modal
@@ -76,7 +76,6 @@ export function AuthControl() {
         }}
         title="Log in to Hive"
         centered
-        radius="lg"
       >
         <Stack gap="md">
           {authError && <Alert color="red" title="Sign-in issue">{authError}</Alert>}
@@ -84,8 +83,8 @@ export function AuthControl() {
             <>
               <Text c="dimmed" size="sm">Continue securely with your Google account.</Text>
               <Button
-                color="hiveGreen"
-                radius="xl"
+                color="hiveSky"
+
                 leftSection={<GoogleGlyph />}
                 onClick={() => window.location.assign(`${API_BASE}/api/auth/google`)}
               >

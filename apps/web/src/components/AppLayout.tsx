@@ -12,10 +12,10 @@ export function AppLayout({ children }: { children: ReactNode }) {
     <AppShell
       className="hive-shell"
       layout="alt"
-      padding={{ base: "md", sm: "xl" }}
-      header={{ height: 76 }}
+      padding={{ base: "md", sm: "lg" }}
+      header={{ height: 64 }}
       navbar={{
-        width: desktopNavOpened ? 264 : 84,
+        width: desktopNavOpened ? 244 : 72,
         breakpoint: "sm",
         collapsed: { mobile: !mobileNavOpened },
       }}
@@ -23,8 +23,7 @@ export function AppLayout({ children }: { children: ReactNode }) {
       <AppShell.Header className="hive-header">
         <AppHeader mobileNavOpened={mobileNavOpened} onMobileNavToggle={toggleMobileNav} />
       </AppShell.Header>
-
-      <AppShell.Navbar className="hive-navbar" p="lg">
+      <AppShell.Navbar className="hive-navbar" p="md">
         <SideNavigation
           compact={!desktopNavOpened}
           mobileNavOpened={mobileNavOpened}
@@ -33,7 +32,6 @@ export function AppLayout({ children }: { children: ReactNode }) {
           onNavigate={closeMobileNav}
         />
       </AppShell.Navbar>
-
       <AppShell.Main className="hive-main">{children}</AppShell.Main>
     </AppShell>
   );
