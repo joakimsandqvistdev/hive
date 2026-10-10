@@ -3,7 +3,7 @@ import { useDisclosure } from "@mantine/hooks";
 import type { ReactNode } from "react";
 import { AppHeader } from "./AppHeader";
 import { SideNavigation } from "./SideNavigation";
-import type { AppView } from "../App";
+import type { AppView } from "../navigation/navigationState";
 
 export function AppLayout({ children, view, onNavigate, workflowEditorActive, sidebarCollapsed, onToggleNavigation }: {
   children: ReactNode;

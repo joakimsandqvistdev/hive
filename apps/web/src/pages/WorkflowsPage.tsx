@@ -3,7 +3,7 @@ import type { FormEvent } from "react";
 import { addEdge, Background, BackgroundVariant, Controls, Handle, MiniMap, Position, ReactFlow, useEdgesState, useNodesState, type Connection, type Edge, type Node } from "@xyflow/react";
 import { ActionIcon, Alert, Badge, Button, Group, Loader, Modal, Pagination, Paper, Select, Stack, Table, Text, Textarea, TextInput, Title, Tooltip } from "@mantine/core";
 import { API_BASE } from "../auth";
-import type { AppView } from "../App";
+import type { AppView } from "../navigation/navigationState";
 import "@xyflow/react/dist/style.css";
 
 const PAGE_SIZE = 10;
@@ -19,9 +19,8 @@ const emptyForm: WorkflowForm = { name: "", description: "" };
 function formatDate(value: string) { return new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(new Date(value)); }
 function editorIdFromHash() { return window.location.hash.match(/^#workflows\/([^/]+)$/)?.[1] ?? null; }
 
-export function WorkflowsPage({ onNavigate, onEditorModeChange }: {
+export function WorkflowsPage({ onNavigate }: {
   onNavigate: (view: AppView) => void;
-  onEditorModeChange: (open: boolean) => void;
 }) {
   const [page, setPage] = useState(1);
   const [result, setResult] = useState<WorkflowPageResult | null>(null);
@@ -65,12 +64,10 @@ export function WorkflowsPage({ onNavigate, onEditorModeChange }: {
     const syncHash = () => {
       const nextId = editorIdFromHash();
       setEditingId(nextId);
-      onEditorModeChange(nextId !== null);
     };
     window.addEventListener("hashchange", syncHash);
-    if (editingId) onEditorModeChange(true);
     return () => window.removeEventListener("hashchange", syncHash);
-  }, [editingId, onEditorModeChange]);
+  }, []);
 
   useEffect(() => {
     if (!editingId) { setWorkflow(null); return; }

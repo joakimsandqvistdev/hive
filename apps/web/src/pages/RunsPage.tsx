@@ -1,5 +1,5 @@
 import { Badge, Button, Group, Paper, Stack, Text, Title } from "@mantine/core";
-import type { AppView } from "../App";
+import type { AppView } from "../navigation/navigationState";
 
 export function RunsPage({ onNavigate }: { onNavigate: (view: AppView) => void }) {
   return (

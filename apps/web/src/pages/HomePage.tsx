@@ -1,5 +1,5 @@
 import { Badge, Box, Button, Group, Paper, Stack, Text, Title } from "@mantine/core";
-import type { AppView } from "../App";
+import type { AppView } from "../navigation/navigationState";
 import { useAuth } from "../auth";
 
 export function HomePage({ onNavigate }: { onNavigate: (view: AppView) => void }) {
