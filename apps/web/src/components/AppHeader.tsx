@@ -18,7 +18,7 @@ export function AppHeader({
             size="sm"
             aria-label={mobileNavOpened ? "Close navigation" : "Open navigation"}
           />
-          {mobileNavOpened && <Text className="brand-name">HAIVI</Text>}
+          {mobileNavOpened && <Text className="brand-name">HIVE</Text>}
         </Group>
         <Text className="header-context" visibleFrom="sm">A little room to grow</Text>
       </Group>

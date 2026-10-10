@@ -2,4 +2,4 @@
 
 The proposed MVP architecture, execution model, local inference options, artifact storage, security considerations, and delivery sequence are documented in [ORCHESTRATION_MVP_DESIGN.md](ORCHESTRATION_MVP_DESIGN.md). This is a proposal; it does not describe implemented functionality.
 
-The first vertical slice is implemented: authenticated owner-scoped agent listing, creation, editing, and deletion are available through `/api/agents`. Deletion is rejected when a workflow-version reference exists, and PostgreSQL enforces the same rule. Workflow authoring and model inference remain unimplemented.
+The current slice includes authenticated owner-scoped agent and workflow CRUD. Workflow saves replace the current node and edge rows; no workflow history is retained. Agent deletion is rejected while a current workflow references it, and PostgreSQL enforces the same rule. Model inference remains unimplemented.

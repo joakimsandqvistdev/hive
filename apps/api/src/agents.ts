@@ -2,7 +2,7 @@ import { and, count, eq, inArray, sql } from "drizzle-orm";
 import { Router } from "express";
 import { z } from "zod";
 import { db } from "./db.js";
-import { agents, workflowVersionAgents } from "./schema.js";
+import { agents, workflowNodes } from "./schema.js";
 
 const router = Router();
 const modalities = ["text", "image", "audio", "video"] as const;
@@ -31,9 +31,9 @@ router.get("/", async (req, res, next) => {
       db.select({ total: count() }).from(agents).where(eq(agents.userId, userId(res))),
     ]);
     const total = totalRows[0]?.total ?? 0;
-    const usageRows = rows.length ? await db.select({ agentId: workflowVersionAgents.agentId, usageCount: count() })
-      .from(workflowVersionAgents).where(inArray(workflowVersionAgents.agentId, rows.map((agent) => agent.id)))
-      .groupBy(workflowVersionAgents.agentId) : [];
+    const usageRows = rows.length ? await db.select({ agentId: workflowNodes.agentId, usageCount: sql<number>`count(distinct ${workflowNodes.workflowId})` })
+      .from(workflowNodes).where(inArray(workflowNodes.agentId, rows.map((agent) => agent.id)))
+      .groupBy(workflowNodes.agentId) : [];
     const usage = new Map(usageRows.map((row) => [row.agentId, row.usageCount]));
     res.json({ items: rows.map((agent) => ({ ...agent, workflowUsageCount: usage.get(agent.id) ?? 0 })), page, pageSize, total, totalPages: Math.ceil(total / pageSize) });
   } catch (error) { next(error); }
@@ -91,8 +91,8 @@ router.delete("/:id", async (req, res, next) => {
       .where(and(eq(agents.id, req.params.id), eq(agents.userId, userId(res)))).limit(1);
     if (!agent) { res.status(404).json({ error: "agent_not_found" }); return; }
 
-    const [usage] = await db.select({ total: count() }).from(workflowVersionAgents)
-      .where(eq(workflowVersionAgents.agentId, agent.id));
+    const [usage] = await db.select({ total: sql<number>`count(distinct ${workflowNodes.workflowId})` }).from(workflowNodes)
+      .where(eq(workflowNodes.agentId, agent.id));
     if ((usage?.total ?? 0) > 0) {
       res.status(409).json({ error: "agent_in_use", workflowUsageCount: usage.total });
       return;

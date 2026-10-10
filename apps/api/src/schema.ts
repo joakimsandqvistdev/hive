@@ -1,4 +1,4 @@
-import { boolean, foreignKey, index, integer, jsonb, pgEnum, pgTable, primaryKey, serial, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
+import { boolean, foreignKey, index, pgEnum, pgTable, primaryKey, real, serial, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
 export const agentModality = pgEnum("agent_modality", ["text", "image", "audio", "video"]);
@@ -50,7 +50,6 @@ export const workflows = pgTable("workflows", {
   userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
   description: text("description").notNull().default(""),
-  currentVersion: integer("current_version").notNull().default(1),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   archivedAt: timestamp("archived_at", { withTimezone: true }),
@@ -59,26 +58,30 @@ export const workflows = pgTable("workflows", {
   uniqueIndex("workflows_id_user_unique").on(table.id, table.userId),
 ]);
 
-export const workflowVersions = pgTable("workflow_versions", {
-  id: uuid("id").defaultRandom().primaryKey(),
+export const workflowNodes = pgTable("workflow_nodes", {
   workflowId: uuid("workflow_id").notNull(),
+  nodeId: text("node_id").notNull(),
   userId: uuid("user_id").notNull(),
-  version: integer("version").notNull(),
-  definitionJson: jsonb("definition_json").$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  agentId: uuid("agent_id").notNull(),
+  instructions: text("instructions").notNull().default(""),
+  positionX: real("position_x").notNull().default(0),
+  positionY: real("position_y").notNull().default(0),
 }, (table) => [
-  uniqueIndex("workflow_versions_workflow_version_unique").on(table.workflowId, table.version),
-  uniqueIndex("workflow_versions_id_user_unique").on(table.id, table.userId),
-  foreignKey({ columns: [table.workflowId, table.userId], foreignColumns: [workflows.id, workflows.userId], name: "workflow_versions_workflow_owner_fk" }).onDelete("cascade"),
+  primaryKey({ columns: [table.workflowId, table.nodeId], name: "workflow_nodes_pk" }),
+  index("workflow_nodes_agent_id_idx").on(table.agentId),
+  foreignKey({ columns: [table.workflowId, table.userId], foreignColumns: [workflows.id, workflows.userId], name: "workflow_nodes_workflow_owner_fk" }).onDelete("cascade"),
+  foreignKey({ columns: [table.agentId, table.userId], foreignColumns: [agents.id, agents.userId], name: "workflow_nodes_agent_owner_fk" }).onDelete("restrict"),
 ]);
 
-export const workflowVersionAgents = pgTable("workflow_version_agents", {
-  workflowVersionId: uuid("workflow_version_id").notNull(),
-  agentId: uuid("agent_id").notNull(),
+export const workflowEdges = pgTable("workflow_edges", {
+  workflowId: uuid("workflow_id").notNull(),
+  edgeId: text("edge_id").notNull(),
   userId: uuid("user_id").notNull(),
+  sourceNodeId: text("source_node_id").notNull(),
+  targetNodeId: text("target_node_id").notNull(),
 }, (table) => [
-  primaryKey({ columns: [table.workflowVersionId, table.agentId], name: "workflow_version_agents_pk" }),
-  index("workflow_version_agents_agent_id_idx").on(table.agentId),
-  foreignKey({ columns: [table.workflowVersionId, table.userId], foreignColumns: [workflowVersions.id, workflowVersions.userId], name: "workflow_version_agents_version_owner_fk" }).onDelete("cascade"),
-  foreignKey({ columns: [table.agentId, table.userId], foreignColumns: [agents.id, agents.userId], name: "workflow_version_agents_agent_owner_fk" }).onDelete("restrict"),
+  primaryKey({ columns: [table.workflowId, table.edgeId], name: "workflow_edges_pk" }),
+  foreignKey({ columns: [table.workflowId, table.userId], foreignColumns: [workflows.id, workflows.userId], name: "workflow_edges_workflow_owner_fk" }).onDelete("cascade"),
+  foreignKey({ columns: [table.workflowId, table.sourceNodeId], foreignColumns: [workflowNodes.workflowId, workflowNodes.nodeId], name: "workflow_edges_source_node_fk" }).onDelete("cascade"),
+  foreignKey({ columns: [table.workflowId, table.targetNodeId], foreignColumns: [workflowNodes.workflowId, workflowNodes.nodeId], name: "workflow_edges_target_node_fk" }).onDelete("cascade"),
 ]);
