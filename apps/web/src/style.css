@@ -23,6 +23,8 @@ body { color: var(--mantine-color-dark-0); background: var(--mantine-color-dark-
 .navigation-button { min-height: 40px; border: 1px solid transparent; color: var(--mantine-color-dark-1); font-weight: 550; transition: background-color 140ms ease, color 140ms ease, border-color 140ms ease; }
 .navigation-button[data-active] { border-color: var(--mantine-color-dark-6); background: var(--mantine-color-dark-7); color: var(--mantine-color-hiveSky-3); }
 .navigation-button:hover { background: var(--mantine-color-dark-7); }
+.navigation-button-muted { min-height: 34px; color: var(--mantine-color-dark-3); font-size: var(--mantine-font-size-xs); font-weight: 500; }
+.navigation-button-muted:hover { color: var(--mantine-color-dark-1); }
 .navigation-button[data-active]:hover { background: var(--mantine-color-dark-6); }
 .sidebar-note { max-width: 180px; padding: 3px 8px 6px; color: var(--mantine-color-dark-3); font-size: var(--mantine-font-size-xs); line-height: 1.55; }
 .navigation-button .mantine-NavLink-section[data-position="left"] { margin-inline-end: 10px; }
@@ -54,6 +56,15 @@ body { color: var(--mantine-color-dark-0); background: var(--mantine-color-dark-
 .workspace-shortcut:focus-visible { outline: 2px solid var(--mantine-color-hiveSky-3); outline-offset: 2px; }
 .workspace-page { width: min(100%, 1080px); margin: 0 auto; padding: 20px 0 40px; }
 .workspace-empty { padding: clamp(20px, 4vw, 32px); border-color: var(--mantine-color-dark-6); background: var(--mantine-color-dark-8); }
+.license-card { padding: clamp(16px, 3vw, 24px); border-color: var(--mantine-color-dark-6); background: var(--mantine-color-dark-8); }
+.license-text { display: block; max-width: 100%; white-space: pre-wrap; overflow-wrap: anywhere; padding: 14px; color: var(--mantine-color-dark-2); background: var(--mantine-color-dark-9); font-size: 11px; line-height: 1.65; }
+.workflow-canvas { height: min(68vh, 680px); min-height: 430px; overflow: hidden; border-color: var(--mantine-color-dark-6); background: var(--mantine-color-dark-9); }
+.workflow-canvas .react-flow { --xy-background-color: var(--mantine-color-dark-9); --xy-node-background-color: var(--mantine-color-dark-8); --xy-node-color: var(--mantine-color-dark-0); --xy-edge-stroke: var(--mantine-color-dark-3); --xy-controls-button-background-color: var(--mantine-color-dark-7); --xy-controls-button-color: var(--mantine-color-dark-1); --xy-minimap-background-color: var(--mantine-color-dark-8); }
+.workflow-canvas .react-flow__controls, .workflow-canvas .react-flow__minimap { border: 1px solid var(--mantine-color-dark-5); border-radius: var(--mantine-radius-sm); overflow: hidden; box-shadow: none; }
+.workflow-canvas .react-flow__controls-button { border-bottom-color: var(--mantine-color-dark-5); }
+.workflow-agent-node { position: relative; width: 210px; padding: 14px; border-color: var(--mantine-color-dark-5); background: var(--mantine-color-dark-8); }
+.workflow-agent-node[data-selected] { border-color: var(--mantine-color-hiveSky-5); box-shadow: 0 0 0 1px var(--mantine-color-hiveSky-5); }
+.workflow-agent-node .react-flow__handle { width: 9px; height: 9px; border: 2px solid var(--mantine-color-dark-8); background: var(--mantine-color-hiveSky-5); }
 .sign-in-required { min-height: 230px; display: flex; align-items: center; }
 .agents-table-panel { overflow: hidden; border-color: var(--mantine-color-dark-6); background: var(--mantine-color-dark-8); }
 .agents-empty { min-height: 280px; justify-content: center; padding: 28px; }

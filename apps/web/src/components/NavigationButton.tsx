@@ -6,10 +6,11 @@ type NavigationButtonProps = {
   active: boolean;
   icon: ReactNode;
   compact?: boolean;
+  muted?: boolean;
   onClick: () => void;
 };
 
-export function NavigationButton({ label, active, icon, compact = false, onClick }: NavigationButtonProps) {
+export function NavigationButton({ label, active, icon, compact = false, muted = false, onClick }: NavigationButtonProps) {
   return (
     <NavLink
       component="button"
@@ -18,7 +19,7 @@ export function NavigationButton({ label, active, icon, compact = false, onClick
       leftSection={icon}
       active={active}
       onClick={onClick}
-      className="navigation-button"
+      className={`navigation-button${muted ? " navigation-button-muted" : ""}`}
       aria-label={label}
       title={compact ? label : undefined}
     />

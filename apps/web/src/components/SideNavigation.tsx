@@ -6,6 +6,7 @@ import { useAuth } from "../auth";
 function GridIcon() { return <svg width="19" height="19" viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="4" y="4" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1.7"/><rect x="14" y="4" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1.7"/><rect x="4" y="14" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1.7"/><rect x="14" y="14" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1.7"/></svg>; }
 function WorkflowIcon() { return <svg width="19" height="19" viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="3.5" y="4" width="6" height="6" rx="1.5" stroke="currentColor" strokeWidth="1.7"/><rect x="14.5" y="14" width="6" height="6" rx="1.5" stroke="currentColor" strokeWidth="1.7"/><path d="M9.5 7h4a2 2 0 0 1 2 2v5M14.5 17h-4a2 2 0 0 1-2-2v-5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"/></svg>; }
 function RunsIcon() { return <svg width="19" height="19" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 5.5h14M5 12h14M5 18.5h14" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"/><circle cx="8" cy="5.5" r="2" fill="currentColor"/><circle cx="16" cy="12" r="2" fill="currentColor"/><circle cx="10" cy="18.5" r="2" fill="currentColor"/></svg>; }
+function LicenseIcon() { return <svg width="19" height="19" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M7 3.75h7l4 4v12.5H7a2 2 0 0 1-2-2v-12.5a2 2 0 0 1 2-2Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round"/><path d="M14 4v4h4M8.5 12h7M8.5 15.5h7" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"/></svg>; }
 
 function HomeIcon() {
   return (
@@ -85,7 +86,10 @@ export function SideNavigation({
         </Box>
       </Stack>
 
-      <Text className="sidebar-note">Build agents, connect workflows, and review their runs.</Text>
+      <Stack gap="xs">
+        <Text className="sidebar-note">Build agents, connect workflows, and review their runs.</Text>
+        <NavigationButton label="Licenses" active={activeView === "licenses"} icon={<LicenseIcon />} compact={compact} muted onClick={() => { onViewChange("licenses"); onNavigate(); }} />
+      </Stack>
     </Stack>
   );
 }
