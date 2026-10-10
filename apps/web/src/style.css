@@ -48,9 +48,21 @@ body { color: var(--mantine-color-dark-0); background: var(--mantine-color-dark-
 .welcome-signature { padding-top: 2px; }
 .signature-mark { color: var(--mantine-color-hiveSky-3); font-family: var(--mantine-font-family-monospace); font-size: var(--mantine-font-size-sm); }
 .home-note { display: flex; align-items: center; gap: 12px; padding: 13px 15px; border-color: var(--mantine-color-dark-6); background: var(--mantine-color-dark-8); }
+.workspace-shortcuts { margin-top: 2px; }
+.workspace-shortcut { display: flex; flex-direction: column; gap: 5px; padding: 15px; border-color: var(--mantine-color-dark-6); background: var(--mantine-color-dark-8); cursor: pointer; transition: border-color 140ms ease, background-color 140ms ease; }
+.workspace-shortcut:hover { border-color: var(--mantine-color-hiveSky-7); background: var(--mantine-color-dark-7); }
+.workspace-shortcut:focus-visible { outline: 2px solid var(--mantine-color-hiveSky-3); outline-offset: 2px; }
+.workspace-page { width: min(100%, 1080px); margin: 0 auto; padding: 20px 0 40px; }
+.workspace-empty { padding: clamp(20px, 4vw, 32px); border-color: var(--mantine-color-dark-6); background: var(--mantine-color-dark-8); }
+.sign-in-required { min-height: 230px; display: flex; align-items: center; }
+.agents-table-panel { overflow: hidden; border-color: var(--mantine-color-dark-6); background: var(--mantine-color-dark-8); }
+.agents-empty { min-height: 280px; justify-content: center; padding: 28px; }
+.agents-table-footer { border-top: 1px solid var(--mantine-color-dark-6); }
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 .note-mark { width: 7px; height: 7px; flex: 0 0 auto; border-radius: 50%; background: var(--mantine-color-hiveSky-3); }
 .login-button { box-shadow: none; }
 @media (max-width: 760px) { .home-page { padding-top: 14px; } .welcome-title { font-size: clamp(28px, 7vw, 36px); } }
+@media (max-width: 760px) { .workspace-shortcuts { flex-direction: column; } }
 @media (max-width: 520px) {
   .header-context { display: none; }
   .brand-section { padding-bottom: 10px; }

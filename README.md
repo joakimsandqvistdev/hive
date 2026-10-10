@@ -37,4 +37,6 @@ The API exposes `GET /api/health`. The web page calls the API to show its databa
 
 For tracked schema changes, update `apps/api/src/schema.ts`, generate a migration with `npm run db:generate -w @hive/api`, then apply it with `npm run db:migrate -w @hive/api`.
 
+The optional sample-agent seed requires an existing signed-in user. Set `AGENT_SEED_USER_EMAIL` to that user's account email, then run `npm run db:seed:agents -w @hive/api`. It adds one sample for each modality and leaves existing samples unchanged.
+
 To stop PostgreSQL, run `docker compose down`. To also erase its local data, run `docker compose down -v`.

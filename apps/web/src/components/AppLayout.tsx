@@ -3,8 +3,9 @@ import { useDisclosure } from "@mantine/hooks";
 import type { ReactNode } from "react";
 import { AppHeader } from "./AppHeader";
 import { SideNavigation } from "./SideNavigation";
+import type { AppView } from "../App";
 
-export function AppLayout({ children }: { children: ReactNode }) {
+export function AppLayout({ children, view, onNavigate }: { children: ReactNode; view: AppView; onNavigate: (view: AppView) => void }) {
   const [mobileNavOpened, { toggle: toggleMobileNav, close: closeMobileNav }] = useDisclosure();
   const [desktopNavOpened, { toggle: toggleDesktopNav }] = useDisclosure(true);
 
@@ -30,6 +31,8 @@ export function AppLayout({ children }: { children: ReactNode }) {
           onMobileNavToggle={toggleMobileNav}
           onDesktopNavToggle={toggleDesktopNav}
           onNavigate={closeMobileNav}
+          activeView={view}
+          onViewChange={onNavigate}
         />
       </AppShell.Navbar>
       <AppShell.Main className="hive-main">{children}</AppShell.Main>

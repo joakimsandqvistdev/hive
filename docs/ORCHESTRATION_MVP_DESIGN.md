@@ -4,7 +4,7 @@
 
 Define a proof-of-concept architecture for creating reusable AI agents, composing them into workflows, and executing workflows whose later agents consume earlier agents' outputs. The example workflow creates a character image, a background image, and speech audio, then passes those artifacts and a description to a video-generation agent.
 
-This is a design proposal, not a statement that these capabilities already exist. The current repository has a React 19/Vite/Mantine web app, an Express 5 TypeScript API, PostgreSQL 17 with Drizzle, and Google sign-in. It has no agent, workflow, job, or artifact implementation yet. Existing Docker Compose currently runs PostgreSQL only.
+This is a design proposal, not a statement that all capabilities already exist. The repository has a React 19/Vite/Mantine web app, an Express 5 TypeScript API, PostgreSQL 17 with Drizzle, and Google sign-in. Agent definitions now have an initial authenticated CRUD slice; workflow execution, jobs, and artifact storage remain unimplemented. Existing Docker Compose currently runs PostgreSQL only.
 
 ## MVP goals and boundaries
 
@@ -84,12 +84,13 @@ Use UUID primary keys, `created_at`/`updated_at` timestamps, foreign keys, and i
 | `agents` | `id`, `user_id`, `name`, `description`, `task_type`, `runner_type`, `model_id`, `config_json`, `input_schema_json`, `output_schema_json`, `created_at`, `updated_at`, `archived_at` | Reusable, declarative agent configuration. Keep secrets out of JSON. Model IDs must refer to allow-listed locally installed/downloaded models. |
 | `workflows` | `id`, `user_id`, `name`, `description`, `current_version`, `created_at`, `updated_at`, `archived_at` | Stable workflow identity and ownership. |
 | `workflow_versions` | `id`, `workflow_id`, `version`, `definition_json`, `created_at` | Immutable saved DAG versions containing node IDs, agent references/config snapshots, edges, and workflow input schema. Unique `(workflow_id, version)`. JSON avoids premature graph table complexity; consider normalized nodes/edges after query needs emerge. |
+| `workflow_version_agents` | `workflow_version_id`, `agent_id` | Relational references from each immutable workflow version to every agent it uses. The agent foreign key uses `ON DELETE RESTRICT`, so saved workflows cannot silently lose a referenced agent. |
 | `runs` | `id`, `user_id`, `workflow_id`, `workflow_version_id`, `status`, `input_json`, `snapshot_json`, `error_summary`, `started_at`, `finished_at`, `created_at`, `cancel_requested_at` | Execution instance tied to an immutable definition snapshot. Keep large input files as artifact references. |
 | `run_nodes` | `id`, `run_id`, `node_id`, `agent_id`, `status`, `resolved_input_json`, `output_json`, `attempt_count`, `error_code`, `error_summary`, `started_at`, `finished_at` | Per-agent execution state and typed references to outputs. Unique `(run_id, node_id)`. Avoid storing binary output data inline. |
 | `artifacts` | `id`, `user_id`, `run_id`, `run_node_id`, `storage_key`, `media_type`, `byte_size`, `checksum`, `display_name`, `status`, `created_at`, `expires_at` | Metadata for user uploads and generated files. Use opaque storage keys; validate media type and size. Add nullable run references for user-uploaded inputs. |
 | `run_events` (optional for first cut) | `id`, `run_id`, `sequence`, `event_type`, `payload_json`, `created_at` | Durable progress/event history if node state alone is insufficient for UI updates or recovery. Can be deferred until event details are required. |
 
-Use cascading deletes for user-owned definitions only where semantics are clear. Prefer archiving agents/workflows so historical runs remain readable. Enforce ownership in API queries and, if the product becomes multi-tenant beyond individual user ownership, consider PostgreSQL row-level security as an additional safeguard. Do not rely on unguessable UUIDs as authorization.
+Use cascading deletes for user-owned definitions only where semantics are clear. Prefer archiving agents/workflows so historical runs remain readable. Agent deletion must be rejected when any workflow version references it; enforce this in both the API and a restrictive foreign key. Enforce ownership in API queries and, if the product becomes multi-tenant beyond individual user ownership, consider PostgreSQL row-level security as an additional safeguard. Do not rely on unguessable UUIDs as authorization.
 
 ### Suggested API surface
 
