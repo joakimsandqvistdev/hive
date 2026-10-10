@@ -14,6 +14,9 @@ type AuthContextValue = {
   googleConfigured: boolean;
   authError: string | null;
   clearAuthError: () => void;
+  loginModalOpened: boolean;
+  openLoginModal: () => void;
+  closeLoginModal: () => void;
   logout: () => Promise<void>;
 };
 
@@ -31,6 +34,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(true);
   const [googleConfigured, setGoogleConfigured] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
+  const [loginModalOpened, setLoginModalOpened] = useState(false);
 
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
@@ -64,7 +68,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, loading, googleConfigured, authError, clearAuthError: () => setAuthError(null), logout }}>
+    <AuthContext.Provider value={{
+      user,
+      loading,
+      googleConfigured,
+      authError,
+      clearAuthError: () => setAuthError(null),
+      loginModalOpened,
+      openLoginModal: () => setLoginModalOpened(true),
+      closeLoginModal: () => setLoginModalOpened(false),
+      logout,
+    }}>
       {children}
     </AuthContext.Provider>
   );

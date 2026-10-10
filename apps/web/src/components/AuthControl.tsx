@@ -1,5 +1,4 @@
 import { ActionIcon, Alert, Avatar, Button, Divider, Group, Loader, Menu, Modal, Stack, Text, UnstyledButton } from "@mantine/core";
-import { useDisclosure } from "@mantine/hooks";
 import { useEffect, useState } from "react";
 import { API_BASE, useAuth } from "../auth";
 
@@ -17,13 +16,12 @@ function GoogleGlyph() {
 }
 
 export function AuthControl() {
-  const { user, loading, googleConfigured, authError, clearAuthError, logout } = useAuth();
-  const [opened, { open, close }] = useDisclosure(false);
+  const { user, loading, googleConfigured, authError, clearAuthError, logout, loginModalOpened, openLoginModal, closeLoginModal } = useAuth();
   const [logoutError, setLogoutError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (authError) open();
-  }, [authError, open]);
+    if (authError) openLoginModal();
+  }, [authError, openLoginModal]);
 
   if (loading) return <Loader size="sm" color="hiveSky" aria-label="Loading account" />;
 
@@ -65,13 +63,13 @@ export function AuthControl() {
 
   return (
     <>
-      <Button className="login-button" color="hiveSky" onClick={open}>
+      <Button className="login-button" color="hiveSky" onClick={openLoginModal}>
         Log in
       </Button>
       <Modal
-        opened={opened}
+        opened={loginModalOpened}
         onClose={() => {
-          close();
+          closeLoginModal();
           clearAuthError();
         }}
         title="Log in to Hive"

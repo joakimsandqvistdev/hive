@@ -1,6 +1,7 @@
 import { createHash, createPublicKey, randomBytes, timingSafeEqual, verify } from "node:crypto";
 import { and, eq, gt, lt } from "drizzle-orm";
 import { Router } from "express";
+import type { RequestHandler } from "express";
 import { db } from "./db.js";
 import { sessions, users } from "./schema.js";
 
@@ -35,6 +36,27 @@ type GoogleIdClaims = {
 };
 
 let cachedJwks: { keys: GoogleJwk[]; expiresAt: number } | undefined;
+
+export const requireAuthenticatedUser: RequestHandler = async (req, res, next) => {
+  const rawSessionId = cookieValue(req, SESSION_COOKIE);
+  if (!rawSessionId) {
+    res.status(401).json({ error: "unauthenticated" });
+    return;
+  }
+  try {
+    const [session] = await db.select({ userId: sessions.userId }).from(sessions)
+      .where(and(eq(sessions.id, sessionHash(rawSessionId)), gt(sessions.expiresAt, new Date())))
+      .limit(1);
+    if (!session) {
+      res.status(401).json({ error: "unauthenticated" });
+      return;
+    }
+    res.locals.userId = session.userId as string;
+    next();
+  } catch (error) {
+    next(error);
+  }
+};
 
 function webOrigin() {
   return process.env.WEB_ORIGIN ?? "http://localhost:5173";

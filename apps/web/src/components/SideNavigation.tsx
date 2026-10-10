@@ -1,5 +1,11 @@
 import { AppShell, Box, Burger, Group, Stack, Text } from "@mantine/core";
 import { NavigationButton } from "./NavigationButton";
+import type { AppView } from "../App";
+import { useAuth } from "../auth";
+
+function GridIcon() { return <svg width="19" height="19" viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="4" y="4" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1.7"/><rect x="14" y="4" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1.7"/><rect x="4" y="14" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1.7"/><rect x="14" y="14" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1.7"/></svg>; }
+function WorkflowIcon() { return <svg width="19" height="19" viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="3.5" y="4" width="6" height="6" rx="1.5" stroke="currentColor" strokeWidth="1.7"/><rect x="14.5" y="14" width="6" height="6" rx="1.5" stroke="currentColor" strokeWidth="1.7"/><path d="M9.5 7h4a2 2 0 0 1 2 2v5M14.5 17h-4a2 2 0 0 1-2-2v-5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"/></svg>; }
+function RunsIcon() { return <svg width="19" height="19" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 5.5h14M5 12h14M5 18.5h14" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"/><circle cx="8" cy="5.5" r="2" fill="currentColor"/><circle cx="16" cy="12" r="2" fill="currentColor"/><circle cx="10" cy="18.5" r="2" fill="currentColor"/></svg>; }
 
 function HomeIcon() {
   return (
@@ -21,6 +27,8 @@ type SideNavigationProps = {
   onMobileNavToggle: () => void;
   onDesktopNavToggle: () => void;
   onNavigate: () => void;
+  activeView: AppView;
+  onViewChange: (view: AppView) => void;
 };
 
 export function SideNavigation({
@@ -29,7 +37,10 @@ export function SideNavigation({
   onMobileNavToggle,
   onDesktopNavToggle,
   onNavigate,
+  activeView,
+  onViewChange,
 }: SideNavigationProps) {
+  const { user, loading } = useAuth();
   return (
     <Stack className="side-navigation" data-compact={compact || undefined} justify="space-between" h="100%" gap="xl">
       <Stack gap="xl">
@@ -60,16 +71,21 @@ export function SideNavigation({
           <Stack gap={5} mt="sm">
             <NavigationButton
               label="Home"
-              active
+              active={activeView === "home"}
               icon={<HomeIcon />}
               compact={compact}
-              onClick={onNavigate}
+              onClick={() => { onViewChange("home"); onNavigate(); }}
             />
+            {!loading && user && <>
+              <NavigationButton label="Agents" active={activeView === "agents"} icon={<GridIcon />} compact={compact} onClick={() => { onViewChange("agents"); onNavigate(); }} />
+              <NavigationButton label="Workflows" active={activeView === "workflows"} icon={<WorkflowIcon />} compact={compact} onClick={() => { onViewChange("workflows"); onNavigate(); }} />
+              <NavigationButton label="Runs" active={activeView === "runs"} icon={<RunsIcon />} compact={compact} onClick={() => { onViewChange("runs"); onNavigate(); }} />
+            </>}
           </Stack>
         </Box>
       </Stack>
 
-      <Text className="sidebar-note">A welcoming space to make your own.</Text>
+      <Text className="sidebar-note">Build agents, connect workflows, and review their runs.</Text>
     </Stack>
   );
 }
