@@ -6,6 +6,11 @@ This repository contains an existing web application with authentication, a data
 
 Treat the existing codebase as the source of truth for implemented behavior. Treat product and architecture documentation as the source of truth for intended behavior and agreed decisions.
 
+## Image generation
+
+- Generate or add image assets only when the user explicitly asks for image generation or image creation.
+- Do not generate images merely because a visual asset could improve a design; use existing assets or code-based graphics unless the user explicitly requests a generated image.
+
 ## Before making changes
 
 - Inspect the relevant implementation, tests, and existing patterns.
