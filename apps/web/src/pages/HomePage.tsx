@@ -6,29 +6,19 @@ export function HomePage({ onNavigate }: { onNavigate: (view: AppView) => void }
   const { user, openLoginModal } = useAuth();
   return (
     <Stack className="home-page" gap="lg">
-      <Group className="page-heading" justify="space-between" align="end">
-        <Stack gap={3}>
-          <Text className="page-eyebrow">Workspace</Text>
-          <Title order={1} className="page-title">Home</Title>
+      <Stack className="welcome-copy" gap="md">
+        <Stack gap="xs">
+          <Title order={2} className="welcome-title">Coordinate AI agents in one workspace.</Title>
+          <Text className="welcome-description">
+            Hive is an AI orchestration workspace for reusable text, image, audio, and video agents. The goal is to connect agents into workflows and review each run’s outputs. Agent management is available now; workflow execution is coming next.
+          </Text>
         </Stack>
-        <Text className="page-date">A fresh place to begin</Text>
-      </Group>
-      <Box component="section" className="welcome-panel">
-        <Stack className="welcome-copy" gap="md">
-          <Badge className="welcome-badge" color="hiveSky" variant="light">Welcome to Hive</Badge>
-          <Stack gap="xs">
-            <Title order={2} className="welcome-title">Coordinate AI agents in one workspace.</Title>
-            <Text className="welcome-description">
-              Hive is an AI orchestration workspace for reusable text, image, audio, and video agents. The goal is to connect agents into workflows and review each run’s outputs. Agent management is available now; workflow execution is coming next.
-            </Text>
-          </Stack>
-          {!user && <Button w="fit-content" onClick={openLoginModal}>Log in to get started</Button>}
-          <Group gap="xs" className="welcome-signature">
-            <Text className="signature-mark" aria-hidden="true">&gt;_</Text>
-            <Text size="sm" fw={550} c="hiveSky.3">A little room to grow</Text>
-          </Group>
-        </Stack>
-      </Box>
+        {!user && <Button w="fit-content" onClick={openLoginModal}>Log in to get started</Button>}
+        <Group gap="xs" className="welcome-signature">
+          <Text className="signature-mark" aria-hidden="true">&gt;_</Text>
+          <Text size="sm" fw={550} c="hiveSky.3">A little room to grow</Text>
+        </Group>
+      </Stack>
       {user ? <Paper className="home-note" withBorder>
         <span className="note-mark" aria-hidden="true" />
         <Stack gap={2}>

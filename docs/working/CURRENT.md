@@ -1,11 +1,36 @@
 # Current work
 
+## 2026-10-10 — Keep only the current workflow definition
+
+- Replaced version-scoped graph storage with workflow-scoped node and edge tables. Workflow saves now replace the current graph transactionally, and the editor no longer shows version status.
+- Added migration `0005_lush_toad_men` to preserve the latest saved graph for each workflow and remove workflow version tables and the counter. Updated agent usage checks and architecture/data-model documentation.
+- API/web typechecks, production build, schema generation check, and migration application passed. Vite still reports the known bundle-size advisory above 500 kB.
+
+## 2026-10-10 — Persist workflow node connections relationally
+
+- Added `workflow_version_nodes` and `workflow_version_edges` alongside the existing immutable JSONB definition. Workflow saves now insert node settings, agent references, and source/target edges in the same transaction as each version.
+- Added ownership and same-version endpoint foreign keys, plus a migration that backfills graph data from existing JSONB versions. Updated the data model and orchestration design and recorded the storage decision.
+- API/web production build and `git diff --check` passed; migration `0004_salty_black_widow` applied successfully to the configured development database. Vite reports the existing >500 kB bundle-size advisory.
+
+## 2026-10-10 — Persist sidebar collapse across workflow editor navigation
+
+- Moved desktop sidebar state to the top-level app and made editor collapse temporary: the state is saved before entering a workflow editor, the editor opens collapsed, and the latest state selected in the editor is restored after leaving.
+- Verified with the API/web production build and `git diff --check`. The build passes with Vite's >500 kB bundle-size advisory.
+
 ## 2026-10-10 — Workflow canvas and open-source notices
 
 - Added `@xyflow/react` and replaced the Workflows placeholder with an interactive canvas preview: users can add, drag, connect, and delete agent nodes. Workflow persistence and agent binding remain unimplemented; the page identifies this clearly. The external starter-kit repository is a full app rather than an installable package, so its source was not copied.
 - Added a public Licenses view linked quietly at the bottom of the side navigation. It includes MIT notices for the Chatbot Flow Builder Starter Kit reference and React Flow dependency, plus upstream source links, providing a pattern for future third-party entries.
 - Added hash navigation for Licenses and kept it accessible while signed out.
 - Verified with `npm --cache .npm-cache run build` and `git diff --check`. The build passes with Vite's existing >500 kB bundle-size advisory.
+
+## 2026-10-10 — Workflow CRUD and node editor
+
+- Replaced the single workflow canvas with a paginated, owner-scoped workflow library and a separate editing route. Users can create named/description workflows, edit details, and remove workflows with confirmation.
+- Added authenticated workflow API endpoints to list, create, load, version-save, and delete workflows using the existing workflow and version tables. Saved graph definitions validate node/edge references, reject cycles, and record restrictive user-owned agent references.
+- The editor collapses the side navigation and stores that preference locally. The full-width canvas includes add-node and confirmed remove-node actions; the right configuration pane selects an existing agent and stores per-node instructions. Agent name, modality, and description appear on each node.
+- No schema migration was required because the workflow tables and ownership constraints already existed. Existing version references intentionally continue to prevent removal of an agent used in a saved workflow version.
+- API/web production build passes; Vite reports its >500 kB bundle-size advisory. `git diff --check` verified. No automated tests were run.
 
 ## 2026-10-10 — Prevent deleting agents used by workflows
 

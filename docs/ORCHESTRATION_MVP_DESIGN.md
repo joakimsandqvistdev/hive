@@ -40,7 +40,7 @@ flowchart LR
 ### Components and responsibilities
 
 - **Web app:** Agent management forms, visual workflow builder, validation feedback, run history and live status. Do not send model weights or inference requests directly from the browser in the default design.
-- **API/control plane:** Existing Express app. Enforce session authentication and ownership on every agent, workflow, run, and artifact request. Validate workflow structure and runner configuration. Create an immutable workflow snapshot and queued run transactionally.
+- **API/control plane:** Existing Express app. Enforce session authentication and ownership on every agent, workflow, run, and artifact request. Validate workflow structure and runner configuration. Capture the workflow's current definition in a run snapshot and enqueue the run transactionally.
 - **Queue and worker:** A queue decouples potentially long GPU/CPU work from HTTP request lifetimes. For an initial single-host POC, use PostgreSQL-backed jobs with row locking/`SKIP LOCKED` and leases, or add a small Redis-backed queue if operational simplicity proves better. Avoid an in-memory queue because restarts would lose queued work. One worker process is sufficient initially.
 - **Orchestrator:** Validates the graph, schedules nodes whose dependencies are satisfied, resolves their input bindings, calls the appropriate runner adapter, stores output artifacts, and records node/run state. Retries only transient failures with a small bounded policy; never retry a node indefinitely.
 - **Model runners:** Containerized, allow-listed inference services with explicit model/runtime adapters. Keep runners off the public network and expose only to the worker on a private Compose network. Runners should not access the database or have credentials to the artifact store. The worker transfers input files through a controlled local interface and validates output paths and sizes.
@@ -82,22 +82,22 @@ Use UUID primary keys, `created_at`/`updated_at` timestamps, foreign keys, and i
 | Table | Important fields | Purpose |
 |---|---|---|
 | `agents` | `id`, `user_id`, `name`, `description`, `task_type`, `runner_type`, `model_id`, `config_json`, `input_schema_json`, `output_schema_json`, `created_at`, `updated_at`, `archived_at` | Reusable, declarative agent configuration. Keep secrets out of JSON. Model IDs must refer to allow-listed locally installed/downloaded models. |
-| `workflows` | `id`, `user_id`, `name`, `description`, `current_version`, `created_at`, `updated_at`, `archived_at` | Stable workflow identity and ownership. |
-| `workflow_versions` | `id`, `workflow_id`, `version`, `definition_json`, `created_at` | Immutable saved DAG versions containing node IDs, agent references/config snapshots, edges, and workflow input schema. Unique `(workflow_id, version)`. JSON avoids premature graph table complexity; consider normalized nodes/edges after query needs emerge. |
-| `workflow_version_agents` | `workflow_version_id`, `agent_id` | Relational references from each immutable workflow version to every agent it uses. The agent foreign key uses `ON DELETE RESTRICT`, so saved workflows cannot silently lose a referenced agent. |
-| `runs` | `id`, `user_id`, `workflow_id`, `workflow_version_id`, `status`, `input_json`, `snapshot_json`, `error_summary`, `started_at`, `finished_at`, `created_at`, `cancel_requested_at` | Execution instance tied to an immutable definition snapshot. Keep large input files as artifact references. |
+| `workflows` | `id`, `user_id`, `name`, `description`, `created_at`, `updated_at`, `archived_at` | Stable workflow identity and ownership; one current definition per workflow. |
+| `workflow_nodes` | `workflow_id`, `node_id`, `user_id`, `agent_id`, `instructions`, `position_x`, `position_y` | Current workflow nodes. Composite owner references prevent cross-user agent use. Saving a workflow replaces its node rows. |
+| `workflow_edges` | `workflow_id`, `edge_id`, `user_id`, `source_node_id`, `target_node_id` | Current directed node connections. Foreign keys ensure both endpoints exist in the same workflow. |
+| `runs` | `id`, `user_id`, `workflow_id`, `status`, `input_json`, `snapshot_json`, `error_summary`, `started_at`, `finished_at`, `created_at`, `cancel_requested_at` | Execution instance tied to a snapshot of the workflow definition and agent settings captured when the run starts. |
 | `run_nodes` | `id`, `run_id`, `node_id`, `agent_id`, `status`, `resolved_input_json`, `output_json`, `attempt_count`, `error_code`, `error_summary`, `started_at`, `finished_at` | Per-agent execution state and typed references to outputs. Unique `(run_id, node_id)`. Avoid storing binary output data inline. |
 | `artifacts` | `id`, `user_id`, `run_id`, `run_node_id`, `storage_key`, `media_type`, `byte_size`, `checksum`, `display_name`, `status`, `created_at`, `expires_at` | Metadata for user uploads and generated files. Use opaque storage keys; validate media type and size. Add nullable run references for user-uploaded inputs. |
 | `run_events` (optional for first cut) | `id`, `run_id`, `sequence`, `event_type`, `payload_json`, `created_at` | Durable progress/event history if node state alone is insufficient for UI updates or recovery. Can be deferred until event details are required. |
 
-Use cascading deletes for user-owned definitions only where semantics are clear. Prefer archiving agents/workflows so historical runs remain readable. Agent deletion must be rejected when any workflow version references it; enforce this in both the API and a restrictive foreign key. Enforce ownership in API queries and, if the product becomes multi-tenant beyond individual user ownership, consider PostgreSQL row-level security as an additional safeguard. Do not rely on unguessable UUIDs as authorization.
+Use cascading deletes for user-owned definitions only where semantics are clear. Prefer archiving agents/workflows so historical runs remain readable. Agent deletion must be rejected when a current workflow references it; enforce this in both the API and a restrictive foreign key. Workflow edits replace the current definition. Run snapshots preserve the definition used by an execution without creating workflow history. Enforce ownership in API queries and, if the product becomes multi-tenant beyond individual user ownership, consider PostgreSQL row-level security as an additional safeguard. Do not rely on unguessable UUIDs as authorization.
 
 ### Suggested API surface
 
 - `GET/POST /api/agents`, `GET/PATCH/DELETE /api/agents/:id`
 - `GET/POST /api/workflows`, `GET/PATCH/DELETE /api/workflows/:id`
 - `POST /api/workflows/:id/validate` returns graph and model capability errors
-- `POST /api/workflows/:id/runs` accepts a version and input/artifact references; returns run ID and queued state
+- `POST /api/workflows/:id/runs` accepts input/artifact references and captures the current workflow definition; returns run ID and queued state
 - `GET /api/runs`, `GET /api/runs/:id`, `POST /api/runs/:id/cancel`
 - `GET /api/runs/:id/events` or status polling for progress
 - `GET /api/artifacts/:id` streams bytes after ownership authorization
@@ -119,7 +119,7 @@ Validate request and persisted JSON with Zod schemas. Set request body and uploa
 ## MVP delivery sequence
 
 1. **Feasibility spike:** Pick one local model/runtime per needed modality, verify license, hardware footprint, container support, latency, and artifact transfer. Demonstrate one text-to-image or text-to-audio node end to end. Do not make video a launch dependency until a locally runnable model is proven on target hardware.
-2. **Definitions:** Add agent CRUD, workflow DAG editor/serialization, schemas, and graph validation. Save immutable workflow versions.
+2. **Definitions:** Add agent CRUD, workflow DAG editor/serialization, schemas, and graph validation. Persist one current workflow definition and replace it on save.
 3. **Execution:** Add durable queue/worker, one runner adapter, run/node records, bounded retries, progress UI, and cancellation request handling.
 4. **Artifacts:** Add upload and generated-output storage in a persistent local volume, authorized download, size limits, and cleanup policy.
 5. **Representative chain:** Connect two or more agents with an image/audio artifact to a downstream supported model; document resource requirements and known model limitations.
@@ -129,7 +129,7 @@ Validate request and persisted JSON with Zod schemas. Set request body and uploa
 - PostgreSQL polling queue versus Redis/other broker based on throughput and worker reliability needs.
 - Local volume versus S3-compatible object storage based on deployment topology, backup, and artifact volume.
 - Whether browser WebGPU is worth a separate runner adapter for small models.
-- Whether workflow nodes/edges should become normalized tables for collaborative editing, querying, or version diffs.
+- Whether workflow editing needs history or collaborative editing after the MVP; the initial model intentionally keeps only the current saved definition.
 - Whether deployments require per-user resource quotas, multiple workers, GPU scheduling, or paid hosted-model fallbacks.
 
 ## Assumptions and open questions

@@ -63,13 +63,12 @@ export function SideNavigation({
               size="sm"
               aria-label={compact ? "Expand navigation" : "Collapse navigation"}
             />
-            <Text className="brand-name" visibleFrom="sm" fw={750}>HAIVI</Text>
+            <Text className="brand-name" visibleFrom="sm" fw={750}>HIVE</Text>
           </Group>
         </AppShell.Section>
 
         <Box component="nav" aria-label="Main navigation">
-          <Text className="nav-caption">Workspace</Text>
-          <Stack gap={5} mt="sm">
+          <Box className="side-nav-home-section">
             <NavigationButton
               label="Home"
               active={activeView === "home"}
@@ -77,12 +76,17 @@ export function SideNavigation({
               compact={compact}
               onClick={() => { onViewChange("home"); onNavigate(); }}
             />
+          </Box>
+          <Box>
+            <Text className="nav-caption">Workspace</Text>
+            <Stack gap={5} mt="sm">
             {!loading && user && <>
               <NavigationButton label="Agents" active={activeView === "agents"} icon={<GridIcon />} compact={compact} onClick={() => { onViewChange("agents"); onNavigate(); }} />
               <NavigationButton label="Workflows" active={activeView === "workflows"} icon={<WorkflowIcon />} compact={compact} onClick={() => { onViewChange("workflows"); onNavigate(); }} />
               <NavigationButton label="Runs" active={activeView === "runs"} icon={<RunsIcon />} compact={compact} onClick={() => { onViewChange("runs"); onNavigate(); }} />
             </>}
-          </Stack>
+            </Stack>
+          </Box>
         </Box>
       </Stack>
 
