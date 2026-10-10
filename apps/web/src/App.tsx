@@ -6,7 +6,7 @@ import { AuthProvider } from "./auth";
 
 export default function App() {
   return (
-    <MantineProvider theme={theme} defaultColorScheme="light">
+    <MantineProvider theme={theme} forceColorScheme="dark">
       <AuthProvider>
         <AppLayout>
           <HomePage />
