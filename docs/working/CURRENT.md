@@ -267,3 +267,12 @@
 
 - Changed the profile photo border to the existing hiveSky theme token. Replaced the static header tagline with the current navigation title, including on mobile.
 - Production build runs through the local launcher; no separate test suite run.
+
+## 2026-10-13 — Show run and agent step timing
+
+- Added live elapsed minutes and seconds for running workflow runs and agent steps, using the existing start timestamps. Terminal runs and steps show their elapsed duration and localized finish date/time; queued work shows that it is waiting to start.
+- No schema or migration change; timing fields were already stored. Production build runs through the local launcher; no separate test suite run.
+
+## 2026-10-13 — Simplify run duration column heading
+
+- Renamed the run history column heading to “Duration”; elapsed and finish details remain in its values.
