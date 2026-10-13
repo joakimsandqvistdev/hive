@@ -5,7 +5,7 @@ import { MantineProvider } from "@mantine/core";
 import { renderToStaticMarkup } from "react-dom/server";
 import { defaultImageModelParameters, ImageModelParametersFields } from "../src/components/ImageModelParametersFields.tsx";
 
-test("256 square is available in agent and node forms for both image models", () => {
+test("128 and 256 square are available in agent and node forms for both image models", () => {
   for (const modelId of ["z-image-turbo", "qwen-image-edit-2511"] as const) {
     for (const showModelSelect of [false, true]) {
       const html = renderToStaticMarkup(<MantineProvider><ImageModelParametersFields
@@ -15,6 +15,8 @@ test("256 square is available in agent and node forms for both image models", ()
       /></MantineProvider>);
       assert.match(html, /256 × 256/);
       assert.match(html, /value="256x256"/);
+      assert.match(html, /128 × 128 · low memory/);
+      assert.match(html, /value="128x128"/);
     }
   }
 });

@@ -34,7 +34,7 @@ If this fails to reserve a GPU, verify host GPU visibility and Docker GPU suppor
 
 The generate route is an internal worker interface rather than a public API; model selection is allow-listed, and image references are validated and size-limited.
 
-Both pipelines receive the selected output width and height: 256×256 (minimum), 512×512 (default), 768×768, 1024×1024, 512×768, or 768×512. Qwen's reference-image preprocessing remains controlled by the upstream pipeline; a smaller output selection does not guarantee inference will fit the available GPU memory.
+Both pipelines receive the selected output width and height: 128×128 (minimum, experimental low-memory option), 256×256, 512×512 (default), 768×768, 1024×1024, 512×768, or 768×512. The Qwen model publisher's demo offers sizes from 256×256, so Hive's 128×128 Qwen option is unverified. Qwen reference-image preprocessing remains controlled by the upstream pipeline; a smaller output selection can reduce generation activation memory but does not reduce model-weight loading requirements or guarantee inference will fit available memory.
 
 The worker uses a dedicated Undici client with one-hour header/body timeouts and an overall one-hour request deadline, retaining worker-lease cancellation. Node's default fetch header timeout can otherwise end slow CPU-offloaded inference after about five minutes even when the abort signal allows an hour. These settings apply only to the image runner. The runner detects client disconnection and terminates the generation child, including when the worker times out or loses its lease. The runner also enforces its own one-hour deadline. Run the client regression tests with `npm run test:runner -w @hive/api`.
 
