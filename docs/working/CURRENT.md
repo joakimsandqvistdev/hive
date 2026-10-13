@@ -1,5 +1,13 @@
 # Current work
 
+## 2026-10-13 — Single-command local start and stop
+
+- Added `npm run local` / `npm run local:stop`, a Node.js launcher, local Compose overlay, shared app Dockerfile, and build-context exclusions. Startup creates missing `.env` with random database credentials, builds/installs in Docker, applies migrations to Compose PostgreSQL, and starts API/web/worker/runner with readiness checks. NVIDIA detection has explicit CPU/GPU overrides. Stop removes only the current Compose project's containers/networks and preserves persistent volumes/artifacts.
+- Updated README setup and recorded decision 0010. Added eight launcher regression tests and a CI step. Host prerequisites are Node.js 22+, Docker with Compose 2.24.4+, and one-time Google OAuth configuration for sign-in. Manually launched dev processes remain controlled by their terminals.
+- Eight launcher tests, CPU/GPU Compose config validation, Node syntax check, `git diff --check`, and a clean Linux Docker app build passed. Isolated Compose startup with random localhost ports, empty PostgreSQL, and a dummy runner succeeded: 11 migrations recorded, API database health OK, web HTTP 200, `.env` excluded from image. Actual `local:stop` removed all verification containers while preserving test volumes. Existing app/database/model cache were not touched; no model inference or GPU startup was performed.
+- Docker build/test-runner checks initially needed approved sandbox access; one verification attempt was interrupted by an automatic-review usage-limit failure and completed after resuming. Build emitted existing bundle-size/dependency-audit advisories and npm lockfile warnings but completed successfully.
+
+
 ## 2026-10-13 — Apply the selected Soft workspace UI
 
 - Replaced the enforced dark appearance with the user's selected light Soft workspace design: pale gray workspace/sidebar, white rounded panels, blue actions and navigation selection, quieter shadows, and more spacious table rows. Updated shared theme/styles and explicit light-surface text shades across Home, Agents, Runs, and workflow editing.

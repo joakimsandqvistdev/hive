@@ -4,6 +4,9 @@
   "version": "0.1.0",
   "workspaces": ["apps/api", "apps/web"],
   "scripts": {
+    "local": "node scripts/local.mjs start",
+    "local:stop": "node scripts/local.mjs stop",
+    "test:local": "node --test scripts/local.test.mjs",
     "dev": "concurrently -k -n api,web -c cyan,magenta \"npm:dev -w @hive/api\" \"npm:dev -w @hive/web\"",
     "dev:db": "docker compose up -d db",
     "db:push": "npm run db:push -w @hive/api",
