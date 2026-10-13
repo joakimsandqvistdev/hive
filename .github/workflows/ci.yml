@@ -26,6 +26,9 @@ jobs:
       - name: Install dependencies
         run: npm ci --include=optional
 
+      - name: Check local launcher
+        run: npm run test:local
+
       - name: Check TypeScript
         run: npm run typecheck
 
