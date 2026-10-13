@@ -49,6 +49,8 @@ flowchart LR
 
 The worker is started separately with `npm run worker:dev -w @hive/api`; configure `IMAGE_RUNNER_URL` when the runner is not at its local default. Qwen-Image-Edit-2511's full Diffusers files are about 57.7 GB and require substantially more system memory than the existing 8 GiB GPU proof of concept has demonstrated; verify target hardware before relying on it. Do not assume Docker Compose on an arbitrary laptop can expose a GPU: GPU passthrough and driver/runtime support depend on OS and hardware.
 
+Model weights are not bundled in Hive. Signed-in users download supported models explicitly from the Models view; the runner stores them in its persistent Docker cache. The runner loads inference pipelines with local-files-only behavior so workflow runs never start implicit downloads. The authenticated model-management API proxies status and download requests to the private runner network.
+
 ### Workflow execution model
 
 Represent a workflow as a directed acyclic graph (DAG). Each node references an agent definition and has a stable node ID. Current image edges mean that the source node's PNG is a reference image for the target Qwen-Image-Edit-2511 node; a Qwen node needs one to ten incoming image nodes. Validate that:

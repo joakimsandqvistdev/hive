@@ -15,6 +15,14 @@ export function imageRunnerTransportFailure(error: unknown): string {
 }
 
 export async function imageRunnerRejection(response: { status: number; json: () => Promise<unknown> }): Promise<string> {
+  if (response.status === 409) {
+    try {
+      const body = await response.json() as { detail?: { code?: unknown } };
+      if (body.detail?.code === "model_not_downloaded") return "This model has not been downloaded. Open Models and download it before starting the workflow.";
+    } catch {
+      // Keep internal runner response details out of run summaries.
+    }
+  }
   if (response.status === 504) {
     return "Image runner stopped generation after its inference deadline and released the generation process. Try fewer steps or a smaller resolution.";
   }
@@ -32,7 +40,7 @@ export async function imageRunnerRejection(response: { status: number; json: () 
     }
   }
   if (response.status === 503) {
-    return "Image runner is loading or unavailable. Qwen-Image-Edit-2511 may need to download its 57.7 GB model files on first use.";
+    return "Image runner is loading or unavailable. Check that the local runner is healthy.";
   }
   if (response.status === 422) {
     try {

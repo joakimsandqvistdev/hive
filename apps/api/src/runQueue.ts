@@ -16,8 +16,20 @@ export async function claimNextRun(workerId: string, leaseSeconds = 120): Promis
     throw new Error("leaseSeconds must be an integer from 10 to 3600.");
   }
 
-  await pool.query(`UPDATE runs SET status = 'failed', error_summary = 'Run exceeded the retry limit after worker interruption.', finished_at = now(), claimed_by = NULL, lease_expires_at = NULL
-    WHERE status = 'running' AND lease_expires_at < now() AND attempt_count >= 3`);
+  await pool.query(`WITH exhausted_runs AS (
+      UPDATE runs SET status = 'failed', error_summary = 'Run exceeded the retry limit after worker interruption.', finished_at = now(), claimed_by = NULL, lease_expires_at = NULL
+      WHERE status = 'running' AND lease_expires_at < now() AND attempt_count >= 3
+      RETURNING id
+    )
+    UPDATE run_nodes AS node
+    SET status = CASE WHEN node.status = 'running' THEN 'failed'::run_node_status ELSE 'skipped'::run_node_status END,
+        error_code = CASE WHEN node.status = 'running' THEN 'worker_interrupted' ELSE 'run_failed' END,
+        error_summary = CASE WHEN node.status = 'running'
+          THEN 'Worker was interrupted too many times; the step did not complete.'
+          ELSE 'Not run because worker retries were exhausted.' END,
+        finished_at = now()
+    FROM exhausted_runs AS run
+    WHERE node.run_id = run.id AND node.status IN ('running', 'queued')`);
   const result = await pool.query<ClaimedRun>(`
     WITH candidate AS (
       SELECT id

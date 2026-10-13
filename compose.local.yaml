@@ -26,6 +26,7 @@ services:
     environment:
       DATABASE_URL: ${HIVE_LOCAL_DATABASE_URL:?Use npm run local to configure the local database URL}
       API_PORT: "3001"
+      IMAGE_RUNNER_URL: http://runner:8000
       ARTIFACT_ROOT: /app/.data/artifacts
       WEB_ORIGIN: ${WEB_ORIGIN:-http://localhost:5173}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
@@ -35,6 +36,9 @@ services:
       - "127.0.0.1:3001:3001"
     volumes:
       - ./.data/artifacts:/app/.data/artifacts
+    networks:
+      - default
+      - model_runner_net
     depends_on:
       migrate:
         condition: service_completed_successfully

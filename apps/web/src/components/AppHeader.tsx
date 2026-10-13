@@ -7,6 +7,7 @@ const viewTitles: Record<AppView, string> = {
   agents: "Agents",
   workflows: "Workflows",
   runs: "Runs",
+  models: "Models",
   licenses: "Open-source licenses",
 };
 

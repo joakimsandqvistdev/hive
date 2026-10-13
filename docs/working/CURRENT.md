@@ -1,5 +1,18 @@
 # Current work
 
+## 2026-10-13 — Explicit local model downloads
+
+- Added an authenticated Models view listing Z-Image-Turbo and Qwen-Image-Edit-2511 with summaries, estimated disk use, hardware recommendations, model-card links, and download status/actions.
+- Added authenticated API proxy routes and runner status/background-download endpoints. The runner serializes downloads, stores weights in the existing persistent Docker cache, marks completed downloads, and loads inference pipelines in local-files-only mode; generation returns a specific error until a model is downloaded.
+- Added navigation and updated model/license copy, runner documentation, orchestration design, and decision 0013. No model files are included in the application image.
+- API and web production builds completed in Docker; `git diff --check` and runner Python syntax compilation passed. After the local model runner was refreshed, its `/models` endpoint returned HTTP 200 through the API network. The active runner uses the new `hive_model_cache` volume; both models correctly report not downloaded. The old `hive_zimage_model_cache` volume was left untouched.
+
+## 2026-10-13 — Finalize interrupted agent-step status
+
+- Fixed retry exhaustion so a terminal failed run also marks its in-flight agent step failed and queued steps skipped. The Runs details modal continues polling if a step remains active even when the run is terminal.
+- Corrected the existing interrupted run’s stale agent-step row to `failed`, with its finish time matching the run’s finish time. Rebuilt/restarted API and worker; Docker production build, database state check, and `git diff --check` passed. No automated tests run.
+- Simplified Models page download guidance by removing the reference to automatic workflow downloads.
+
 ## 2026-10-13 — Stop runs and release inference memory
 
 - Added a Stop action for active/queued runs in the Runs list and details. Owner-scoped cancellation marks queued runs immediately and signals claimed runs for cooperative cancellation.

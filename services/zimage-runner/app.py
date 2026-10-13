@@ -4,6 +4,8 @@ import gc
 import io
 import logging
 import os
+from pathlib import Path
+import threading
 import traceback
 from contextlib import asynccontextmanager
 from typing import Literal
@@ -13,6 +15,7 @@ from diffusers import QwenImageEditPlusPipeline, ZImagePipeline
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import StreamingResponse
 from PIL import Image
+from huggingface_hub import snapshot_download
 from generation_process import GenerationProcessError, run_generation_process
 
 
@@ -29,6 +32,8 @@ GPU_MEMORY_GIB = (
     else 0
 )
 GENERATION_LOCK = asyncio.Semaphore(1)
+DOWNLOAD_LOCK = threading.Lock()
+DOWNLOAD_STATUS: dict[str, dict[str, str]] = {}
 LOGGER = logging.getLogger("uvicorn.error")
 try:
     MALLOC_TRIM = getattr(ctypes.CDLL(None), "malloc_trim", None)
@@ -71,7 +76,7 @@ def load_pipeline(model_key: str):
 
     repository = MODEL_REPOSITORIES[model_key]
     pipeline_class = QwenImageEditPlusPipeline if model_key == "qwen-image-edit-2511" else ZImagePipeline
-    pipeline = pipeline_class.from_pretrained(repository, torch_dtype=dtype)
+    pipeline = pipeline_class.from_pretrained(repository, torch_dtype=dtype, local_files_only=True)
     if DEVICE == "cuda" and GPU_MEMORY_GIB < 16:
         # Lower-VRAM GPUs may work through sequential offload, at a substantial speed cost.
         pipeline.enable_sequential_cpu_offload()
@@ -91,6 +96,66 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(title="Hive Z-Image Runner", version="0.1.0", lifespan=lifespan)
+
+
+def model_is_downloaded(model_id: str) -> bool:
+    marker = Path(os.getenv("HF_HOME", "~/.cache/huggingface")).expanduser() / f".hive-{model_id}-download-complete"
+    if not marker.is_file():
+        return False
+    try:
+        snapshot_download(MODEL_REPOSITORIES[model_id], local_files_only=True)
+        return True
+    except Exception:
+        return False
+
+
+def model_download_worker(model_id: str) -> None:
+    try:
+        with DOWNLOAD_LOCK:
+            DOWNLOAD_STATUS[model_id] = {"status": "downloading"}
+        snapshot_download(MODEL_REPOSITORIES[model_id])
+        marker = Path(os.getenv("HF_HOME", "~/.cache/huggingface")).expanduser() / f".hive-{model_id}-download-complete"
+        marker.parent.mkdir(parents=True, exist_ok=True)
+        marker.touch()
+        with DOWNLOAD_LOCK:
+            DOWNLOAD_STATUS[model_id] = {"status": "downloaded"}
+    except Exception:
+        marker = Path(os.getenv("HF_HOME", "~/.cache/huggingface")).expanduser() / f".hive-{model_id}-download-complete"
+        marker.unlink(missing_ok=True)
+        with DOWNLOAD_LOCK:
+            DOWNLOAD_STATUS[model_id] = {"status": "failed", "error": "Model download failed. Check runner logs and try again."}
+
+
+@app.get("/models")
+async def models() -> dict[str, list[dict[str, str]]]:
+    result = []
+    for model_id in MODEL_REPOSITORIES:
+        with DOWNLOAD_LOCK:
+            state = DOWNLOAD_STATUS.get(model_id, {}).copy()
+        status = state.get("status")
+        if status not in {"queued", "downloading", "failed"}:
+            status = "downloaded" if await asyncio.to_thread(model_is_downloaded, model_id) else "not_downloaded"
+        item = {"id": model_id, "status": status}
+        if status == "failed":
+            item["error"] = state.get("error", "Model download failed. Check runner logs and try again.")
+        result.append(item)
+    return {"models": result}
+
+
+@app.post("/models/{model_id}/download", status_code=202)
+async def download_model(model_id: str) -> dict[str, str]:
+    if model_id not in MODEL_REPOSITORIES:
+        raise HTTPException(status_code=404, detail="Unknown model")
+    if await asyncio.to_thread(model_is_downloaded, model_id):
+        with DOWNLOAD_LOCK:
+            DOWNLOAD_STATUS[model_id] = {"status": "downloaded"}
+        return {"id": model_id, "status": "downloaded"}
+    with DOWNLOAD_LOCK:
+        if any(value.get("status") in {"queued", "downloading"} for value in DOWNLOAD_STATUS.values()):
+            raise HTTPException(status_code=409, detail={"code": "download_in_progress"})
+        DOWNLOAD_STATUS[model_id] = {"status": "queued"}
+    asyncio.create_task(asyncio.to_thread(model_download_worker, model_id))
+    return {"id": model_id, "status": "queued"}
 
 
 @app.get("/health")
@@ -128,6 +193,8 @@ async def generate(
         raise HTTPException(status_code=422, detail="Z-Image-Turbo does not accept reference images")
     if model_id == "z-image-turbo" and num_inference_steps > 12:
         raise HTTPException(status_code=422, detail="Z-Image-Turbo supports at most 12 inference steps")
+    if not await asyncio.to_thread(model_is_downloaded, model_id):
+        raise HTTPException(status_code=409, detail={"code": "model_not_downloaded"})
 
     # Reject invalid references before potentially downloading or swapping in the large Qwen model.
     async with GENERATION_LOCK:
