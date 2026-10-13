@@ -281,3 +281,9 @@
 
 - Added Z-Image-Turbo model weights to the in-app licenses page as Apache License 2.0, with links to the Hugging Face model and license sources.
 - Verified the model card identifies its license as Apache 2.0. Production build runs through the local launcher; no separate test suite run.
+
+## 2026-10-13 — Split workflow UI and domain logic
+
+- Split the workflow library and editor into route-level components with local state, preserving hash navigation and existing interactions. Shared UI workflow types now live in a dedicated module.
+- Moved workflow request schemas and agent/model/connection validation into `workflowDefinition.ts`. Moved immutable run and run-node snapshot mapping into `workflowRunSnapshot.ts`; HTTP routes retain request handling and transactional persistence.
+- Production TypeScript/Vite build and `git diff --check` passed. No separate test suite run. One run was active, so the running containers were not restarted; the updated app image was built without interrupting it.
