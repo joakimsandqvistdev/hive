@@ -276,3 +276,8 @@
 ## 2026-10-13 — Simplify run duration column heading
 
 - Renamed the run history column heading to “Duration”; elapsed and finish details remain in its values.
+
+## 2026-10-13 — List Z-Image-Turbo model license
+
+- Added Z-Image-Turbo model weights to the in-app licenses page as Apache License 2.0, with links to the Hugging Face model and license sources.
+- Verified the model card identifies its license as Apache 2.0. Production build runs through the local launcher; no separate test suite run.
