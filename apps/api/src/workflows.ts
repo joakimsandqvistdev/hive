@@ -1,65 +1,11 @@
 import { and, count, eq, inArray, sql, asc } from "drizzle-orm";
 import { Router } from "express";
-import { z } from "zod";
 import { db } from "./db.js";
 import { agents, runNodes, runs, workflowEdges, workflowNodes, workflows } from "./schema.js";
-import { imageModelParametersSchema } from "./modelParameters.js";
+import { createWorkflowSchema, saveWorkflowSchema, startRunSchema, validateWorkflowDefinition } from "./workflowDefinition.js";
+import { buildWorkflowRunSnapshot } from "./workflowRunSnapshot.js";
 
 const router = Router();
-const nodeSchema = z.object({
-  id: z.string().min(1).max(100),
-  agentId: z.string().uuid(),
-  prompt: z.string().max(2000).optional(),
-  parameters: z.record(z.string(), z.unknown()).optional(),
-  position: z.object({ x: z.number().finite().min(-1_000_000).max(1_000_000), y: z.number().finite().min(-1_000_000).max(1_000_000) }),
-});
-const edgeSchema = z.object({
-  id: z.string().min(1).max(120),
-  source: z.string().min(1).max(100),
-  target: z.string().min(1).max(100),
-});
-const definitionSchema = z.object({ nodes: z.array(nodeSchema).max(100), edges: z.array(edgeSchema).max(300) })
-  .superRefine((definition, context) => {
-    const nodeIds = new Set<string>();
-    definition.nodes.forEach((node, index) => {
-      if (nodeIds.has(node.id)) context.addIssue({ code: "custom", path: ["nodes", index, "id"], message: "Node IDs must be unique." });
-      nodeIds.add(node.id);
-    });
-    definition.edges.forEach((edge, index) => {
-      if (!nodeIds.has(edge.source) || !nodeIds.has(edge.target)) {
-        context.addIssue({ code: "custom", path: ["edges", index], message: "Edges must connect existing nodes." });
-      }
-      if (edge.source === edge.target) context.addIssue({ code: "custom", path: ["edges", index], message: "A node cannot connect to itself." });
-    });
-    const edgeIds = new Set<string>();
-    definition.edges.forEach((edge, index) => {
-      if (edgeIds.has(edge.id)) context.addIssue({ code: "custom", path: ["edges", index, "id"], message: "Edge IDs must be unique." });
-      edgeIds.add(edge.id);
-    });
-    const indegree = new Map([...nodeIds].map((id) => [id, 0]));
-    const outgoing = new Map([...nodeIds].map((id) => [id, [] as string[]]));
-    for (const edge of definition.edges) {
-      if (!nodeIds.has(edge.source) || !nodeIds.has(edge.target)) continue;
-      outgoing.get(edge.source)?.push(edge.target);
-      indegree.set(edge.target, (indegree.get(edge.target) ?? 0) + 1);
-    }
-    const ready = [...indegree].filter(([, degree]) => degree === 0).map(([id]) => id);
-    let visited = 0;
-    while (ready.length) {
-      const id = ready.pop()!;
-      visited += 1;
-      for (const target of outgoing.get(id) ?? []) {
-        const nextDegree = (indegree.get(target) ?? 1) - 1;
-        indegree.set(target, nextDegree);
-        if (nextDegree === 0) ready.push(target);
-      }
-    }
-    if (visited !== nodeIds.size) context.addIssue({ code: "custom", path: ["edges"], message: "Workflow connections cannot contain cycles." });
-  });
-const metadataSchema = z.object({ name: z.string().trim().min(1).max(100), description: z.string().trim().max(1000).default("") });
-const createSchema = metadataSchema;
-const saveSchema = metadataSchema.extend({ definition: definitionSchema });
-const startRunSchema = z.object({});
 function userId(res: import("express").Response) { return res.locals.userId as string; }
 function isUniqueViolation(error: unknown) { return typeof error === "object" && error !== null && "code" in error && error.code === "23505"; }
 function parsePagination(req: import("express").Request) {
@@ -88,7 +34,7 @@ router.get("/", async (req, res, next) => {
 
 router.post("/", async (req, res, next) => {
   if (req.get("origin") !== (process.env.WEB_ORIGIN ?? "http://localhost:5173")) { res.status(403).json({ error: "invalid_origin" }); return; }
-  const parsed = createSchema.safeParse(req.body);
+  const parsed = createWorkflowSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: "invalid_workflow", details: parsed.error.flatten() }); return; }
   try {
     const workflow = await db.transaction(async (tx) => {
@@ -145,36 +91,19 @@ router.post("/:id/runs", async (req, res, next) => {
 
       const edges = await tx.select({ id: workflowEdges.edgeId, source: workflowEdges.sourceNodeId, target: workflowEdges.targetNodeId })
         .from(workflowEdges).where(eq(workflowEdges.workflowId, workflow.id)).orderBy(asc(workflowEdges.edgeId));
-      const workflowSnapshot = {
-        id: workflow.id,
-        name: workflow.name,
-        description: workflow.description,
-        nodes: rows.map((node) => ({
-          id: node.nodeId,
-          agentId: node.agentId,
-          agent: { id: node.agentId, name: node.agentName, modality: node.modality, prompt: node.agentPrompt, parameters: node.agentParameters },
-          prompt: node.prompt,
-          parameters: node.modality === "image" && Object.keys(node.parameters).length === 0 ? node.agentParameters : node.parameters,
-          position: { x: node.positionX, y: node.positionY },
-        })),
-        edges,
-      };
+      const snapshot = buildWorkflowRunSnapshot(workflow, rows, edges);
       const [run] = await tx.insert(runs).values({
         userId: ownerId,
         workflowId: workflow.id,
         status: "queued",
         inputJson: {},
-        workflowSnapshotJson: workflowSnapshot,
+        workflowSnapshotJson: snapshot.workflowSnapshot,
       }).returning();
-      await tx.insert(runNodes).values(rows.map((node) => ({
+      await tx.insert(runNodes).values(snapshot.runNodes.map((node) => ({
+        ...node,
         runId: run.id,
         userId: ownerId,
-        nodeId: node.nodeId,
-        agentId: node.agentId,
         status: "queued" as const,
-        agentSnapshotJson: { id: node.agentId, name: node.agentName, modality: node.modality, prompt: node.agentPrompt, parameters: node.agentParameters },
-        prompt: node.prompt,
-        parameters: node.modality === "image" && Object.keys(node.parameters).length === 0 ? node.agentParameters : node.parameters,
       })));
       return run;
     });
@@ -186,7 +115,7 @@ router.post("/:id/runs", async (req, res, next) => {
 
 router.put("/:id", async (req, res, next) => {
   if (req.get("origin") !== (process.env.WEB_ORIGIN ?? "http://localhost:5173")) { res.status(403).json({ error: "invalid_origin" }); return; }
-  const parsed = saveSchema.safeParse(req.body);
+  const parsed = saveWorkflowSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: "invalid_workflow", details: parsed.error.flatten() }); return; }
   const ownerId = userId(res);
   const referencedAgentIds = [...new Set(parsed.data.definition.nodes.map((node) => node.agentId))];
@@ -199,52 +128,20 @@ router.put("/:id", async (req, res, next) => {
         ? await tx.select({ id: agents.id, prompt: agents.prompt, modality: agents.modality, parameters: agents.parameters }).from(agents)
           .where(and(eq(agents.userId, ownerId), inArray(agents.id, referencedAgentIds)))
         : [];
-      if (agentRows.length !== referencedAgentIds.length) return "invalid_agents" as const;
-      const agentById = new Map(agentRows.map((agent) => [agent.id, agent]));
-      const nodeParameters = new Map<string, Record<string, unknown>>();
-      const nodeModelById = new Map<string, string>();
-      const nodeModalityById = new Map<string, string>();
-      for (const node of parsed.data.definition.nodes) {
-        const agent = agentById.get(node.agentId)!;
-        nodeModalityById.set(node.id, agent.modality);
-        if (agent.modality === "image") {
-          const suppliedParameters = { ...agent.parameters, ...node.parameters };
-          const parameters = imageModelParametersSchema.safeParse(suppliedParameters);
-          if (!parameters.success) return "invalid_parameters" as const;
-          nodeParameters.set(node.id, parameters.data);
-          nodeModelById.set(node.id, parameters.data.modelId);
-        } else {
-          nodeParameters.set(node.id, {});
-          nodeModelById.set(node.id, "");
-        }
-      }
-      const incomingReferences = new Map<string, Set<string>>();
-      for (const edge of parsed.data.definition.edges) {
-        if (nodeModalityById.get(edge.source) !== "image" || nodeModelById.get(edge.target) !== "qwen-image-edit-2511") {
-          return "unsupported_image_connections" as const;
-        }
-        const sourceIds = incomingReferences.get(edge.target) ?? new Set<string>();
-        sourceIds.add(edge.source);
-        incomingReferences.set(edge.target, sourceIds);
-      }
-      for (const node of parsed.data.definition.nodes) {
-        if (nodeModelById.get(node.id) === "qwen-image-edit-2511") {
-          const referenceCount = incomingReferences.get(node.id)?.size ?? 0;
-          if (referenceCount < 1 || referenceCount > 10) return "invalid_reference_count" as const;
-        }
-      }
+      const validation = validateWorkflowDefinition(parsed.data.definition, agentRows);
+      if (!validation.ok) return validation.error;
       const [updated] = await tx.update(workflows).set({ name: parsed.data.name, description: parsed.data.description, updatedAt: new Date() })
         .where(and(eq(workflows.id, existing.id), eq(workflows.userId, ownerId))).returning();
       await tx.delete(workflowEdges).where(eq(workflowEdges.workflowId, existing.id));
       await tx.delete(workflowNodes).where(eq(workflowNodes.workflowId, existing.id));
-      if (parsed.data.definition.nodes.length) {
-        await tx.insert(workflowNodes).values(parsed.data.definition.nodes.map((node) => ({
+      if (validation.nodes.length) {
+        await tx.insert(workflowNodes).values(validation.nodes.map((node) => ({
           workflowId: existing.id,
           nodeId: node.id,
           userId: ownerId,
           agentId: node.agentId,
-          prompt: node.prompt ?? agentById.get(node.agentId)?.prompt ?? "",
-          parameters: nodeParameters.get(node.id) ?? {},
+          prompt: node.prompt,
+          parameters: node.parameters,
           positionX: node.position.x,
           positionY: node.position.y,
         })));
