@@ -1,6 +1,7 @@
 accelerate>=1.12,<2
 diffusers>=0.37.1,<0.38
 fastapi>=0.120,<1
+huggingface_hub>=0.34,<2
 pillow>=11,<13
 python-multipart>=0.0.20,<1
 transformers>=4.57.1,<5

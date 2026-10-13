@@ -42,7 +42,7 @@ export function ImageModelParametersFields({ value, onChange, showModelSelect = 
       if (modelId === "z-image-turbo" || modelId === "qwen-image-edit-2511") onChange({ ...value, modelId, steps: modelId === "qwen-image-edit-2511" ? 40 : 9 });
     }} allowDeselect={false} />}
     {value.modelId === "qwen-image-edit-2511" && <Stack gap={4}>
-      <Text size="xs" c="dimmed">Qwen-Image-Edit-2511 · Apache 2.0 · model download is about 57.7 GB.</Text>
+      <Text size="xs" c="dimmed">Qwen-Image-Edit-2511 · Apache 2.0 · about 57.7 GB. Download it first from Models.</Text>
       <Text size="xs" c="dimmed">Connect 1–10 image nodes as references. Their order follows the canvas, top to bottom and then left to right.</Text>
     </Stack>}
     <Select label="Resolution" data={imageResolutionOptions} value={value.resolution} onChange={(resolution) => {

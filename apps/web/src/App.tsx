@@ -8,6 +8,7 @@ import { WorkflowsPage } from "./pages/WorkflowsPage";
 import { RunsPage } from "./pages/RunsPage";
 import { SignInRequiredPage } from "./pages/SignInRequiredPage";
 import { LicensesPage } from "./pages/LicensesPage";
+import { ModelsPage } from "./pages/ModelsPage";
 import { useAppNavigation } from "./navigation/useAppNavigation";
 import type { AppView } from "./navigation/navigationState";
 
@@ -31,7 +32,7 @@ function AppContent({ view, onNavigate, sidebarCollapsed, workflowEditorActive, 
   onToggleNavigation: () => void;
 }) {
   const { user, loading } = useAuth();
-  const isProtectedView = view === "agents" || view === "workflows" || view === "runs";
+  const isProtectedView = view === "agents" || view === "workflows" || view === "runs" || view === "models";
   return (
     <AppLayout view={view} onNavigate={onNavigate} workflowEditorActive={workflowEditorActive} sidebarCollapsed={sidebarCollapsed} onToggleNavigation={onToggleNavigation}>
       {isProtectedView && loading ? <SignInRequiredPage loading />
@@ -39,6 +40,7 @@ function AppContent({ view, onNavigate, sidebarCollapsed, workflowEditorActive, 
           : view === "agents" ? <AgentsPage />
             : view === "workflows" ? <WorkflowsPage onNavigate={onNavigate} />
               : view === "runs" ? <RunsPage onNavigate={onNavigate} />
+                : view === "models" ? <ModelsPage />
                 : view === "licenses" ? <LicensesPage />
                   : <HomePage onNavigate={onNavigate} />}
     </AppLayout>

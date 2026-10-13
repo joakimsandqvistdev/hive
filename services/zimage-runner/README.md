@@ -16,7 +16,7 @@ From the repository root:
 docker compose --profile zimage up --build runner
 ```
 
-The runner falls back to CPU when CUDA is unavailable. It starts ready without loading model weights; the first generation request loads its selected model. The first Qwen-Image-Edit-2511 workflow run downloads about 57.7 GB of weights to the persistent cache; allow substantial disk space, system RAM, and time. Hardware suitability has not been confirmed on the existing 8 GiB development GPU. Wait for `/health` to report `"status":"ready"` before starting a run. Readiness verifies the service, not model loading or inference suitability.
+The runner falls back to CPU when CUDA is unavailable. It starts ready without loading model weights. Download supported models explicitly from the authenticated Models view before running workflows; inference uses local model files only. Wait for `/health` to report `"status":"ready"` before starting a run. Readiness verifies the service, not model loading or inference suitability.
 
 ## Start with an NVIDIA GPU
 
@@ -30,6 +30,7 @@ If this fails to reserve a GPU, verify host GPU visibility and Docker GPU suppor
 
 - `GET http://localhost:8188/health` reports readiness, last selected model, device, `pipeline_loaded`, and `generation_active`. A busy runner is processing a request in its child process; `pipeline_loaded` describes the HTTP process and stays false. An idle runner remains ready when its pipeline has been released; the next request loads it.
 - The Hive worker calls `POST http://localhost:8188/generate` as multipart form data. It selects `z-image-turbo` or `qwen-image-edit-2511`; Qwen edit requests include one to ten PNG reference files from connected workflow image nodes. The response is PNG.
+- `GET http://localhost:8188/models` reports installed/download status. `POST /models/{id}/download` begins a background download into the persistent cache. Model weights are not bundled in the application or runner image; generation fails until its model is downloaded.
 
 The generate route is an internal worker interface rather than a public API; model selection is allow-listed, and image references are validated and size-limited.
 

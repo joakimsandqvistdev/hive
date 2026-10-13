@@ -102,7 +102,7 @@ export function RunsPage({ onNavigate }: { onNavigate: (view: AppView) => void }
       const body = await response.json() as Detail;
       if (!response.ok) throw new Error("Could not load run details.");
       setDetail(body);
-      return active(body.run.status);
+      return active(body.run.status) || body.nodes.some((node) => node.status === "queued" || node.status === "running");
     } catch (cause) { setDetailError(cause instanceof Error ? cause.message : "Could not load run details."); return false; }
   }, []);
 

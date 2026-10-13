@@ -42,7 +42,7 @@ export function LicensesPage() {
         <Stack gap="sm">
           <div><Badge variant="light" color="hiveSky">Apache 2.0</Badge></div>
           <Title order={2} size="h4">Z-Image-Turbo model weights</Title>
-          <Text size="sm" c="dimmed">By Tongyi-MAI. The local runner downloads the model from Hugging Face on first use; Hive does not bundle the weights.</Text>
+          <Text size="sm" c="dimmed">By Tongyi-MAI. Hive does not bundle the weights; download the model from the Models view to the local Docker runner.</Text>
           <Text size="sm">Model source: <Anchor href="https://huggingface.co/Tongyi-MAI/Z-Image-Turbo" target="_blank" rel="noreferrer">Tongyi-MAI/Z-Image-Turbo</Anchor></Text>
           <Text size="sm">License: <Anchor href="https://www.apache.org/licenses/LICENSE-2.0" target="_blank" rel="noreferrer">Apache License, Version 2.0</Anchor></Text>
         </Stack>
@@ -51,7 +51,7 @@ export function LicensesPage() {
         <Stack gap="sm">
           <div><Badge variant="light" color="hiveSky">Apache 2.0</Badge></div>
           <Title order={2} size="h4">Qwen-Image-Edit-2511 model weights</Title>
-          <Text size="sm" c="dimmed">By the Qwen Team. The local runner downloads the model from Hugging Face on first use; Hive does not bundle the weights.</Text>
+          <Text size="sm" c="dimmed">By the Qwen Team. Hive does not bundle the weights; download the model from the Models view to the local Docker runner.</Text>
           <Text size="sm">Model source: <Anchor href="https://huggingface.co/Qwen/Qwen-Image-Edit-2511" target="_blank" rel="noreferrer">Qwen/Qwen-Image-Edit-2511</Anchor></Text>
           <Text size="sm">License: <Anchor href="https://www.apache.org/licenses/LICENSE-2.0" target="_blank" rel="noreferrer">Apache License, Version 2.0</Anchor></Text>
         </Stack>
