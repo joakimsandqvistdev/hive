@@ -19,7 +19,7 @@ services:
   runner:
     profiles: [zimage]
     build:
-      context: ./services/zimage-runner
+      context: ./services/runner
     restart: unless-stopped
     environment:
       STARTUP_MODEL_KEY: z-image-turbo

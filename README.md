@@ -33,7 +33,7 @@ Stopping preserves the database volume, downloaded model cache, and generated pi
 - Google credentials cannot be generated automatically. Add `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` to `.env` using the sign-in setup below, then rerun `npm run local`. Existing `.env` files are preserved. Until configured, the public app works but Google sign-in is unavailable.
 - NVIDIA acceleration is selected when `nvidia-smi` detects a GPU. Docker must also support NVIDIA passthrough. Force CPU with `npm run local -- --cpu`, or force GPU with `npm run local -- --gpu` (useful when host detection is unavailable).
 - Ports 3001, 5173, 5432, and 8188 must be free. Keep the local web origin, browser API URL, and OAuth callback in `.env` aligned with these ports.
-- Model weights download on first generation, with substantial disk/RAM requirements. CPU inference can be very slow; service readiness does not verify model inference. See [the runner guide](services/zimage-runner/README.md).
+- Model weights must be downloaded explicitly from the Models view and require substantial disk/RAM. CPU inference can be very slow; service readiness does not verify model inference. See [the runner guide](services/runner/README.md).
 - A fresh computer has a fresh database, artifact folder, and model cache; Git does not transfer these. If reusing an existing database volume, keep its original database password.
 - The launcher applies migrations only to the Compose PostgreSQL service, even if `.env` contains a different `DATABASE_URL`. It does not migrate an external database. A failed startup may leave partial services running; use `npm run local:stop` before retrying if needed.
 
@@ -51,7 +51,7 @@ Launcher checks: `npm run test:local`.
 6. Start the API and web app: `npm run dev`
 7. Open <http://localhost:5173>. The API runs at <http://localhost:3001>.
 
-For workflow execution, also run `npm run worker:dev -w @hive/api` in another terminal and start the [image runner](services/zimage-runner/README.md).
+For workflow execution, also run `npm run worker:dev -w @hive/api` in another terminal and start the [image runner](services/runner/README.md).
 
 ## Google sign-in setup
 
