@@ -1,4 +1,4 @@
-import { ActionIcon, Alert, Avatar, Button, Divider, Group, Loader, Menu, Modal, Stack, Text, UnstyledButton } from "@mantine/core";
+import { Alert, Avatar, Button, Divider, Loader, Menu, Modal, Stack, Text, UnstyledButton } from "@mantine/core";
 import { useEffect, useState } from "react";
 import { API_BASE, useAuth } from "../auth";
 
@@ -30,7 +30,21 @@ export function AuthControl() {
       <Menu position="bottom-end" withinPortal>
         <Menu.Target>
           <UnstyledButton className="user-menu-trigger" aria-label={`User menu for ${user.name || user.email}`} title="Account menu">
-            <Avatar src={user.avatarUrl} alt="" color="hiveSky" size={40}>
+            <Avatar
+              src={user.avatarUrl}
+              alt={user.name || "Profile picture"}
+              color="hiveSky"
+              size={40}
+              radius="xl"
+              styles={{
+                root: {
+                  border: "1px solid var(--mantine-color-hiveSky-3)",
+                  borderRadius: "50%",
+                  boxSizing: "border-box",
+                },
+                image: { objectFit: "cover" },
+              }}
+            >
               <UserGlyph />
             </Avatar>
           </UnstyledButton>

@@ -1,16 +1,27 @@
 import { Burger, Group, Text } from "@mantine/core";
 import { AuthControl } from "./AuthControl";
+import type { AppView } from "../navigation/navigationState";
+
+const viewTitles: Record<AppView, string> = {
+  home: "Home",
+  agents: "Agents",
+  workflows: "Workflows",
+  runs: "Runs",
+  licenses: "Open-source licenses",
+};
 
 export function AppHeader({
+  view,
   mobileNavOpened,
   onMobileNavToggle,
 }: {
+  view: AppView;
   mobileNavOpened: boolean;
   onMobileNavToggle: () => void;
 }) {
   return (
     <Group className="header-inner" h="100%" justify="space-between" px={{ base: "md", sm: "xl" }}>
-      <Group gap="md">
+      <Group gap="md" wrap="nowrap">
         <Group className="mobile-header-brand" gap="xs" wrap="nowrap" hiddenFrom="sm">
           <Burger
             opened={mobileNavOpened}
@@ -18,9 +29,8 @@ export function AppHeader({
             size="sm"
             aria-label={mobileNavOpened ? "Close navigation" : "Open navigation"}
           />
-          {mobileNavOpened && <Text className="brand-name">HIVE</Text>}
         </Group>
-        <Text className="header-context" visibleFrom="sm">A little room to grow</Text>
+        <Text className="header-context" fw={600} truncate>{viewTitles[view]}</Text>
       </Group>
       <AuthControl />
     </Group>

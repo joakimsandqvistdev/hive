@@ -248,3 +248,22 @@
 - Centralized palette, typography, spacing, radii, shadows, and shared component defaults in `apps/web/src/theme.ts`.
 - Simplified Home into a flatter, more compact layout; preserved AppShell navigation and Google authentication behavior.
 - Verify with the web production build and inspect the running browser view.
+
+## 2026-10-13 — Show account credentials in header
+
+- Replaced the signed-in profile image in the header account-menu trigger with the user's name and email. The existing account menu and logout behavior remain available.
+- No tests run; small presentation change. Typecheck not run.
+
+## 2026-10-13 — Crop account profile photo to a circle
+
+- Restored the top-right profile photo in the account menu trigger and set circular cropping with centered cover sizing. Name and email remain in the account dropdown.
+- No tests run; Docker Desktop was unavailable for a live local rebuild.
+
+## 2026-10-13 — Add subtle avatar border
+
+- Added a one-pixel gray token border to the circular profile photo.
+
+## 2026-10-13 — Theme avatar border and show active view in header
+
+- Changed the profile photo border to the existing hiveSky theme token. Replaced the static header tagline with the current navigation title, including on mobile.
+- Production build runs through the local launcher; no separate test suite run.

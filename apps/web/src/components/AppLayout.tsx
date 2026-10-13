@@ -28,7 +28,7 @@ export function AppLayout({ children, view, onNavigate, workflowEditorActive, si
       }}
     >
       <AppShell.Header className="hive-header">
-        <AppHeader mobileNavOpened={mobileNavOpened} onMobileNavToggle={toggleMobileNav} />
+        <AppHeader view={view} mobileNavOpened={mobileNavOpened} onMobileNavToggle={toggleMobileNav} />
       </AppShell.Header>
       <AppShell.Navbar className="hive-navbar" p="md">
         <SideNavigation
