@@ -1,10 +1,38 @@
 import { and, count, desc, eq } from "drizzle-orm";
 import { Router } from "express";
-import { db } from "./db.js";
+import { db, pool } from "./db.js";
 import { artifacts, runNodes, runs } from "./schema.js";
 import { workflowExecutionOrder } from "./workflowExecutionOrder.js";
 
 const router = Router();
+
+router.post("/:id/cancel", async (req, res, next) => {
+  const ownerId = res.locals.userId as string;
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const selected = await client.query<{ status: string }>(
+      "SELECT status FROM runs WHERE id=$1 AND user_id=$2 FOR UPDATE", [req.params.id, ownerId],
+    );
+    const status = selected.rows[0]?.status;
+    if (!status) {
+      await client.query("ROLLBACK");
+      res.status(404).json({ error: "run_not_found" });
+      return;
+    }
+    if (status === "queued") {
+      await client.query("UPDATE runs SET status='cancelled',cancel_requested_at=now(),finished_at=now(),error_summary='Run stopped by user.' WHERE id=$1", [req.params.id]);
+      await client.query("UPDATE run_nodes SET status='cancelled',error_code='run_cancelled',error_summary='Step cancelled because the run was stopped.',finished_at=now() WHERE run_id=$1 AND status='queued'", [req.params.id]);
+    } else if (status === "running") {
+      await client.query("UPDATE runs SET status='cancel_requested',cancel_requested_at=now() WHERE id=$1", [req.params.id]);
+    }
+    await client.query("COMMIT");
+    res.json({ status: status === "queued" ? "cancelled" : status === "running" ? "cancel_requested" : status });
+  } catch (error) {
+    await client.query("ROLLBACK");
+    next(error);
+  } finally { client.release(); }
+});
 
 function parsePagination(req: import("express").Request) {
   const page = Math.min(1_000_000, Math.max(1, Number.parseInt(String(req.query.page ?? "1"), 10) || 1));

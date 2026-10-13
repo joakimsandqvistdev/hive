@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Alert, Badge, Button, Group, Image, Loader, Modal, Pagination, Paper, SimpleGrid, Stack, Table, Text, Title } from "@mantine/core";
+import { ActionIcon, Alert, Badge, Button, Group, Image, Loader, Modal, Pagination, Paper, SimpleGrid, Stack, Table, Text, Title, Tooltip } from "@mantine/core";
 import { API_BASE } from "../auth";
 import { agentModalityLabel } from "../agentModality";
 import type { AppView } from "../navigation/navigationState";
@@ -14,7 +14,7 @@ type Detail = { run: Run; nodes: RunNode[]; artifacts: Artifact[] };
 
 function date(value: string | null) { return value ? new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "medium" }).format(new Date(value)) : "—"; }
 function statusColor(status: RunStatus | string) { return status === "succeeded" ? "hiveSuccess" : status === "failed" ? "hiveError" : status === "running" ? "hiveSky" : status === "queued" ? "hiveWarning" : "gray"; }
-function active(status: RunStatus) { return status === "queued" || status === "running"; }
+function active(status: RunStatus) { return status === "queued" || status === "running" || status === "cancel_requested"; }
 function timingLabel(startedAt: string | null, finishedAt: string | null, now: number) {
   if (!startedAt) return finishedAt ? `Not started · Finished ${date(finishedAt)}` : "Waiting to start";
   const end = finishedAt ? new Date(finishedAt).getTime() : now;
@@ -64,6 +64,7 @@ export function RunsPage({ onNavigate }: { onNavigate: (view: AppView) => void }
   const [detailError, setDetailError] = useState<string | null>(null);
   const [downloadError, setDownloadError] = useState<string | null>(null);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
+  const [cancellingId, setCancellingId] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
 
   const loadRuns = useCallback(async (requestedPage = page) => {
@@ -86,8 +87,8 @@ export function RunsPage({ onNavigate }: { onNavigate: (view: AppView) => void }
   }, [loadRuns, page, result?.items]);
 
   useEffect(() => {
-    const hasRunningWork = result?.items.some((run) => run.status === "running")
-      || detail?.run.status === "running"
+    const hasRunningWork = result?.items.some((run) => run.status === "running" || run.status === "cancel_requested")
+      || detail?.run.status === "running" || detail?.run.status === "cancel_requested"
       || detail?.nodes.some((node) => node.status === "running");
     if (!hasRunningWork) return;
     const timer = window.setInterval(() => setNow(Date.now()), 1000);
@@ -118,6 +119,18 @@ export function RunsPage({ onNavigate }: { onNavigate: (view: AppView) => void }
     finally { setDownloadingId(null); }
   };
 
+  const stopRun = async (id: string) => {
+    setCancellingId(id);
+    setError(null);
+    try {
+      const response = await fetch(`${API_BASE}/api/runs/${id}/cancel`, { method: "POST", credentials: "include" });
+      if (!response.ok) throw new Error(response.status === 404 ? "This run could not be found." : "Could not stop this run. Please try again.");
+      await loadRuns(page);
+      if (selectedId === id) await loadDetail(id);
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not stop this run."); }
+    finally { setCancellingId(null); }
+  };
+
   useEffect(() => {
     setDetail(null);
     if (!selectedId) return;
@@ -136,6 +149,7 @@ export function RunsPage({ onNavigate }: { onNavigate: (view: AppView) => void }
     <Table.Td><Badge variant="light" color={statusColor(run.status)}>{run.status.replaceAll("_", " ")}</Badge></Table.Td>
     <Table.Td><Text size="sm" c="dimmed">{timingLabel(run.startedAt, run.finishedAt, now)}</Text></Table.Td>
     <Table.Td><Text size="sm" c={run.errorSummary ? "hiveError.7" : "dimmed"} lineClamp={2}>{run.errorSummary ?? (active(run.status) ? "Waiting for worker…" : "—")}</Text></Table.Td>
+    <Table.Td>{run.status === "running" && <Tooltip label="Stop run"><ActionIcon color="hiveError" variant="subtle" aria-label={`Stop run for ${run.workflowSnapshotJson?.name ?? "workflow"}`} loading={cancellingId === run.id} onClick={(event) => { event.stopPropagation(); void stopRun(run.id); }} onKeyDown={(event) => event.stopPropagation()}><StopIcon /></ActionIcon></Tooltip>}</Table.Td>
   </Table.Tr>);
 
   return <Stack className="workspace-page" gap="lg">
@@ -144,12 +158,12 @@ export function RunsPage({ onNavigate }: { onNavigate: (view: AppView) => void }
     <Paper className="agents-table-panel" withBorder>
       {loading ? <Group justify="center" p="xl"><Loader size="sm" /><Text size="sm" c="dimmed">Loading runs…</Text></Group>
         : result?.total === 0 ? <Stack className="agents-empty" align="center" gap="sm"><Badge color="hiveSky" variant="light">Run history</Badge><Title order={2} size="h3">No runs yet</Title><Text c="dimmed" ta="center" maw={480}>Open a saved workflow and choose Run workflow to queue its current definition for execution.</Text><Button variant="light" onClick={() => onNavigate("workflows")}>Browse workflows</Button></Stack>
-          : <><Table.ScrollContainer minWidth={820}><Table verticalSpacing="sm" highlightOnHover><Table.Thead><Table.Tr><Table.Th>Workflow</Table.Th><Table.Th>Status</Table.Th><Table.Th>Duration</Table.Th><Table.Th>Result</Table.Th></Table.Tr></Table.Thead><Table.Tbody>{rows}</Table.Tbody></Table></Table.ScrollContainer><Group justify="space-between" px="md" py="sm" className="agents-table-footer"><Text size="sm" c="dimmed">{result?.total ?? 0} {result?.total === 1 ? "run" : "runs"}</Text><Pagination value={page} onChange={setPage} total={result?.totalPages ?? 0} size="sm" withEdges /></Group></>}
+          : <><Table.ScrollContainer minWidth={900}><Table verticalSpacing="sm" highlightOnHover><Table.Thead><Table.Tr><Table.Th>Workflow</Table.Th><Table.Th>Status</Table.Th><Table.Th>Duration</Table.Th><Table.Th>Result</Table.Th><Table.Th>Actions</Table.Th></Table.Tr></Table.Thead><Table.Tbody>{rows}</Table.Tbody></Table></Table.ScrollContainer><Group justify="space-between" px="md" py="sm" className="agents-table-footer"><Text size="sm" c="dimmed">{result?.total ?? 0} {result?.total === 1 ? "run" : "runs"}</Text><Pagination value={page} onChange={setPage} total={result?.totalPages ?? 0} size="sm" withEdges /></Group></>}
     </Paper>
     <Modal opened={selectedId !== null} onClose={() => setSelectedId(null)} title="Run details" size="xl" centered>
       {!detail && !detailError ? <Group justify="center" p="xl"><Loader size="sm" /></Group> : detailError ? <Alert color="hiveError" title="Could not load run">{detailError}</Alert> : detail && <Stack gap="md">
-        <Group justify="space-between"><div><Text fw={650}>{detail.run.workflowSnapshotJson?.name ?? "Workflow"}</Text><Text size="xs" c="dimmed">Created {date(detail.run.createdAt)}</Text><Text size="xs" c="dimmed" mt={3}>{timingLabel(detail.run.startedAt, detail.run.finishedAt, now)}</Text></div><Badge variant="light" color={statusColor(detail.run.status)}>{detail.run.status.replaceAll("_", " ")}</Badge></Group>
-        {detail.run.errorSummary && <Alert color="hiveError" title="Run failed">{detail.run.errorSummary}</Alert>}
+        <Group justify="space-between"><div><Text fw={650}>{detail.run.workflowSnapshotJson?.name ?? "Workflow"}</Text><Text size="xs" c="dimmed">Created {date(detail.run.createdAt)}</Text><Text size="xs" c="dimmed" mt={3}>{timingLabel(detail.run.startedAt, detail.run.finishedAt, now)}</Text></div><Group><Badge variant="light" color={statusColor(detail.run.status)}>{detail.run.status.replaceAll("_", " ")}</Badge>{active(detail.run.status) && <Button color="hiveError" variant="light" loading={cancellingId === detail.run.id} disabled={detail.run.status === "cancel_requested"} onClick={() => void stopRun(detail.run.id)}>Stop run</Button>}</Group></Group>
+        {detail.run.errorSummary && <Alert color={detail.run.status === "cancelled" ? "gray" : "hiveError"} title={detail.run.status === "cancelled" ? "Run stopped" : "Run failed"}>{detail.run.errorSummary}</Alert>}
         <div><Text fw={600} mb="xs">Agent steps</Text>{detail.nodes.length ? <Stack gap="xs">{detail.nodes.map((node) => <Paper key={node.nodeId} withBorder p="sm"><Group justify="space-between"><div><Text size="sm" fw={600}>{node.agentSnapshotJson?.name ?? node.nodeId}</Text><Text size="xs" c="dimmed">{agentModalityLabel(node.agentSnapshotJson?.modality ?? "agent", node.parameters?.modelId ?? node.agentSnapshotJson?.parameters?.modelId)}</Text><Text size="xs" c="dimmed" mt={3}>{timingLabel(node.startedAt, node.finishedAt, now)}</Text></div><Badge variant="light" color={statusColor(node.status)}>{node.status}</Badge></Group>{node.errorSummary && <Text size="xs" c="hiveError.7" mt="xs">{node.errorSummary}</Text>}</Paper>)}</Stack> : <Text size="sm" c="dimmed">No agent steps recorded.</Text>}</div>
         <div><Text fw={600} mb="xs">Generated outputs</Text>{downloadError && <Alert color="hiveError" mb="xs">{downloadError}</Alert>}{detail.artifacts.length ? <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="sm">{detail.artifacts.map((artifact) => {
           const node = detail.nodes.find((item) => item.nodeId === artifact.runNodeId);
@@ -160,3 +174,5 @@ export function RunsPage({ onNavigate }: { onNavigate: (view: AppView) => void }
     </Modal>
   </Stack>;
 }
+
+function StopIcon() { return <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="2" /></svg>; }

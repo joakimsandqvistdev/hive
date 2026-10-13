@@ -1,5 +1,13 @@
 # Current work
 
+## 2026-10-13 — Stop runs and release inference memory
+
+- Added a Stop action for active/queued runs in the Runs list and details. Owner-scoped cancellation marks queued runs immediately and signals claimed runs for cooperative cancellation.
+- Worker polls cancellation with its lease heartbeat, aborts the image-runner request, and finalizes the run and unfinished steps as cancelled. The runner reaps the per-generation child process on disconnect, releasing step RAM and CUDA allocations; completed steps and artifacts remain available.
+- Added the cancelled run-node database enum migration, recorded decision 0011, and updated orchestration design status. Typecheck/build and automated tests have not yet been run.
+- Runs list uses an accessible stop icon in the last column for running workflows; queued runs remain stoppable from run details.
+- Workflow list actions are right-aligned. Workflow removal is disabled while queued, running, or cancellation-pending runs exist, with an API guard for stale clients and start/delete races.
+
 ## 2026-10-13 — Single-command local start and stop
 
 - Added `npm run local` / `npm run local:stop`, a Node.js launcher, local Compose overlay, shared app Dockerfile, and build-context exclusions. Startup creates missing `.env` with random database credentials, builds/installs in Docker, applies migrations to Compose PostgreSQL, and starts API/web/worker/runner with readiness checks. NVIDIA detection has explicit CPU/GPU overrides. Stop removes only the current Compose project's containers/networks and preserves persistent volumes/artifacts.

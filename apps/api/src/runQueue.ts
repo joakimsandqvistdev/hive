@@ -78,9 +78,26 @@ export async function failRun(runId: string, workerId: string, code: string, sum
   finally { client.release(); }
 }
 
-export async function finishRun(runId: string, workerId: string): Promise<void> {
-  await pool.query(`UPDATE runs SET status='succeeded',finished_at=now(),claimed_by=NULL,lease_expires_at=NULL
+export async function finishRun(runId: string, workerId: string): Promise<boolean> {
+  const result = await pool.query(`UPDATE runs SET status='succeeded',finished_at=now(),claimed_by=NULL,lease_expires_at=NULL
     WHERE id=$1 AND claimed_by=$2 AND status='running'`, [runId,workerId]);
+  return result.rowCount === 1;
+}
+
+/** Finalize a cooperative cancellation after the active runner request has been aborted and reaped. */
+export async function finishCancelledRun(runId: string, workerId: string): Promise<void> {
+  const client = await pool.connect();
+  await client.query("BEGIN");
+  try {
+    const ownership = await client.query("SELECT id FROM runs WHERE id=$1 AND claimed_by=$2 AND status='cancel_requested' FOR UPDATE", [runId, workerId]);
+    if (ownership.rowCount !== 1) { await client.query("ROLLBACK"); return; }
+    await client.query(`UPDATE run_nodes SET status='cancelled',error_code='run_cancelled',error_summary='Step cancelled because the run was stopped.',finished_at=COALESCE(finished_at,now())
+      WHERE run_id=$1 AND status IN ('queued','running')`, [runId]);
+    await client.query(`UPDATE runs SET status='cancelled',error_summary='Run stopped by user.',finished_at=now(),claimed_by=NULL,lease_expires_at=NULL
+      WHERE id=$1 AND claimed_by=$2 AND status='cancel_requested'`, [runId,workerId]);
+    await client.query("COMMIT");
+  } catch (error) { await client.query("ROLLBACK"); throw error; }
+  finally { client.release(); }
 }
 
 /** Extend a worker's lease. False means the lease was lost or the run is no longer active. */
@@ -95,4 +112,12 @@ export async function heartbeatRun(runId: string, workerId: string, leaseSeconds
     [runId, workerId, leaseSeconds],
   );
   return result.rowCount === 1;
+}
+
+export async function runCancellationRequested(runId: string, workerId: string): Promise<boolean> {
+  const result = await pool.query<{ status: string }>(
+    "SELECT status FROM runs WHERE id=$1 AND claimed_by=$2",
+    [runId, workerId],
+  );
+  return result.rows[0]?.status === "cancel_requested";
 }

@@ -3,7 +3,7 @@ import { sql } from "drizzle-orm";
 
 export const agentModality = pgEnum("agent_modality", ["text", "image", "audio", "video"]);
 export const runStatus = pgEnum("run_status", ["queued", "running", "succeeded", "failed", "cancel_requested", "cancelled"]);
-export const runNodeStatus = pgEnum("run_node_status", ["queued", "running", "succeeded", "failed", "skipped"]);
+export const runNodeStatus = pgEnum("run_node_status", ["queued", "running", "succeeded", "failed", "skipped", "cancelled"]);
 
 export const users = pgTable("users", {
   id: uuid("id").defaultRandom().primaryKey(),
