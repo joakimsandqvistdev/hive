@@ -16,7 +16,7 @@ services:
       timeout: 3s
       retries: 10
 
-  zimage-runner:
+  runner:
     profiles: [zimage]
     build:
       context: ./services/zimage-runner
@@ -28,7 +28,7 @@ services:
     ports:
       - "127.0.0.1:8188:8000"
     volumes:
-      - zimage_model_cache:/cache/huggingface
+      - model_cache:/cache/huggingface
     networks:
       - model_runner_net
     healthcheck:
@@ -40,7 +40,8 @@ services:
 
 volumes:
   postgres_data:
-  zimage_model_cache:
+  model_cache:
+    name: ${COMPOSE_PROJECT_NAME:-hive}_model_cache
 
 networks:
   model_runner_net:

@@ -66,7 +66,7 @@ services:
     command: ["node", "apps/api/dist/worker.js"]
     environment:
       DATABASE_URL: ${HIVE_LOCAL_DATABASE_URL:?Use npm run local to configure the local database URL}
-      ZIMAGE_RUNNER_URL: http://zimage-runner:8000
+      IMAGE_RUNNER_URL: http://runner:8000
       ARTIFACT_ROOT: /app/.data/artifacts
     volumes:
       - ./.data/artifacts:/app/.data/artifacts
@@ -76,5 +76,5 @@ services:
     depends_on:
       migrate:
         condition: service_completed_successfully
-      zimage-runner:
+      runner:
         condition: service_healthy

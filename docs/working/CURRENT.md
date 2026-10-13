@@ -7,6 +7,7 @@
 - Added the cancelled run-node database enum migration, recorded decision 0011, and updated orchestration design status. Typecheck/build and automated tests have not yet been run.
 - Runs list uses an accessible stop icon in the last column for running workflows; queued runs remain stoppable from run details.
 - Workflow list actions are right-aligned. Workflow removal is disabled while queued, running, or cancellation-pending runs exist, with an API guard for stale clients and start/delete races.
+- Renamed the Compose image service to `runner` and the cache key to `model_cache`; the new backing volume is `hive_model_cache`. The previous `hive_zimage_model_cache` is left untouched and is no longer mounted, so models need to download into the new volume.
 
 ## 2026-10-13 — Single-command local start and stop
 

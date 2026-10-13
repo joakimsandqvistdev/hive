@@ -13,7 +13,7 @@ import { imageRunnerRejection, imageRunnerTransportFailure } from "./imageRunner
 import { createImageRunnerClient } from "./imageRunnerClient.js";
 
 const workerId = `${hostname()}:${process.pid}`;
-const runnerUrl = (process.env.ZIMAGE_RUNNER_URL ?? "http://127.0.0.1:8188").replace(/\/$/, "");
+const runnerUrl = (process.env.IMAGE_RUNNER_URL ?? "http://127.0.0.1:8188").replace(/\/$/, "");
 const imageRunner = createImageRunnerClient(runnerUrl);
 const MAX_OUTPUT_BYTES = 25 * 1024 * 1024;
 
