@@ -28,7 +28,12 @@ router.get("/", async (req, res, next) => {
     const nodeRows = items.length ? await db.select({ workflowId: workflowNodes.workflowId }).from(workflowNodes).where(inArray(workflowNodes.workflowId, items.map((workflow) => workflow.id))) : [];
     const counts = new Map<string, number>();
     for (const node of nodeRows) counts.set(node.workflowId, (counts.get(node.workflowId) ?? 0) + 1);
-    res.json({ items: items.map((workflow) => ({ ...workflow, nodeCount: counts.get(workflow.id) ?? 0 })), page, pageSize, total, totalPages: Math.ceil(total / pageSize) });
+    const activeRunRows = items.length ? await db.select({ workflowId: runs.workflowId, runCount: sql<number>`count(*)` }).from(runs)
+      .where(and(inArray(runs.workflowId, items.map((workflow) => workflow.id)), inArray(runs.status, ["queued", "running", "cancel_requested"])))
+      .groupBy(runs.workflowId) : [];
+    const activeRuns = new Map<string, number>();
+    for (const run of activeRunRows) if (run.workflowId) activeRuns.set(run.workflowId, run.runCount);
+    res.json({ items: items.map((workflow) => ({ ...workflow, nodeCount: counts.get(workflow.id) ?? 0, activeRunCount: activeRuns.get(workflow.id) ?? 0 })), page, pageSize, total, totalPages: Math.ceil(total / pageSize) });
   } catch (error) { next(error); }
 });
 
@@ -172,8 +177,18 @@ router.put("/:id", async (req, res, next) => {
 router.delete("/:id", async (req, res, next) => {
   if (req.get("origin") !== (process.env.WEB_ORIGIN ?? "http://localhost:5173")) { res.status(403).json({ error: "invalid_origin" }); return; }
   try {
-    const [deleted] = await db.delete(workflows).where(and(eq(workflows.id, req.params.id), eq(workflows.userId, userId(res)))).returning({ id: workflows.id });
-    if (!deleted) { res.status(404).json({ error: "workflow_not_found" }); return; }
+    const result = await db.transaction(async (tx) => {
+      const [workflow] = await tx.select({ id: workflows.id }).from(workflows)
+        .where(and(eq(workflows.id, req.params.id), eq(workflows.userId, userId(res)))).limit(1).for("update");
+      if (!workflow) return { kind: "not_found" as const };
+      const [usage] = await tx.select({ total: sql<number>`count(*)` }).from(runs)
+        .where(and(eq(runs.workflowId, workflow.id), inArray(runs.status, ["queued", "running", "cancel_requested"])));
+      if ((usage?.total ?? 0) > 0) return { kind: "in_use" as const, activeRunCount: usage.total };
+      await tx.delete(workflows).where(and(eq(workflows.id, workflow.id), eq(workflows.userId, userId(res))));
+      return { kind: "deleted" as const };
+    });
+    if (result.kind === "not_found") { res.status(404).json({ error: "workflow_not_found" }); return; }
+    if (result.kind === "in_use") { res.status(409).json({ error: "workflow_in_use", activeRunCount: result.activeRunCount }); return; }
     res.status(204).end();
   } catch (error) { next(error); }
 });

@@ -7,7 +7,7 @@ import { db, pool } from "./db.js";
 import { readArtifact, removeArtifact, savePng } from "./artifactStore.js";
 import { artifacts } from "./schema.js";
 import { defaultImageModelParameters, dimensionsForResolution, imageModelParametersSchema } from "./modelParameters.js";
-import { claimNextRun, failRun, finishRun, finishRunNode, heartbeatRun, setRunNodeRunning, type ClaimedRun } from "./runQueue.js";
+import { claimNextRun, failRun, finishCancelledRun, finishRun, finishRunNode, heartbeatRun, runCancellationRequested, setRunNodeRunning, type ClaimedRun } from "./runQueue.js";
 import { workflowExecutionOrder } from "./workflowExecutionOrder.js";
 import { imageRunnerRejection, imageRunnerTransportFailure } from "./imageRunnerErrors.js";
 import { createImageRunnerClient } from "./imageRunnerClient.js";
@@ -54,6 +54,7 @@ async function execute(run: ClaimedRun, signal: AbortSignal): Promise<void> {
   }
 
   for (const node of orderedNodes) {
+    if (signal.aborted) throw new Error("Run cancellation was requested.");
     const existing = await pool.query<{ status: string }>("SELECT status FROM run_nodes WHERE run_id=$1 AND node_id=$2", [run.id, node.id]);
     if (existing.rows[0]?.status === "succeeded") continue;
     const modality = node.agent?.modality;
@@ -101,6 +102,7 @@ async function execute(run: ClaimedRun, signal: AbortSignal): Promise<void> {
     form.set("true_cfg_scale", String(trueCfgScale));
     let referenceTotalBytes = 0;
     for (const sourceNodeId of sourceNodeIds) {
+      if (signal.aborted) throw new Error("Run cancellation was requested.");
       const artifactId = artifactIdByNode.get(sourceNodeId);
       if (!artifactId) throw new Error("A connected reference node did not produce an image.");
       const [artifact] = await db.select({ storageKey: artifacts.storageKey, byteSize: artifacts.byteSize }).from(artifacts)
@@ -144,19 +146,38 @@ async function execute(run: ClaimedRun, signal: AbortSignal): Promise<void> {
       throw error;
     }
   }
-  await finishRun(run.id, workerId);
+  if (!await finishRun(run.id, workerId) && await runCancellationRequested(run.id, workerId)) {
+    throw new Error("Run cancellation was requested.");
+  }
 }
 
 async function processRun(run: ClaimedRun): Promise<void> {
   let leaseLost = false;
+  let cancellationRequested = false;
   const controller = new AbortController();
   const heartbeat = setInterval(() => {
-    void heartbeatRun(run.id, workerId).then((alive) => { if (!alive) { leaseLost = true; controller.abort(); } }).catch(() => { leaseLost = true; controller.abort(); });
-  }, 30_000);
+    void (async () => {
+      const alive = await heartbeatRun(run.id, workerId);
+      if (!alive) {
+        cancellationRequested = await runCancellationRequested(run.id, workerId);
+        leaseLost = !cancellationRequested;
+        controller.abort();
+        return;
+      }
+      if (await runCancellationRequested(run.id, workerId)) {
+        cancellationRequested = true;
+        controller.abort();
+      }
+    })().catch(() => { leaseLost = true; controller.abort(); });
+  }, 1000);
   try {
     await execute(run, controller.signal);
   } catch (error) {
     if (leaseLost) return;
+    if (cancellationRequested || await runCancellationRequested(run.id, workerId)) {
+      await finishCancelledRun(run.id, workerId);
+      return;
+    }
     const message = error instanceof Error ? error.message : "Run execution failed.";
     const unsupported = /not supported|unknown modality/i.test(message);
     await failRun(run.id, workerId, unsupported ? "unsupported_node" : "execution_failed", message);

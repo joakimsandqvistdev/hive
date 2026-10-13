@@ -52,10 +52,17 @@ export function WorkflowLibrary({ onNavigate }: { onNavigate: (view: AppView) =>
   };
 
   const removeWorkflow = async () => {
-    if (!deleteTarget) return;
+    if (!deleteTarget || (deleteTarget.activeRunCount ?? 0) > 0) return;
     setDeleting(true); setDeleteError(null);
     try {
       const response = await fetch(`${API_BASE}/api/workflows/${deleteTarget.id}`, { method: "DELETE", credentials: "include" });
+      if (response.status === 409) {
+        const body = await response.json() as { activeRunCount?: number };
+        const updatedTarget = { ...deleteTarget, activeRunCount: body.activeRunCount ?? 1 };
+        setDeleteTarget(updatedTarget);
+        setResult((current) => current ? { ...current, items: current.items.map((item) => item.id === updatedTarget.id ? updatedTarget : item) } : current);
+        return;
+      }
       if (!response.ok && response.status !== 404) throw new Error("Could not remove this workflow.");
       setDeleteTarget(null); await loadWorkflows(page);
     } catch (error) { setDeleteError(error instanceof Error ? error.message : "Could not remove this workflow."); }
@@ -67,7 +74,7 @@ export function WorkflowLibrary({ onNavigate }: { onNavigate: (view: AppView) =>
     <Table.Td><Text size="sm" c={item.description ? undefined : "dimmed"} lineClamp={2}>{item.description || "No description"}</Text></Table.Td>
     <Table.Td><Text size="sm">{item.nodeCount} {item.nodeCount === 1 ? "node" : "nodes"}</Text></Table.Td>
     <Table.Td><Text size="sm" c="dimmed">{formatDate(item.updatedAt)}</Text></Table.Td>
-    <Table.Td><Group gap={4} wrap="nowrap"><Tooltip label={`Edit ${item.name}`}><ActionIcon variant="subtle" color="hiveSky" aria-label={`Edit ${item.name}`} onClick={() => openEdit(item)}><EditIcon /></ActionIcon></Tooltip><Tooltip label={`Remove ${item.name}`}><ActionIcon variant="subtle" color="hiveError" aria-label={`Remove ${item.name}`} onClick={() => { setDeleteTarget(item); setDeleteError(null); }}><TrashIcon /></ActionIcon></Tooltip></Group></Table.Td>
+    <Table.Td><Group gap={4} wrap="nowrap" justify="flex-end" w="100%"><Tooltip label={`Edit ${item.name}`}><ActionIcon variant="subtle" color="hiveSky" aria-label={`Edit ${item.name}`} onClick={() => openEdit(item)}><EditIcon /></ActionIcon></Tooltip><Tooltip label={item.activeRunCount ? "This workflow is currently running" : `Remove ${item.name}`}><span><ActionIcon variant="subtle" color="hiveError" aria-label={`Remove ${item.name}`} disabled={(item.activeRunCount ?? 0) > 0} onClick={() => { setDeleteTarget(item); setDeleteError(null); }}><TrashIcon /></ActionIcon></span></Tooltip></Group></Table.Td>
   </Table.Tr>);
 
   return <Stack className="workspace-page" gap="lg">
@@ -82,7 +89,7 @@ export function WorkflowLibrary({ onNavigate }: { onNavigate: (view: AppView) =>
       <form onSubmit={(event) => void createWorkflow(event)}><Stack gap="md">{formError && <Alert color="hiveError" title="Could not create workflow">{formError}</Alert>}<TextInput label="Name" placeholder="e.g. Create a video from a script" value={form.name} maxLength={100} onChange={(event) => { const name = event.currentTarget.value; setForm((current) => ({ ...current, name })); }} required autoFocus /><Textarea label="Description" placeholder="What should this workflow do?" value={form.description} maxLength={1000} onChange={(event) => { const description = event.currentTarget.value; setForm((current) => ({ ...current, description })); }} minRows={3} autosize /><Group justify="flex-end"><Button variant="default" type="button" onClick={() => setFormOpened(false)}>Cancel</Button><Button type="submit" loading={savingForm}>Create workflow</Button></Group></Stack></form>
     </Modal>
     <Modal opened={deleteTarget !== null} onClose={() => setDeleteTarget(null)} title="Confirm workflow removal" centered>
-      {deleteTarget && <Stack gap="md">{deleteError && <Alert color="hiveError" title="Could not remove workflow">{deleteError}</Alert>}<Text>Are you sure you want to remove <Text component="span" fw={600}>{deleteTarget.name}</Text>?</Text><Text size="sm" c="dimmed">Its nodes and connections will be deleted. This cannot be undone.</Text><Group justify="flex-end"><Button variant="default" onClick={() => setDeleteTarget(null)}>Cancel</Button><Button color="hiveError" loading={deleting} onClick={() => void removeWorkflow()}>Remove workflow</Button></Group></Stack>}
+          {deleteTarget && <Stack gap="md">{deleteError && <Alert color="hiveError" title="Could not remove workflow">{deleteError}</Alert>}<Text>Are you sure you want to remove <Text component="span" fw={600}>{deleteTarget.name}</Text>?</Text><Text size="sm" c="dimmed">Its nodes and connections will be deleted. This cannot be undone.</Text>{(deleteTarget.activeRunCount ?? 0) > 0 && <Alert color="hiveWarning" title="Workflow is in use">This workflow has {deleteTarget.activeRunCount} queued or running {deleteTarget.activeRunCount === 1 ? "run" : "runs"} and can’t be removed.</Alert>}<Group justify="flex-end"><Button variant="default" onClick={() => setDeleteTarget(null)}>Cancel</Button><Button color="hiveError" loading={deleting} disabled={(deleteTarget.activeRunCount ?? 0) > 0} onClick={() => void removeWorkflow()}>Remove workflow</Button></Group></Stack>}
     </Modal>
   </Stack>;
 }
