@@ -1,5 +1,10 @@
 # Current work
 
+## 2026-10-14 — Rename runner service folder
+
+- Moved the runner code and guide under `services/runner` and updated the Compose build context and README links. This aligns the folder with the existing `runner` Compose service name without changing Docker volumes or cached model files.
+- `git diff --check` passed; Compose configuration validation is pending.
+
 ## 2026-10-13 — Report model download progress and support cancellation
 
 - The Models API now reports per-model transferred and total bytes. The Models cards show downloaded GB and a progress bar, with a cancel action while a download is queued or running.
