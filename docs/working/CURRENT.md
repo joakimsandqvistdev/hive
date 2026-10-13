@@ -12,6 +12,8 @@
 - Fixed retry exhaustion so a terminal failed run also marks its in-flight agent step failed and queued steps skipped. The Runs details modal continues polling if a step remains active even when the run is terminal.
 - Corrected the existing interrupted run’s stale agent-step row to `failed`, with its finish time matching the run’s finish time. Rebuilt/restarted API and worker; Docker production build, database state check, and `git diff --check` passed. No automated tests run.
 - Simplified Models page download guidance by removing the reference to automatic workflow downloads.
+- Updated Home page copy and shortcuts to describe currently supported agent, model, workflow, run, and image-output features; removed “A little room to grow.”
+- Reordered Home shortcuts so Models appears to the left of Agents.
 
 ## 2026-10-13 — Stop runs and release inference memory
 
