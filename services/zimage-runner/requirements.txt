@@ -1,0 +1,6 @@
+accelerate>=1.12,<2
+diffusers>=0.37.1,<0.38
+fastapi>=0.120,<1
+pillow>=11,<13
+transformers>=4.57.1,<5
+uvicorn[standard]>=0.38,<1

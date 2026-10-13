@@ -1,5 +1,61 @@
 # Current work
 
+## 2026-10-13 — Build run prompts from agent and node prompts
+
+- Removed the prompt dialog from the workflow Run action; it now queues the saved workflow directly.
+- The worker now composes model input from the agent prompt and workflow-node prompt, avoids duplicating identical defaults, and still accepts legacy run-level prompt snapshots.
+- Run creation no longer requires a user prompt. Updated the orchestration design accordingly.
+- API/web typechecks and builds passed; `git diff --check` passed. The existing Vite >500 kB bundle advisory remains. Automated tests were not run.
+
+## 2026-10-13 — Use only the saved workflow-node prompt at execution
+
+- Updated the worker to send only the saved workflow-node prompt to the model. The agent prompt remains the editor's initial value for a node and is not appended at execution.
+- Legacy workflow snapshots still read their pre-rename `instructions` field as the node prompt.
+- API typecheck/build and `git diff --check` passed. Automated tests were not run.
+
+## 2026-10-13 — Show the selected model in agent modality labels
+
+- Added a shared modality-label map so image agents display `Image (Z-Image-Turbo)` in the agent type selector, agent list, workflow agent picker/configuration/node, and run details.
+- Kept stored modality values unchanged (`image`) to preserve API and database compatibility. Other modalities retain their generic names because no concrete runner model is configured for them yet.
+- Web typecheck, production build, and `git diff --check` passed. Vite continues to report its known >500 kB bundle advisory.
+
+## 2026-10-13 — Rename agent and workflow-node descriptions to prompts
+
+- Renamed the reusable agent text to `prompt` in the database, API, and Agents UI. Renamed workflow node `instructions` and run-node snapshot text to `prompt`.
+- Newly selected workflow agents initialize that node's prompt from the agent prompt; API saves also use the selected agent prompt when a node prompt is omitted. Migration `0008_fearless_centennial` preserves existing text and fills previously empty workflow-node prompts from their agent.
+- Kept workflow metadata `description` as-is. Worker parsing remains compatible with snapshots created before this rename.
+- API/web typechecks and builds passed; Drizzle reported no schema differences after migration generation; migration `0008_fearless_centennial` applied successfully to the configured local database. Confirmed the three prompt columns exist and existing agent/workflow-node prompt text was retained. `git diff --check` passed. Vite still reports the known >500 kB bundle advisory; automated tests were not run.
+
+## 2026-10-13 — Launch and inspect workflow runs in the UI
+
+- Added a saved-workflow Run workflow action with a prompt dialog, then queues the run through the existing owner-scoped workflow run API and navigates to Runs.
+- Replaced the Runs placeholder with a paginated run history, polling for active runs, and a detail modal with per-node states, errors, and authenticated artifact downloads.
+- Updated the orchestration design to reflect the initial run UI. API contracts and schema were unchanged.
+- Web typecheck, production build, and `git diff --check` passed. The known Vite >500 kB bundle advisory remains. No automated tests were run. Next: connected input binding, modality adapters, cancellation, and run/artifact cleanup UX.
+
+## 2026-10-13 — Execute image runs and store artifacts locally
+
+- Added an API workspace worker that polls and claims durable runs, renews leases, resumes interrupted work, and limits worker-crash retries to three claims. The current runner adapter executes disconnected image nodes only; unsupported modalities and connected graphs fail clearly.
+- Added an `artifacts` table and migration `0007_slim_silver_samurai`. The worker validates and stores PNG output under `.data/artifacts` (or `ARTIFACT_ROOT`), with 25 MB limit, checksum, and opaque keys. Authenticated artifact downloads and run-detail artifact metadata are available.
+- Added `worker:dev` and production worker scripts. Updated the orchestration design and decision 0004.
+- API typecheck/build, migration application, and `git diff --check` passed. Automated tests and a live model-generation run were not performed in this slice. Remaining: run submission/progress/artifact UI, graph input binding, more modality adapters, cancellation, and orphan-file cleanup.
+
+## 2026-10-13 — Add durable run records and PostgreSQL queue foundation
+
+- Added `runs` and `run_nodes` with owner constraints, queued/running/final statuses, workflow/agent snapshots, node states, attempt counts, and worker lease fields. Generated migration `0006_tricky_killer_shrike` and applied it to the configured local `hive` database.
+- Added authenticated, owner-scoped run create/list/detail APIs. Creating a run locks and snapshots the saved workflow and agent metadata, then inserts its run and queued node rows in one transaction.
+- Added atomic PostgreSQL queue claim and lease-heartbeat primitives using `FOR UPDATE SKIP LOCKED`; the actual polling worker and model execution handlers are still outstanding.
+- Updated the orchestration design and recorded the database-backed queue decision in decision 0004. The Runs page remains a placeholder and artifacts are not implemented.
+- API typecheck, API build, Drizzle schema-diff check, and `git diff --check` passed. Migration generation initially exposed an index/foreign-key ordering issue; the migration was corrected and applied successfully.
+
+## 2026-10-13 — Add Z-Image-Turbo local runner proof of concept
+
+- Added a standalone FastAPI/Diffusers runner with health and image generation endpoints, Dockerfile, dependency list, usage guide, a persistent Hugging Face cache volume, and an optional NVIDIA GPU Compose override.
+- Confirmed Docker GPU passthrough on the development host (NVIDIA RTX 2080, 8 GiB). The runner automatically enables sequential CPU offload below 16 GiB and a 512x512 PNG generation request succeeded; the response was 322 KB.
+- Initial model cache download used about 31 GB. The PyTorch/CUDA base layer was about 3.7 GB. Initial setup is therefore storage- and download-heavy.
+- Recorded the runner architecture and local-development security boundaries in decision 0003. Workflow worker/queue integration is still outstanding.
+- Validated CPU and NVIDIA GPU Compose configurations and `git diff --check`. Full Hive build/typecheck were not run because this change adds an independent Python inference service.
+
 ## 2026-10-10 — Add behavior checks and extract navigation state
 
 - Added a root `npm test` command with navigation-state unit tests and workflow API integration coverage for graph save/load/replacement, cycle validation, database edge storage, and agent deletion constraints.

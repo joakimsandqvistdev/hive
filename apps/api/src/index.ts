@@ -4,6 +4,8 @@ import { db, pool } from "./db.js";
 import { authRouter, requireAuthenticatedUser } from "./auth.js";
 import { agentsRouter } from "./agents.js";
 import { workflowsRouter } from "./workflows.js";
+import { runsRouter } from "./runs.js";
+import { artifactsRouter } from "./artifacts.js";
 
 const app = express();
 const port = Number(process.env.API_PORT ?? 3001);
@@ -13,6 +15,8 @@ app.use(express.json());
 app.use("/api/auth", authRouter);
 app.use("/api/agents", requireAuthenticatedUser, agentsRouter);
 app.use("/api/workflows", requireAuthenticatedUser, workflowsRouter);
+app.use("/api/runs", requireAuthenticatedUser, runsRouter);
+app.use("/api/artifacts", requireAuthenticatedUser, artifactsRouter);
 
 app.get("/api/health", async (_req, res) => {
   try {

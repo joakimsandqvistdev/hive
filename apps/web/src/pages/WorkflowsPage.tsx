@@ -3,16 +3,17 @@ import type { FormEvent } from "react";
 import { addEdge, Background, BackgroundVariant, Controls, Handle, MiniMap, Position, ReactFlow, useEdgesState, useNodesState, type Connection, type Edge, type Node } from "@xyflow/react";
 import { ActionIcon, Alert, Badge, Button, Group, Loader, Modal, Pagination, Paper, Select, Stack, Table, Text, Textarea, TextInput, Title, Tooltip } from "@mantine/core";
 import { API_BASE } from "../auth";
+import { agentModalityLabel, type AgentModality } from "../agentModality";
 import type { AppView } from "../navigation/navigationState";
 import "@xyflow/react/dist/style.css";
 
 const PAGE_SIZE = 10;
 type Workflow = { id: string; name: string; description: string; nodeCount: number; createdAt: string; updatedAt: string };
 type WorkflowPageResult = { items: Workflow[]; page: number; pageSize: number; total: number; totalPages: number };
-type Agent = { id: string; name: string; modality: "text" | "image" | "audio" | "video"; description: string };
-type AgentNodeData = { agentId: string; agentName: string; modality: string; agentDescription: string; instructions: string };
+type Agent = { id: string; name: string; modality: AgentModality; prompt: string };
+type AgentNodeData = { agentId: string; agentName: string; modality: string; agentPrompt: string; prompt: string };
 type WorkflowNode = Node<AgentNodeData, "agent">;
-type Definition = { nodes: Array<{ id: string; agentId: string; instructions: string; position: { x: number; y: number } }>; edges: Array<{ id: string; source: string; target: string }> };
+type Definition = { nodes: Array<{ id: string; agentId: string; prompt: string; position: { x: number; y: number } }>; edges: Array<{ id: string; source: string; target: string }> };
 type WorkflowForm = { name: string; description: string };
 const emptyForm: WorkflowForm = { name: "", description: "" };
 
@@ -38,6 +39,8 @@ export function WorkflowsPage({ onNavigate }: {
   const [detailError, setDetailError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+  const [runError, setRunError] = useState<string | null>(null);
+  const [startingRun, setStartingRun] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [removeNodeOpened, setRemoveNodeOpened] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Workflow | null>(null);
@@ -91,7 +94,7 @@ export function WorkflowsPage({ onNavigate }: {
         const agent = byId.get(node.agentId);
         return { id: node.id, type: "agent", position: node.position, data: {
           agentId: node.agentId, agentName: agent?.name ?? "Unavailable agent", modality: agent?.modality ?? "unknown",
-          agentDescription: agent?.description ?? "This agent is no longer available.", instructions: node.instructions,
+          agentPrompt: agent?.prompt ?? "This agent is no longer available.", prompt: node.prompt ?? agent?.prompt ?? "",
         } };
       });
       setNodes(mappedNodes); setEdges(definition.edges); nextNodeId.current = mappedNodes.length + 1;
@@ -104,7 +107,7 @@ export function WorkflowsPage({ onNavigate }: {
     setEdges((current) => addEdge({ ...connection, animated: true }, current)); setDirty(true);
   }, [setEdges]);
   const selectedNode = nodes.find((node) => node.selected) ?? null;
-  const agentOptions = useMemo(() => agents.map((agent) => ({ value: agent.id, label: `${agent.name} · ${agent.modality}` })), [agents]);
+  const agentOptions = useMemo(() => agents.map((agent) => ({ value: agent.id, label: `${agent.name} · ${agentModalityLabel(agent.modality)}` })), [agents]);
 
   const openCreate = () => { setForm(emptyForm); setFormError(null); setFormOpened(true); };
   const openEdit = (item: Workflow) => {
@@ -127,7 +130,7 @@ export function WorkflowsPage({ onNavigate }: {
     const id = `node-${crypto.randomUUID?.() ?? nextNodeId.current++}`;
     const index = nodes.length;
     setNodes((current) => [...current, { id, type: "agent", position: { x: 90 + (index % 3) * 260, y: 90 + Math.floor(index / 3) * 170 }, data: {
-      agentId: "", agentName: "Choose an agent", modality: "unconfigured", agentDescription: "Select an existing agent in the configuration panel.", instructions: "",
+      agentId: "", agentName: "Choose an agent", modality: "unconfigured", agentPrompt: "Select an existing agent in the configuration panel.", prompt: "",
     }, selected: true }]);
     setDirty(true);
   };
@@ -139,7 +142,7 @@ export function WorkflowsPage({ onNavigate }: {
   };
   const selectAgent = (agentId: string | null) => {
     const agent = agents.find((item) => item.id === agentId);
-    updateSelectedNode({ agentId: agent?.id ?? "", agentName: agent?.name ?? "Choose an agent", modality: agent?.modality ?? "unconfigured", agentDescription: agent?.description ?? "Select an existing agent in the configuration panel." });
+    updateSelectedNode({ agentId: agent?.id ?? "", agentName: agent?.name ?? "Choose an agent", modality: agent?.modality ?? "unconfigured", agentPrompt: agent?.prompt ?? "Select an existing agent in the configuration panel.", prompt: agent?.prompt ?? "" });
   };
 
   const saveWorkflow = async () => {
@@ -148,7 +151,7 @@ export function WorkflowsPage({ onNavigate }: {
     if (nodes.some((node) => !node.data.agentId)) { setSaveError("Choose an agent for every node before saving."); return; }
     setSaving(true); setSaveError(null);
     const definition: Definition = {
-      nodes: nodes.map((node) => ({ id: node.id, agentId: node.data.agentId, instructions: node.data.instructions, position: node.position })),
+      nodes: nodes.map((node) => ({ id: node.id, agentId: node.data.agentId, prompt: node.data.prompt, position: node.position })),
       edges: edges.map((edge) => ({ id: edge.id, source: edge.source, target: edge.target })),
     };
     try {
@@ -158,6 +161,24 @@ export function WorkflowsPage({ onNavigate }: {
       setWorkflow({ ...body.workflow, nodeCount: nodes.length }); setDirty(false); await loadWorkflows(page);
     } catch (error) { setSaveError(error instanceof Error ? error.message : "Could not save this workflow."); }
     finally { setSaving(false); }
+  };
+
+  const startRun = async () => {
+    if (!workflow) return;
+    setStartingRun(true); setRunError(null);
+    try {
+      const response = await fetch(`${API_BASE}/api/workflows/${workflow.id}/runs`, {
+        method: "POST", credentials: "include", headers: { "content-type": "application/json" },
+        body: JSON.stringify({}),
+      });
+      const body = await response.json() as { run?: { id: string }; error?: string };
+      if (!response.ok || !body.run) {
+        const message = body.error === "workflow_has_no_nodes" ? "Add and save at least one agent node before running this workflow." : "Could not start this run. Check the workflow and try again.";
+        throw new Error(message);
+      }
+      onNavigate("runs");
+    } catch (error) { setRunError(error instanceof Error ? error.message : "Could not start this run."); }
+    finally { setStartingRun(false); }
   };
 
   const removeSelectedNode = () => {
@@ -188,12 +209,14 @@ export function WorkflowsPage({ onNavigate }: {
             <Button variant="subtle" onClick={() => { setForm({ ...draft }); setFormError(null); setFormOpened(true); }}>Details</Button>
           </Group>
           <Group gap="xs" wrap="nowrap">
+            <Button variant="light" onClick={() => void startRun()} loading={startingRun} disabled={!workflow || dirty || saving || nodes.length === 0}>Run workflow</Button>
             <Button onClick={() => void saveWorkflow()} loading={saving} disabled={!dirty}>Save workflow</Button>
           </Group>
         </Group>
       </header>
       {detailError && <Alert m="sm" color="hiveError" title="Could not open workflow">{detailError}</Alert>}
       {saveError && <Alert m="sm" color="hiveError" title="Could not save workflow">{saveError}</Alert>}
+      {runError && <Alert m="sm" color="hiveError" title="Could not start run">{runError}</Alert>}
       {detailLoading ? <Group justify="center" className="workflow-editor-loading"><Loader size="sm" /><Text c="dimmed">Loading workflow…</Text></Group> : workflow && <div className="workflow-editor-body">
         <section className="workflow-editor-canvas" aria-label="Workflow canvas">
           <ReactFlow<WorkflowNode, Edge> nodes={nodes} edges={edges} onNodesChange={(changes) => { onNodesChange(changes); if (changes.some((change) => change.type === "position")) setDirty(true); }} onEdgesChange={(changes) => { onEdgesChange(changes); if (changes.some((change) => change.type === "remove")) setDirty(true); }} onConnect={onConnect} nodeTypes={{ agent: AgentNodeView }} fitView deleteKeyCode={null} proOptions={{ hideAttribution: false }}>
@@ -209,12 +232,12 @@ export function WorkflowsPage({ onNavigate }: {
           {selectedNode ? <Stack gap="md">
             <div><Text className="page-eyebrow">Node configuration</Text><Title order={2} size="h4" mt={5}>Agent node</Title></div>
             <Select label="Agent" placeholder="Choose a premade agent" data={agentOptions} value={selectedNode.data.agentId || null} onChange={selectAgent} searchable nothingFoundMessage="No agents found" />
-            {selectedNode.data.agentId && <Paper className="workflow-agent-summary" withBorder><Group justify="space-between" gap="xs"><Text fw={600}>{selectedNode.data.agentName}</Text><Badge variant="light" color="hiveSky">{selectedNode.data.modality}</Badge></Group><Text size="xs" c="dimmed" mt="xs">{selectedNode.data.agentDescription || "No agent description."}</Text></Paper>}
-            <Textarea label="Additional instructions" description="Instructions specific to this step in the workflow." placeholder="Add context or constraints for this workflow node…" value={selectedNode.data.instructions} onChange={(event) => updateSelectedNode({ instructions: event.currentTarget.value })} maxLength={2000} minRows={5} autosize />
-            <Text size="xs" c="dimmed">The selected agent’s base configuration is shown in the node. These instructions are saved with this workflow.</Text>
+            {selectedNode.data.agentId && <Paper className="workflow-agent-summary" withBorder><Group justify="space-between" gap="xs"><Text fw={600}>{selectedNode.data.agentName}</Text><Badge variant="light" color="hiveSky">{agentModalityLabel(selectedNode.data.modality)}</Badge></Group><Text size="xs" fw={600} mt="xs">Agent prompt</Text><Text size="xs" c="dimmed">{selectedNode.data.agentPrompt || "No agent prompt."}</Text></Paper>}
+            <Textarea label="Prompt" description="Defaults to the selected agent’s prompt. Edit it for this workflow node." placeholder="Enter the prompt for this workflow node…" value={selectedNode.data.prompt} onChange={(event) => updateSelectedNode({ prompt: event.currentTarget.value })} maxLength={2000} minRows={5} autosize />
+            <Text size="xs" c="dimmed">This node prompt is saved with the workflow and can differ from the reusable agent prompt.</Text>
           </Stack> : <Stack gap="md">
             <div><Text className="page-eyebrow">Workflow</Text><Title order={2} size="h4" mt={5}>Configuration</Title></div>
-            <Text size="sm" c="dimmed">Select a node to configure its agent and additional instructions. Connect nodes on the canvas to define the workflow order.</Text>
+            <Text size="sm" c="dimmed">Select a node to configure its agent and prompt. Connect nodes on the canvas to define the workflow order.</Text>
             <Paper className="workflow-agent-summary" withBorder><Text size="sm" c="dimmed">{nodes.length} {nodes.length === 1 ? "node" : "nodes"} · {edges.length} {edges.length === 1 ? "connection" : "connections"}</Text></Paper>
           </Stack>}
         </aside>
@@ -258,7 +281,7 @@ export function WorkflowsPage({ onNavigate }: {
 }
 
 function AgentNodeView({ data, selected }: { data: AgentNodeData; selected: boolean }) {
-  return <Paper className="workflow-agent-node" data-selected={selected || undefined} withBorder shadow="sm"><Handle type="target" position={Position.Left} /><Group justify="space-between" gap="xs" wrap="nowrap"><Text size="xs" c="hiveSky.3" fw={700}>{data.modality.toUpperCase()}</Text>{data.agentId && <Badge size="xs" variant="light" color="hiveSky">Configured</Badge>}</Group><Text fw={650} mt={5} lineClamp={1}>{data.agentName}</Text><Text size="xs" c="dimmed" mt={3} lineClamp={2}>{data.agentDescription || "No agent description."}</Text>{data.instructions && <Text size="xs" mt="xs" lineClamp={2}>“{data.instructions}”</Text>}<Handle type="source" position={Position.Right} /></Paper>;
+  return <Paper className="workflow-agent-node" data-selected={selected || undefined} withBorder shadow="sm"><Handle type="target" position={Position.Left} /><Group justify="space-between" gap="xs" wrap="nowrap"><Text size="xs" c="hiveSky.3" fw={700}>{agentModalityLabel(data.modality)}</Text>{data.agentId && <Badge size="xs" variant="light" color="hiveSky">Configured</Badge>}</Group><Text fw={650} mt={5} lineClamp={1}>{data.agentName}</Text><Text size="xs" c="dimmed" mt={3} lineClamp={3}>{data.prompt || "No prompt configured."}</Text><Handle type="source" position={Position.Right} /></Paper>;
 }
 
 function EditIcon() { return <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m14 5 5 5M4 20l4.2-.8L19 8.4a2.12 2.12 0 0 0-3-3L5.2 16.2 4 20Z" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" /></svg>; }

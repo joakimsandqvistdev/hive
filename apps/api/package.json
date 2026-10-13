@@ -5,6 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "tsx watch src/index.ts",
+    "worker:dev": "tsx watch src/worker.ts",
+    "worker": "node dist/worker.js",
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test:integration": "tsx tests/workflowApi.integration.test.ts",
