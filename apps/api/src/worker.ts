@@ -1,4 +1,5 @@
 import { hostname } from "node:os";
+import { FormData } from "undici";
 import { randomInt } from "node:crypto";
 import { and, eq } from "drizzle-orm";
 import { setTimeout as delay } from "node:timers/promises";
@@ -8,33 +9,13 @@ import { artifacts } from "./schema.js";
 import { defaultImageModelParameters, dimensionsForResolution, imageModelParametersSchema } from "./modelParameters.js";
 import { claimNextRun, failRun, finishRun, finishRunNode, heartbeatRun, setRunNodeRunning, type ClaimedRun } from "./runQueue.js";
 import { workflowExecutionOrder } from "./workflowExecutionOrder.js";
+import { imageRunnerRejection, imageRunnerTransportFailure } from "./imageRunnerErrors.js";
+import { createImageRunnerClient } from "./imageRunnerClient.js";
 
 const workerId = `${hostname()}:${process.pid}`;
 const runnerUrl = (process.env.ZIMAGE_RUNNER_URL ?? "http://127.0.0.1:8188").replace(/\/$/, "");
+const imageRunner = createImageRunnerClient(runnerUrl);
 const MAX_OUTPUT_BYTES = 25 * 1024 * 1024;
-
-async function imageRunnerRejection(response: Response): Promise<string> {
-  if (response.status === 503) {
-    return "Image runner is loading or unavailable. Qwen-Image-Edit-2511 may need to download its 57.7 GB model files on first use.";
-  }
-  if (response.status === 422) {
-    try {
-      const body = await response.json() as { detail?: unknown };
-      if (typeof body.detail === "string") return `Image runner rejected the request: ${body.detail.slice(0, 300)}`;
-      if (Array.isArray(body.detail)) {
-        const issues = body.detail.slice(0, 5).map((issue) => {
-          const item = object(issue);
-          const location = Array.isArray(item.loc) ? item.loc.filter((part) => part !== "body" && part !== "form").join(".") : "request";
-          return `${location || "request"}: ${String(item.msg ?? "invalid value").slice(0, 120)}`;
-        });
-        if (issues.length) return `Image runner validation failed: ${issues.join("; ")}`;
-      }
-    } catch {
-      // The runner may return a non-JSON validation error; keep a safe generic summary.
-    }
-  }
-  return `Image runner rejected the request with HTTP ${response.status}.`;
-}
 
 type SnapshotNode = {
   id: string;
@@ -135,16 +116,14 @@ async function execute(run: ClaimedRun, signal: AbortSignal): Promise<void> {
       form.append("images", new Blob([imageBuffer], { type: "image/png" }), `${sourceNodeId}.png`);
     }
 
-    const response = await fetch(`${runnerUrl}/generate`, {
-      method: "POST",
-      body: form,
-      signal: AbortSignal.any([signal, AbortSignal.timeout(60 * 60 * 1000)]),
-    });
+    const response = await imageRunner.generate(form, signal);
     if (!response.ok) throw new Error(await imageRunnerRejection(response));
     if (!response.headers.get("content-type")?.toLowerCase().startsWith("image/png")) throw new Error("Image runner did not return a PNG image.");
     const declaredLength = Number(response.headers.get("content-length") ?? 0);
     if (declaredLength > MAX_OUTPUT_BYTES) throw new Error("Image runner output exceeds the 25 MB limit.");
-    const bytes = Buffer.from(await response.arrayBuffer());
+    const bytes = Buffer.from(await response.arrayBuffer().catch((error) => {
+      throw new Error(imageRunnerTransportFailure(error), { cause: error });
+    }));
     const stored = await savePng(bytes);
     let metadataInserted = false;
     try {
@@ -194,5 +173,6 @@ try {
     await processRun(run);
   }
 } finally {
+  await imageRunner.close();
   await pool.end();
 }

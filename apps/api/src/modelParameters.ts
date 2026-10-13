@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 export const imageModelIdSchema = z.enum(["z-image-turbo", "qwen-image-edit-2511"]);
-export const imageResolutionSchema = z.enum(["512x512", "768x768", "1024x1024", "512x768", "768x512"]);
+export const imageResolutionSchema = z.enum(["256x256", "512x512", "768x768", "1024x1024", "512x768", "768x512"]);
 
 export const defaultImageModelParameters = {
   modelId: "z-image-turbo",
