@@ -16,5 +16,32 @@ services:
       timeout: 3s
       retries: 10
 
+  zimage-runner:
+    profiles: [zimage]
+    build:
+      context: ./services/zimage-runner
+    restart: unless-stopped
+    environment:
+      MODEL_ID: Tongyi-MAI/Z-Image-Turbo
+      HF_HOME: /cache/huggingface
+      PORT: "8000"
+    ports:
+      - "127.0.0.1:8188:8000"
+    volumes:
+      - zimage_model_cache:/cache/huggingface
+    networks:
+      - model_runner_net
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30m
+
 volumes:
   postgres_data:
+  zimage_model_cache:
+
+networks:
+  model_runner_net:
+    driver: bridge

@@ -2,13 +2,13 @@ import { and, count, eq, inArray, sql } from "drizzle-orm";
 import { Router } from "express";
 import { z } from "zod";
 import { db } from "./db.js";
-import { agents, workflowEdges, workflowNodes, workflows } from "./schema.js";
+import { agents, runNodes, runs, workflowEdges, workflowNodes, workflows } from "./schema.js";
 
 const router = Router();
 const nodeSchema = z.object({
   id: z.string().min(1).max(100),
   agentId: z.string().uuid(),
-  instructions: z.string().max(2000).default(""),
+  prompt: z.string().max(2000).optional(),
   position: z.object({ x: z.number().finite().min(-1_000_000).max(1_000_000), y: z.number().finite().min(-1_000_000).max(1_000_000) }),
 });
 const edgeSchema = z.object({
@@ -57,6 +57,7 @@ const definitionSchema = z.object({ nodes: z.array(nodeSchema).max(100), edges: 
 const metadataSchema = z.object({ name: z.string().trim().min(1).max(100), description: z.string().trim().max(1000).default("") });
 const createSchema = metadataSchema;
 const saveSchema = metadataSchema.extend({ definition: definitionSchema });
+const startRunSchema = z.object({});
 function userId(res: import("express").Response) { return res.locals.userId as string; }
 function isUniqueViolation(error: unknown) { return typeof error === "object" && error !== null && "code" in error && error.code === "23505"; }
 function parsePagination(req: import("express").Request) {
@@ -106,9 +107,74 @@ router.get("/:id", async (req, res, next) => {
       db.select().from(workflowEdges).where(eq(workflowEdges.workflowId, workflow.id)),
     ]);
     res.json({ workflow, definition: {
-      nodes: nodes.map((node) => ({ id: node.nodeId, agentId: node.agentId, instructions: node.instructions, position: { x: node.positionX, y: node.positionY } })),
+      nodes: nodes.map((node) => ({ id: node.nodeId, agentId: node.agentId, prompt: node.prompt, position: { x: node.positionX, y: node.positionY } })),
       edges: edges.map((edge) => ({ id: edge.edgeId, source: edge.sourceNodeId, target: edge.targetNodeId })),
     } });
+  } catch (error) { next(error); }
+});
+
+router.post("/:id/runs", async (req, res, next) => {
+  if (req.get("origin") !== (process.env.WEB_ORIGIN ?? "http://localhost:5173")) { res.status(403).json({ error: "invalid_origin" }); return; }
+  const parsed = startRunSchema.safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ error: "invalid_run_input", details: parsed.error.flatten() }); return; }
+  const ownerId = userId(res);
+  try {
+    const result = await db.transaction(async (tx) => {
+      const [workflow] = await tx.select().from(workflows)
+        .where(and(eq(workflows.id, req.params.id), eq(workflows.userId, ownerId), sql`${workflows.archivedAt} is null`))
+        .limit(1).for("share");
+      if (!workflow) return null;
+
+      const rows = await tx.select({
+        nodeId: workflowNodes.nodeId,
+        agentId: agents.id,
+        agentName: agents.name,
+        modality: agents.modality,
+        agentPrompt: agents.prompt,
+        prompt: workflowNodes.prompt,
+        positionX: workflowNodes.positionX,
+        positionY: workflowNodes.positionY,
+      }).from(workflowNodes)
+        .innerJoin(agents, and(eq(agents.id, workflowNodes.agentId), eq(agents.userId, ownerId)))
+        .where(eq(workflowNodes.workflowId, workflow.id));
+      if (rows.length === 0) return "empty_workflow" as const;
+
+      const edges = await tx.select({ id: workflowEdges.edgeId, source: workflowEdges.sourceNodeId, target: workflowEdges.targetNodeId })
+        .from(workflowEdges).where(eq(workflowEdges.workflowId, workflow.id));
+      const workflowSnapshot = {
+        id: workflow.id,
+        name: workflow.name,
+        description: workflow.description,
+        nodes: rows.map((node) => ({
+          id: node.nodeId,
+          agentId: node.agentId,
+          agent: { id: node.agentId, name: node.agentName, modality: node.modality, prompt: node.agentPrompt },
+          prompt: node.prompt,
+          position: { x: node.positionX, y: node.positionY },
+        })),
+        edges,
+      };
+      const [run] = await tx.insert(runs).values({
+        userId: ownerId,
+        workflowId: workflow.id,
+        status: "queued",
+        inputJson: {},
+        workflowSnapshotJson: workflowSnapshot,
+      }).returning();
+      await tx.insert(runNodes).values(rows.map((node) => ({
+        runId: run.id,
+        userId: ownerId,
+        nodeId: node.nodeId,
+        agentId: node.agentId,
+        status: "queued" as const,
+        agentSnapshotJson: { id: node.agentId, name: node.agentName, modality: node.modality, prompt: node.agentPrompt },
+        prompt: node.prompt,
+      })));
+      return run;
+    });
+    if (result === null) { res.status(404).json({ error: "workflow_not_found" }); return; }
+    if (result === "empty_workflow") { res.status(400).json({ error: "workflow_has_no_nodes" }); return; }
+    res.status(202).json({ run: result });
   } catch (error) { next(error); }
 });
 
@@ -123,11 +189,12 @@ router.put("/:id", async (req, res, next) => {
       const [existing] = await tx.select().from(workflows)
         .where(and(eq(workflows.id, req.params.id), eq(workflows.userId, ownerId), sql`${workflows.archivedAt} is null`)).limit(1).for("update");
       if (!existing) return null;
-      if (referencedAgentIds.length) {
-        const ownedAgents = await tx.select({ id: agents.id }).from(agents)
-          .where(and(eq(agents.userId, ownerId), inArray(agents.id, referencedAgentIds)));
-        if (ownedAgents.length !== referencedAgentIds.length) return "invalid_agents" as const;
-      }
+      const agentRows = referencedAgentIds.length
+        ? await tx.select({ id: agents.id, prompt: agents.prompt }).from(agents)
+          .where(and(eq(agents.userId, ownerId), inArray(agents.id, referencedAgentIds)))
+        : [];
+      if (agentRows.length !== referencedAgentIds.length) return "invalid_agents" as const;
+      const agentPromptById = new Map(agentRows.map((agent) => [agent.id, agent.prompt]));
       const [updated] = await tx.update(workflows).set({ name: parsed.data.name, description: parsed.data.description, updatedAt: new Date() })
         .where(and(eq(workflows.id, existing.id), eq(workflows.userId, ownerId))).returning();
       await tx.delete(workflowEdges).where(eq(workflowEdges.workflowId, existing.id));
@@ -138,7 +205,7 @@ router.put("/:id", async (req, res, next) => {
           nodeId: node.id,
           userId: ownerId,
           agentId: node.agentId,
-          instructions: node.instructions,
+          prompt: node.prompt ?? agentPromptById.get(node.agentId) ?? "",
           positionX: node.position.x,
           positionY: node.position.y,
         })));

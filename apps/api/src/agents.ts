@@ -9,7 +9,7 @@ const modalities = ["text", "image", "audio", "video"] as const;
 const agentInput = z.object({
   modality: z.enum(modalities),
   name: z.string().trim().min(1).max(80),
-  description: z.string().trim().max(500).default(""),
+  prompt: z.string().trim().max(500).default(""),
 });
 
 function userId(res: import("express").Response) {

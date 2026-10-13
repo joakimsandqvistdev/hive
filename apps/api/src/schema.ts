@@ -1,7 +1,9 @@
-import { boolean, foreignKey, index, pgEnum, pgTable, primaryKey, real, serial, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
+import { boolean, foreignKey, index, integer, jsonb, pgEnum, pgTable, primaryKey, real, serial, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
 export const agentModality = pgEnum("agent_modality", ["text", "image", "audio", "video"]);
+export const runStatus = pgEnum("run_status", ["queued", "running", "succeeded", "failed", "cancel_requested", "cancelled"]);
+export const runNodeStatus = pgEnum("run_node_status", ["queued", "running", "succeeded", "failed", "skipped"]);
 
 export const users = pgTable("users", {
   id: uuid("id").defaultRandom().primaryKey(),
@@ -36,7 +38,7 @@ export const agents = pgTable("agents", {
   userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   modality: agentModality("modality").notNull(),
   name: text("name").notNull(),
-  description: text("description").notNull().default(""),
+  prompt: text("prompt").notNull().default(""),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
@@ -63,7 +65,7 @@ export const workflowNodes = pgTable("workflow_nodes", {
   nodeId: text("node_id").notNull(),
   userId: uuid("user_id").notNull(),
   agentId: uuid("agent_id").notNull(),
-  instructions: text("instructions").notNull().default(""),
+  prompt: text("prompt").notNull().default(""),
   positionX: real("position_x").notNull().default(0),
   positionY: real("position_y").notNull().default(0),
 }, (table) => [
@@ -84,4 +86,64 @@ export const workflowEdges = pgTable("workflow_edges", {
   foreignKey({ columns: [table.workflowId, table.userId], foreignColumns: [workflows.id, workflows.userId], name: "workflow_edges_workflow_owner_fk" }).onDelete("cascade"),
   foreignKey({ columns: [table.workflowId, table.sourceNodeId], foreignColumns: [workflowNodes.workflowId, workflowNodes.nodeId], name: "workflow_edges_source_node_fk" }).onDelete("cascade"),
   foreignKey({ columns: [table.workflowId, table.targetNodeId], foreignColumns: [workflowNodes.workflowId, workflowNodes.nodeId], name: "workflow_edges_target_node_fk" }).onDelete("cascade"),
+]);
+
+export const runs = pgTable("runs", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  workflowId: uuid("workflow_id").references(() => workflows.id, { onDelete: "set null" }),
+  status: runStatus("status").notNull().default("queued"),
+  inputJson: jsonb("input_json").$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
+  workflowSnapshotJson: jsonb("workflow_snapshot_json").$type<Record<string, unknown>>().notNull(),
+  errorSummary: text("error_summary"),
+  attemptCount: integer("attempt_count").notNull().default(0),
+  claimedBy: text("claimed_by"),
+  leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+  heartbeatAt: timestamp("heartbeat_at", { withTimezone: true }),
+  cancelRequestedAt: timestamp("cancel_requested_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  startedAt: timestamp("started_at", { withTimezone: true }),
+  finishedAt: timestamp("finished_at", { withTimezone: true }),
+}, (table) => [
+  index("runs_user_created_idx").on(table.userId, table.createdAt),
+  index("runs_queue_idx").on(table.status, table.createdAt, table.leaseExpiresAt),
+  uniqueIndex("runs_id_user_unique").on(table.id, table.userId),
+]);
+
+export const runNodes = pgTable("run_nodes", {
+  runId: uuid("run_id").notNull(),
+  userId: uuid("user_id").notNull(),
+  nodeId: text("node_id").notNull(),
+  agentId: uuid("agent_id").notNull(),
+  status: runNodeStatus("status").notNull().default("queued"),
+  agentSnapshotJson: jsonb("agent_snapshot_json").$type<Record<string, unknown>>().notNull(),
+  prompt: text("prompt").notNull().default(""),
+  resolvedInputJson: jsonb("resolved_input_json").$type<Record<string, unknown>>(),
+  outputJson: jsonb("output_json").$type<Record<string, unknown>>(),
+  errorCode: text("error_code"),
+  errorSummary: text("error_summary"),
+  attemptCount: integer("attempt_count").notNull().default(0),
+  startedAt: timestamp("started_at", { withTimezone: true }),
+  finishedAt: timestamp("finished_at", { withTimezone: true }),
+}, (table) => [
+  primaryKey({ columns: [table.runId, table.nodeId], name: "run_nodes_pk" }),
+  index("run_nodes_user_run_idx").on(table.userId, table.runId),
+  foreignKey({ columns: [table.runId, table.userId], foreignColumns: [runs.id, runs.userId], name: "run_nodes_run_owner_fk" }).onDelete("cascade"),
+]);
+
+export const artifacts = pgTable("artifacts", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  userId: uuid("user_id").notNull(),
+  runId: uuid("run_id").notNull(),
+  runNodeId: text("run_node_id").notNull(),
+  storageKey: text("storage_key").notNull().unique(),
+  mediaType: text("media_type").notNull(),
+  byteSize: integer("byte_size").notNull(),
+  checksum: text("checksum").notNull(),
+  displayName: text("display_name").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table) => [
+  index("artifacts_user_created_idx").on(table.userId, table.createdAt),
+  foreignKey({ columns: [table.runId, table.userId], foreignColumns: [runs.id, runs.userId], name: "artifacts_run_owner_fk" }).onDelete("cascade"),
+  foreignKey({ columns: [table.runId, table.runNodeId], foreignColumns: [runNodes.runId, runNodes.nodeId], name: "artifacts_run_node_fk" }).onDelete("cascade"),
 ]);

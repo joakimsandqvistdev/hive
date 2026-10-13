@@ -15,10 +15,10 @@ if (!email) {
     }
 
     const samples = [
-      { modality: "text" as const, name: "Sample Text Writer", description: "Placeholder writing agent for drafting and refining text." },
-      { modality: "image" as const, name: "Sample Image Creator", description: "Placeholder image agent for creating visual concepts." },
-      { modality: "audio" as const, name: "Sample Audio Creator", description: "Placeholder audio agent for speech and sound generation." },
-      { modality: "video" as const, name: "Sample Video Creator", description: "Placeholder video agent for assembling scenes and motion." },
+      { modality: "text" as const, name: "Sample Text Writer", prompt: "Draft and refine clear, coherent text based on the run request." },
+      { modality: "image" as const, name: "Sample Image Creator", prompt: "Create a visual image that follows the run request." },
+      { modality: "audio" as const, name: "Sample Audio Creator", prompt: "Generate speech or sound that follows the run request." },
+      { modality: "video" as const, name: "Sample Video Creator", prompt: "Assemble scenes and motion that follow the run request." },
     ];
 
     for (const sample of samples) {

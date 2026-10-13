@@ -4,7 +4,7 @@
 
 Define a proof-of-concept architecture for creating reusable AI agents, composing them into workflows, and executing workflows whose later agents consume earlier agents' outputs. The example workflow creates a character image, a background image, and speech audio, then passes those artifacts and a description to a video-generation agent.
 
-This is a design proposal, not a statement that all capabilities already exist. The repository has a React 19/Vite/Mantine web app, an Express 5 TypeScript API, PostgreSQL 17 with Drizzle, and Google sign-in. Agent definitions now have an initial authenticated CRUD slice; workflow execution, jobs, and artifact storage remain unimplemented. Existing Docker Compose currently runs PostgreSQL only.
+This design describes the target MVP and distinguishes implemented pieces from planned behavior. The repository has a React 19/Vite/Mantine web app, an Express 5 TypeScript API, PostgreSQL 17 with Drizzle, and Google sign-in. Agent and workflow CRUD are implemented. A local Z-Image-Turbo runner, durable run queue, worker execution loop, local artifact storage, authenticated artifact downloads, and initial run launch/history/progress UI are implemented. Connected multi-agent execution and cancellation remain outstanding. Docker Compose runs PostgreSQL and includes the optional local image runner profile.
 
 ## MVP goals and boundaries
 
@@ -12,7 +12,7 @@ The MVP should demonstrate that a signed-in user can:
 
 1. Create, edit, list, and delete reusable agent definitions.
 2. Assemble a directed workflow from those agents, connect typed outputs to typed inputs, and save/edit/reuse it.
-3. Start a run with a textual prompt and optional files, observe its state and per-agent progress, and inspect/download generated outputs.
+3. Start a run from a saved workflow, observe its state and per-agent progress, and inspect/download generated outputs. Each model prompt is assembled from its reusable agent prompt and workflow-node prompt.
 4. Run supported inference locally, without per-request hosted-model API charges.
 
 Keep the first release to one deployment host, one user-owned workflow space per account, a small allow-listed set of local model runtimes, sequential dependency execution, and common text/image/audio/file inputs and outputs. It is acceptable to execute independent ready nodes concurrently if capacity permits, but concurrency is not a user-facing tuning surface in the first cut.
@@ -41,12 +41,13 @@ flowchart LR
 
 - **Web app:** Agent management forms, visual workflow builder, validation feedback, run history and live status. Do not send model weights or inference requests directly from the browser in the default design.
 - **API/control plane:** Existing Express app. Enforce session authentication and ownership on every agent, workflow, run, and artifact request. Validate workflow structure and runner configuration. Capture the workflow's current definition in a run snapshot and enqueue the run transactionally.
-- **Queue and worker:** A queue decouples potentially long GPU/CPU work from HTTP request lifetimes. For an initial single-host POC, use PostgreSQL-backed jobs with row locking/`SKIP LOCKED` and leases, or add a small Redis-backed queue if operational simplicity proves better. Avoid an in-memory queue because restarts would lose queued work. One worker process is sufficient initially.
+- **Queue and worker:** A queue decouples potentially long GPU/CPU work from HTTP request lifetimes. The POC stores queued jobs in `runs`; a separate TypeScript worker claims jobs with PostgreSQL `SKIP LOCKED` leases and polls for work. It can reclaim interrupted jobs up to three attempts. Avoid an in-memory queue because restarts would lose queued work. One worker process is sufficient initially.
 - **Orchestrator:** Validates the graph, schedules nodes whose dependencies are satisfied, resolves their input bindings, calls the appropriate runner adapter, stores output artifacts, and records node/run state. Retries only transient failures with a small bounded policy; never retry a node indefinitely.
+- **Prompt handling:** The workflow editor initializes a node's prompt from its selected agent. Once saved, execution uses only the workflow-node prompt; later changes to the reusable agent do not change that workflow node. Starting a run does not ask for a separate run-level prompt.
 - **Model runners:** Containerized, allow-listed inference services with explicit model/runtime adapters. Keep runners off the public network and expose only to the worker on a private Compose network. Runners should not access the database or have credentials to the artifact store. The worker transfers input files through a controlled local interface and validates output paths and sizes.
-- **Artifact store:** A storage interface called by the API/worker. Start with a dedicated Docker named volume or host-managed data directory mounted only where required. Persist metadata in PostgreSQL and bytes in the store; do not put large binary payloads in database rows.
+- **Artifact store:** The worker writes generated PNG files to an opaque-key local directory (`.data/artifacts` by default, configurable with `ARTIFACT_ROOT`). PostgreSQL stores owner, run/node references, MIME type, byte count, checksum, and display name. Authenticated API downloads enforce ownership. For Docker deployments, mount a persistent volume at the configured root. Do not put large binary payloads in database rows.
 
-The current Compose stack only starts PostgreSQL. For local development, add worker/runner services behind Compose profiles or provide documented host-run alternatives. Do not assume Docker Compose on an arbitrary laptop can expose a GPU: GPU passthrough and driver/runtime support depend on OS and hardware. Begin with CPU-capable small models or a verified GPU development environment.
+The worker is started separately with `npm run worker:dev -w @hive/api`; configure `ZIMAGE_RUNNER_URL` when the runner is not at its local default. For local development, add worker/runner services behind Compose profiles or provide documented host-run alternatives. Do not assume Docker Compose on an arbitrary laptop can expose a GPU: GPU passthrough and driver/runtime support depend on OS and hardware. Begin with CPU-capable small models or a verified GPU development environment.
 
 ### Workflow execution model
 
@@ -81,13 +82,13 @@ Use UUID primary keys, `created_at`/`updated_at` timestamps, foreign keys, and i
 
 | Table | Important fields | Purpose |
 |---|---|---|
-| `agents` | `id`, `user_id`, `name`, `description`, `task_type`, `runner_type`, `model_id`, `config_json`, `input_schema_json`, `output_schema_json`, `created_at`, `updated_at`, `archived_at` | Reusable, declarative agent configuration. Keep secrets out of JSON. Model IDs must refer to allow-listed locally installed/downloaded models. |
+| `agents` | `id`, `user_id`, `name`, `prompt`, `modality`, `created_at`, `updated_at` | Reusable, declarative agent configuration. Keep secrets out of JSON. Model IDs must refer to allow-listed locally installed/downloaded models. |
 | `workflows` | `id`, `user_id`, `name`, `description`, `created_at`, `updated_at`, `archived_at` | Stable workflow identity and ownership; one current definition per workflow. |
-| `workflow_nodes` | `workflow_id`, `node_id`, `user_id`, `agent_id`, `instructions`, `position_x`, `position_y` | Current workflow nodes. Composite owner references prevent cross-user agent use. Saving a workflow replaces its node rows. |
+| `workflow_nodes` | `workflow_id`, `node_id`, `user_id`, `agent_id`, `prompt`, `position_x`, `position_y` | Current workflow nodes. Node prompts default to the selected agent's prompt and may be edited for that workflow. Composite owner references prevent cross-user agent use. Saving a workflow replaces its node rows. |
 | `workflow_edges` | `workflow_id`, `edge_id`, `user_id`, `source_node_id`, `target_node_id` | Current directed node connections. Foreign keys ensure both endpoints exist in the same workflow. |
-| `runs` | `id`, `user_id`, `workflow_id`, `status`, `input_json`, `snapshot_json`, `error_summary`, `started_at`, `finished_at`, `created_at`, `cancel_requested_at` | Execution instance tied to a snapshot of the workflow definition and agent settings captured when the run starts. |
-| `run_nodes` | `id`, `run_id`, `node_id`, `agent_id`, `status`, `resolved_input_json`, `output_json`, `attempt_count`, `error_code`, `error_summary`, `started_at`, `finished_at` | Per-agent execution state and typed references to outputs. Unique `(run_id, node_id)`. Avoid storing binary output data inline. |
-| `artifacts` | `id`, `user_id`, `run_id`, `run_node_id`, `storage_key`, `media_type`, `byte_size`, `checksum`, `display_name`, `status`, `created_at`, `expires_at` | Metadata for user uploads and generated files. Use opaque storage keys; validate media type and size. Add nullable run references for user-uploaded inputs. |
+| `runs` | `id`, `user_id`, `workflow_id`, `status`, `input_json`, `workflow_snapshot_json`, `error_summary`, queue lease fields, `started_at`, `finished_at`, `created_at`, `cancel_requested_at` | Durable queue item and execution instance tied to a snapshot of the workflow definition and agent settings captured when the run starts. |
+| `run_nodes` | `run_id`, `user_id`, `node_id`, `agent_id`, `status`, `agent_snapshot_json`, `resolved_input_json`, `output_json`, `attempt_count`, `error_code`, `error_summary`, `started_at`, `finished_at` | Per-agent execution state and typed references to outputs. Unique `(run_id, node_id)`. Avoid storing binary output data inline. |
+| `artifacts` | `id`, `user_id`, `run_id`, `run_node_id`, `storage_key`, `media_type`, `byte_size`, `checksum`, `display_name`, `created_at` | Metadata for generated files. Use opaque storage keys; validate media type and size. Add nullable run references for user-uploaded inputs. |
 | `run_events` (optional for first cut) | `id`, `run_id`, `sequence`, `event_type`, `payload_json`, `created_at` | Durable progress/event history if node state alone is insufficient for UI updates or recovery. Can be deferred until event details are required. |
 
 Use cascading deletes for user-owned definitions only where semantics are clear. Prefer archiving agents/workflows so historical runs remain readable. Agent deletion must be rejected when a current workflow references it; enforce this in both the API and a restrictive foreign key. Workflow edits replace the current definition. Run snapshots preserve the definition used by an execution without creating workflow history. Enforce ownership in API queries and, if the product becomes multi-tenant beyond individual user ownership, consider PostgreSQL row-level security as an additional safeguard. Do not rely on unguessable UUIDs as authorization.
@@ -97,7 +98,7 @@ Use cascading deletes for user-owned definitions only where semantics are clear.
 - `GET/POST /api/agents`, `GET/PATCH/DELETE /api/agents/:id`
 - `GET/POST /api/workflows`, `GET/PATCH/DELETE /api/workflows/:id`
 - `POST /api/workflows/:id/validate` returns graph and model capability errors
-- `POST /api/workflows/:id/runs` accepts input/artifact references and captures the current workflow definition; returns run ID and queued state
+- `POST /api/workflows/:id/runs` captures the current workflow definition and returns run ID and queued state. Future run-level inputs can be passed separately from the agent/node prompts.
 - `GET /api/runs`, `GET /api/runs/:id`, `POST /api/runs/:id/cancel`
 - `GET /api/runs/:id/events` or status polling for progress
 - `GET /api/artifacts/:id` streams bytes after ownership authorization
@@ -118,10 +119,10 @@ Validate request and persisted JSON with Zod schemas. Set request body and uploa
 
 ## MVP delivery sequence
 
-1. **Feasibility spike:** Pick one local model/runtime per needed modality, verify license, hardware footprint, container support, latency, and artifact transfer. Demonstrate one text-to-image or text-to-audio node end to end. Do not make video a launch dependency until a locally runnable model is proven on target hardware.
+1. **Feasibility spike:** Pick one local model/runtime per needed modality, verify license, hardware footprint, container support, latency, and artifact transfer. A Z-Image-Turbo runner has generated a 512x512 image on the current 8 GiB NVIDIA development GPU using sequential CPU offload. Do not make video a launch dependency until a locally runnable model is proven on target hardware.
 2. **Definitions:** Add agent CRUD, workflow DAG editor/serialization, schemas, and graph validation. Persist one current workflow definition and replace it on save.
-3. **Execution:** Add durable queue/worker, one runner adapter, run/node records, bounded retries, progress UI, and cancellation request handling.
-4. **Artifacts:** Add upload and generated-output storage in a persistent local volume, authorized download, size limits, and cleanup policy.
+3. **Execution:** The durable run/queue schema, workflow snapshot creation, owner-scoped run APIs, queue worker, Z-Image image adapter, run launch, history, and polling progress UI are implemented. Connected graphs and non-image modalities fail explicitly until adapters and input binding are implemented. Add cancellation request handling.
+4. **Artifacts:** Generated PNG storage, authenticated download, 25 MB output limits, and checksums are implemented for local development. Add upload handling, retention, orphan cleanup, and persistent-volume deployment configuration.
 5. **Representative chain:** Connect two or more agents with an image/audio artifact to a downstream supported model; document resource requirements and known model limitations.
 
 ## Decisions to revisit after the POC
