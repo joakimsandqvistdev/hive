@@ -1,4 +1,4 @@
-import { Badge, Box, Button, Group, Paper, Stack, Text, Title } from "@mantine/core";
+import { Button, Group, Paper, Stack, Text, Title } from "@mantine/core";
 import type { AppView } from "../navigation/navigationState";
 import { useAuth } from "../auth";
 
@@ -10,37 +10,36 @@ export function HomePage({ onNavigate }: { onNavigate: (view: AppView) => void }
         <Stack gap="xs">
           <Title order={2} className="welcome-title">Coordinate AI agents in one workspace.</Title>
           <Text className="welcome-description">
-            Hive is an AI orchestration workspace for reusable text, image, audio, and video agents. The goal is to connect agents into workflows and review each run’s outputs. Agent management is available now; workflow execution is coming next.
+            Create reusable agents, connect supported image tasks in visual workflows, and run them with models downloaded to your local Docker runner. Track run and agent-step progress, stop active runs, and review or download generated images.
           </Text>
         </Stack>
         {!user && <Button w="fit-content" onClick={openLoginModal}>Log in to get started</Button>}
-        <Group gap="xs" className="welcome-signature">
-          <Text className="signature-mark" aria-hidden="true">&gt;_</Text>
-          <Text size="sm" fw={550} c="hiveSky.7">A little room to grow</Text>
-        </Group>
       </Stack>
       {user ? <Paper className="home-note" withBorder>
         <span className="note-mark" aria-hidden="true" />
         <Stack gap={2}>
           <Text fw={600} size="sm">Your workspace is ready.</Text>
-          <Text size="sm" c="dimmed">Manage your agents or explore the workflow and run views.</Text>
+          <Text size="sm" c="dimmed">Manage agents and models, build workflows, and review your runs and generated images.</Text>
         </Stack>
       </Paper> : <Paper className="home-note" withBorder>
         <span className="note-mark" aria-hidden="true" />
         <Stack gap={2}>
           <Text fw={600} size="sm">Sign in to access your private workspace.</Text>
-          <Text size="sm" c="dimmed">Agents, workflows, and runs are available after you log in.</Text>
+          <Text size="sm" c="dimmed">Manage agents, download models, build workflows, and review runs after you log in.</Text>
         </Stack>
       </Paper>}
       {user && <Group className="workspace-shortcuts" grow align="stretch">
+        <Paper className="workspace-shortcut" withBorder onClick={() => onNavigate("models")} role="button" tabIndex={0} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") onNavigate("models"); }}>
+          <Text fw={600}>Models</Text><Text size="sm" c="dimmed">Check requirements and download supported image models to the local runner.</Text><Button variant="subtle" onClick={(event) => { event.stopPropagation(); onNavigate("models"); }}>Browse models</Button>
+        </Paper>
         <Paper className="workspace-shortcut" withBorder onClick={() => onNavigate("agents")} role="button" tabIndex={0} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") onNavigate("agents"); }}>
-          <Text fw={600}>Agents</Text><Text size="sm" c="dimmed">Define reusable model tasks and their inputs.</Text><Button variant="subtle" onClick={(event) => { event.stopPropagation(); onNavigate("agents"); }}>Browse agents</Button>
+          <Text fw={600}>Agents</Text><Text size="sm" c="dimmed">Define reusable agent instructions and image-model settings.</Text><Button variant="subtle" onClick={(event) => { event.stopPropagation(); onNavigate("agents"); }}>Browse agents</Button>
         </Paper>
         <Paper className="workspace-shortcut" withBorder onClick={() => onNavigate("workflows")} role="button" tabIndex={0} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") onNavigate("workflows"); }}>
-          <Text fw={600}>Workflows</Text><Text size="sm" c="dimmed">Connect agents into reusable pipelines.</Text><Button variant="subtle" onClick={(event) => { event.stopPropagation(); onNavigate("workflows"); }}>Browse workflows</Button>
+          <Text fw={600}>Workflows</Text><Text size="sm" c="dimmed">Build visual workflows from agents and connect supported image references.</Text><Button variant="subtle" onClick={(event) => { event.stopPropagation(); onNavigate("workflows"); }}>Browse workflows</Button>
         </Paper>
         <Paper className="workspace-shortcut" withBorder onClick={() => onNavigate("runs")} role="button" tabIndex={0} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") onNavigate("runs"); }}>
-          <Text fw={600}>Runs</Text><Text size="sm" c="dimmed">Track execution and review generated files.</Text><Button variant="subtle" onClick={(event) => { event.stopPropagation(); onNavigate("runs"); }}>View runs</Button>
+          <Text fw={600}>Runs</Text><Text size="sm" c="dimmed">Track progress and duration, stop active runs, and download generated images.</Text><Button variant="subtle" onClick={(event) => { event.stopPropagation(); onNavigate("runs"); }}>View runs</Button>
         </Paper>
       </Group>}
     </Stack>
