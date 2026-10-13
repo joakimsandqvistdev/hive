@@ -12,6 +12,7 @@ COPY requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir --break-system-packages -r requirements.txt
 
 COPY app.py ./app.py
+COPY download_worker.py ./download_worker.py
 COPY generation_process.py ./generation_process.py
 
 EXPOSE 8000

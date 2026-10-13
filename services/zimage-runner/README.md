@@ -30,7 +30,7 @@ If this fails to reserve a GPU, verify host GPU visibility and Docker GPU suppor
 
 - `GET http://localhost:8188/health` reports readiness, last selected model, device, `pipeline_loaded`, and `generation_active`. A busy runner is processing a request in its child process; `pipeline_loaded` describes the HTTP process and stays false. An idle runner remains ready when its pipeline has been released; the next request loads it.
 - The Hive worker calls `POST http://localhost:8188/generate` as multipart form data. It selects `z-image-turbo` or `qwen-image-edit-2511`; Qwen edit requests include one to ten PNG reference files from connected workflow image nodes. The response is PNG.
-- `GET http://localhost:8188/models` reports installed/download status. `POST /models/{id}/download` begins a background download into the persistent cache. Model weights are not bundled in the application or runner image; generation fails until its model is downloaded.
+- `GET http://localhost:8188/models` reports installed/download status and byte progress for an active download. `POST /models/{id}/download` starts a supervised background download; `DELETE /models/{id}/download` stops it and removes that model's incomplete Hub and Xet cache. Completed model caches are preserved. Model weights are not bundled in the application or runner image; generation fails until its model is downloaded.
 
 The generate route is an internal worker interface rather than a public API; model selection is allow-listed, and image references are validated and size-limited.
 
