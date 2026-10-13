@@ -45,11 +45,12 @@ export async function claimNextRun(workerId: string, leaseSeconds = 120): Promis
   return claimed;
 }
 
-export async function setRunNodeRunning(runId: string, nodeId: string, workerId: string): Promise<boolean> {
-  const result = await pool.query(`UPDATE run_nodes n SET status='running', attempt_count=n.attempt_count+1,
-      started_at=COALESCE(n.started_at,now()), error_code=NULL, error_summary=NULL
-    FROM runs r WHERE n.run_id=$1 AND n.node_id=$2 AND n.status='queued' AND r.id=n.run_id AND r.claimed_by=$3 AND r.status='running'`, [runId,nodeId,workerId]);
-  return result.rowCount === 1;
+export async function setRunNodeRunning(runId: string, nodeId: string, workerId: string, resolvedInput: Record<string, unknown>): Promise<Record<string, unknown> | null> {
+  const result = await pool.query<{ resolved_input_json: Record<string, unknown> }>(`UPDATE run_nodes n SET status='running', attempt_count=n.attempt_count+1,
+      resolved_input_json=COALESCE(n.resolved_input_json,$4), started_at=COALESCE(n.started_at,now()), error_code=NULL, error_summary=NULL
+    FROM runs r WHERE n.run_id=$1 AND n.node_id=$2 AND n.status='queued' AND r.id=n.run_id AND r.claimed_by=$3 AND r.status='running'
+    RETURNING n.resolved_input_json`, [runId,nodeId,workerId,resolvedInput]);
+  return result.rows[0]?.resolved_input_json ?? null;
 }
 
 export async function finishRunNode(runId: string, nodeId: string, workerId: string, output: Record<string, unknown>): Promise<boolean> {

@@ -28,7 +28,7 @@ export function LicensesPage() {
   return (
     <Stack className="workspace-page" gap="lg">
       <Stack gap={3}><Text className="page-eyebrow">About this app</Text><Title order={1} className="page-title">Open-source licenses</Title></Stack>
-      <Text c="dimmed" maw={760}>This page lists third-party software included in Hive. We’ll add each dependency or reused project here as it is introduced.</Text>
+      <Text c="dimmed" maw={760}>This page lists third-party software and model weights used by Hive, with links to their sources and license terms.</Text>
       <Paper className="license-card" withBorder>
         <Stack gap="sm">
           <div><Badge variant="light" color="hiveSky">MIT</Badge></div>
@@ -36,6 +36,15 @@ export function LicensesPage() {
           <Text size="sm" c="dimmed">By Denish Sharma. Listed as the upstream starter-kit reference for this editor; Hive currently uses the separately licensed @xyflow/react package for its canvas.</Text>
           <Text size="sm">Source: <Anchor href="https://github.com/denishsharma/chatbot-flow-builder-starter-kit" target="_blank" rel="noreferrer">denishsharma/chatbot-flow-builder-starter-kit</Anchor></Text>
           <LicenseNotice copyright="2025 Denish Sharma" />
+        </Stack>
+      </Paper>
+      <Paper className="license-card" withBorder>
+        <Stack gap="sm">
+          <div><Badge variant="light" color="hiveSky">Apache 2.0</Badge></div>
+          <Title order={2} size="h4">Qwen-Image-Edit-2511 model weights</Title>
+          <Text size="sm" c="dimmed">By the Qwen Team. The local runner downloads the model from Hugging Face on first use; Hive does not bundle the weights.</Text>
+          <Text size="sm">Model source: <Anchor href="https://huggingface.co/Qwen/Qwen-Image-Edit-2511" target="_blank" rel="noreferrer">Qwen/Qwen-Image-Edit-2511</Anchor></Text>
+          <Text size="sm">License: <Anchor href="https://www.apache.org/licenses/LICENSE-2.0" target="_blank" rel="noreferrer">Apache License, Version 2.0</Anchor></Text>
         </Stack>
       </Paper>
       <Paper className="license-card" withBorder>

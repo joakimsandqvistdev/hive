@@ -1,14 +1,16 @@
-import { and, count, eq, inArray, sql } from "drizzle-orm";
+import { and, count, eq, inArray, sql, asc } from "drizzle-orm";
 import { Router } from "express";
 import { z } from "zod";
 import { db } from "./db.js";
 import { agents, runNodes, runs, workflowEdges, workflowNodes, workflows } from "./schema.js";
+import { imageModelParametersSchema } from "./modelParameters.js";
 
 const router = Router();
 const nodeSchema = z.object({
   id: z.string().min(1).max(100),
   agentId: z.string().uuid(),
   prompt: z.string().max(2000).optional(),
+  parameters: z.record(z.string(), z.unknown()).optional(),
   position: z.object({ x: z.number().finite().min(-1_000_000).max(1_000_000), y: z.number().finite().min(-1_000_000).max(1_000_000) }),
 });
 const edgeSchema = z.object({
@@ -104,10 +106,10 @@ router.get("/:id", async (req, res, next) => {
     if (!workflow) { res.status(404).json({ error: "workflow_not_found" }); return; }
     const [nodes, edges] = await Promise.all([
       db.select().from(workflowNodes).where(eq(workflowNodes.workflowId, workflow.id)),
-      db.select().from(workflowEdges).where(eq(workflowEdges.workflowId, workflow.id)),
+      db.select().from(workflowEdges).where(eq(workflowEdges.workflowId, workflow.id)).orderBy(asc(workflowEdges.edgeId)),
     ]);
     res.json({ workflow, definition: {
-      nodes: nodes.map((node) => ({ id: node.nodeId, agentId: node.agentId, prompt: node.prompt, position: { x: node.positionX, y: node.positionY } })),
+      nodes: nodes.map((node) => ({ id: node.nodeId, agentId: node.agentId, prompt: node.prompt, parameters: node.parameters, position: { x: node.positionX, y: node.positionY } })),
       edges: edges.map((edge) => ({ id: edge.edgeId, source: edge.sourceNodeId, target: edge.targetNodeId })),
     } });
   } catch (error) { next(error); }
@@ -131,7 +133,9 @@ router.post("/:id/runs", async (req, res, next) => {
         agentName: agents.name,
         modality: agents.modality,
         agentPrompt: agents.prompt,
+        agentParameters: agents.parameters,
         prompt: workflowNodes.prompt,
+        parameters: workflowNodes.parameters,
         positionX: workflowNodes.positionX,
         positionY: workflowNodes.positionY,
       }).from(workflowNodes)
@@ -140,7 +144,7 @@ router.post("/:id/runs", async (req, res, next) => {
       if (rows.length === 0) return "empty_workflow" as const;
 
       const edges = await tx.select({ id: workflowEdges.edgeId, source: workflowEdges.sourceNodeId, target: workflowEdges.targetNodeId })
-        .from(workflowEdges).where(eq(workflowEdges.workflowId, workflow.id));
+        .from(workflowEdges).where(eq(workflowEdges.workflowId, workflow.id)).orderBy(asc(workflowEdges.edgeId));
       const workflowSnapshot = {
         id: workflow.id,
         name: workflow.name,
@@ -148,8 +152,9 @@ router.post("/:id/runs", async (req, res, next) => {
         nodes: rows.map((node) => ({
           id: node.nodeId,
           agentId: node.agentId,
-          agent: { id: node.agentId, name: node.agentName, modality: node.modality, prompt: node.agentPrompt },
+          agent: { id: node.agentId, name: node.agentName, modality: node.modality, prompt: node.agentPrompt, parameters: node.agentParameters },
           prompt: node.prompt,
+          parameters: node.modality === "image" && Object.keys(node.parameters).length === 0 ? node.agentParameters : node.parameters,
           position: { x: node.positionX, y: node.positionY },
         })),
         edges,
@@ -167,8 +172,9 @@ router.post("/:id/runs", async (req, res, next) => {
         nodeId: node.nodeId,
         agentId: node.agentId,
         status: "queued" as const,
-        agentSnapshotJson: { id: node.agentId, name: node.agentName, modality: node.modality, prompt: node.agentPrompt },
+        agentSnapshotJson: { id: node.agentId, name: node.agentName, modality: node.modality, prompt: node.agentPrompt, parameters: node.agentParameters },
         prompt: node.prompt,
+        parameters: node.modality === "image" && Object.keys(node.parameters).length === 0 ? node.agentParameters : node.parameters,
       })));
       return run;
     });
@@ -190,11 +196,43 @@ router.put("/:id", async (req, res, next) => {
         .where(and(eq(workflows.id, req.params.id), eq(workflows.userId, ownerId), sql`${workflows.archivedAt} is null`)).limit(1).for("update");
       if (!existing) return null;
       const agentRows = referencedAgentIds.length
-        ? await tx.select({ id: agents.id, prompt: agents.prompt }).from(agents)
+        ? await tx.select({ id: agents.id, prompt: agents.prompt, modality: agents.modality, parameters: agents.parameters }).from(agents)
           .where(and(eq(agents.userId, ownerId), inArray(agents.id, referencedAgentIds)))
         : [];
       if (agentRows.length !== referencedAgentIds.length) return "invalid_agents" as const;
-      const agentPromptById = new Map(agentRows.map((agent) => [agent.id, agent.prompt]));
+      const agentById = new Map(agentRows.map((agent) => [agent.id, agent]));
+      const nodeParameters = new Map<string, Record<string, unknown>>();
+      const nodeModelById = new Map<string, string>();
+      const nodeModalityById = new Map<string, string>();
+      for (const node of parsed.data.definition.nodes) {
+        const agent = agentById.get(node.agentId)!;
+        nodeModalityById.set(node.id, agent.modality);
+        if (agent.modality === "image") {
+          const suppliedParameters = { ...agent.parameters, ...node.parameters };
+          const parameters = imageModelParametersSchema.safeParse(suppliedParameters);
+          if (!parameters.success) return "invalid_parameters" as const;
+          nodeParameters.set(node.id, parameters.data);
+          nodeModelById.set(node.id, parameters.data.modelId);
+        } else {
+          nodeParameters.set(node.id, {});
+          nodeModelById.set(node.id, "");
+        }
+      }
+      const incomingReferences = new Map<string, Set<string>>();
+      for (const edge of parsed.data.definition.edges) {
+        if (nodeModalityById.get(edge.source) !== "image" || nodeModelById.get(edge.target) !== "qwen-image-edit-2511") {
+          return "unsupported_image_connections" as const;
+        }
+        const sourceIds = incomingReferences.get(edge.target) ?? new Set<string>();
+        sourceIds.add(edge.source);
+        incomingReferences.set(edge.target, sourceIds);
+      }
+      for (const node of parsed.data.definition.nodes) {
+        if (nodeModelById.get(node.id) === "qwen-image-edit-2511") {
+          const referenceCount = incomingReferences.get(node.id)?.size ?? 0;
+          if (referenceCount < 1 || referenceCount > 10) return "invalid_reference_count" as const;
+        }
+      }
       const [updated] = await tx.update(workflows).set({ name: parsed.data.name, description: parsed.data.description, updatedAt: new Date() })
         .where(and(eq(workflows.id, existing.id), eq(workflows.userId, ownerId))).returning();
       await tx.delete(workflowEdges).where(eq(workflowEdges.workflowId, existing.id));
@@ -205,7 +243,8 @@ router.put("/:id", async (req, res, next) => {
           nodeId: node.id,
           userId: ownerId,
           agentId: node.agentId,
-          prompt: node.prompt ?? agentPromptById.get(node.agentId) ?? "",
+          prompt: node.prompt ?? agentById.get(node.agentId)?.prompt ?? "",
+          parameters: nodeParameters.get(node.id) ?? {},
           positionX: node.position.x,
           positionY: node.position.y,
         })));
@@ -223,6 +262,9 @@ router.put("/:id", async (req, res, next) => {
     });
     if (result === null) { res.status(404).json({ error: "workflow_not_found" }); return; }
     if (result === "invalid_agents") { res.status(400).json({ error: "invalid_workflow_agents" }); return; }
+    if (result === "invalid_parameters") { res.status(400).json({ error: "invalid_model_parameters" }); return; }
+    if (result === "unsupported_image_connections") { res.status(400).json({ error: "unsupported_image_connections" }); return; }
+    if (result === "invalid_reference_count") { res.status(400).json({ error: "invalid_reference_count" }); return; }
     res.json({ workflow: result });
   } catch (error) {
     if (isUniqueViolation(error)) { res.status(409).json({ error: "duplicate_name" }); return; }

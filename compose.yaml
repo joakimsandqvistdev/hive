@@ -22,7 +22,7 @@ services:
       context: ./services/zimage-runner
     restart: unless-stopped
     environment:
-      MODEL_ID: Tongyi-MAI/Z-Image-Turbo
+      STARTUP_MODEL_KEY: z-image-turbo
       HF_HOME: /cache/huggingface
       PORT: "8000"
     ports:

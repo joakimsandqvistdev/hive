@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { Alert, Badge, Button, Group, Loader, Modal, Pagination, Paper, Stack, Table, Text, Title } from "@mantine/core";
+import { Alert, Badge, Button, Group, Image, Loader, Modal, Pagination, Paper, SimpleGrid, Stack, Table, Text, Title } from "@mantine/core";
 import { API_BASE } from "../auth";
 import { agentModalityLabel } from "../agentModality";
 import type { AppView } from "../navigation/navigationState";
@@ -7,14 +7,45 @@ import type { AppView } from "../navigation/navigationState";
 const PAGE_SIZE = 10;
 type RunStatus = "queued" | "running" | "succeeded" | "failed" | "cancel_requested" | "cancelled";
 type Run = { id: string; workflowId: string | null; status: RunStatus; workflowSnapshotJson: { name?: string }; errorSummary: string | null; createdAt: string; startedAt: string | null; finishedAt: string | null };
-type RunNode = { nodeId: string; status: string; agentSnapshotJson: { name?: string; modality?: string }; errorSummary: string | null };
-type Artifact = { id: string; displayName: string; mediaType: string; byteSize: number; createdAt: string };
+type RunNode = { nodeId: string; status: string; agentSnapshotJson: { name?: string; modality?: string; parameters?: { modelId?: string } }; parameters?: { modelId?: string }; errorSummary: string | null };
+type Artifact = { id: string; runNodeId: string; displayName: string; mediaType: string; byteSize: number; createdAt: string };
 type PageResult = { items: Run[]; page: number; pageSize: number; total: number; totalPages: number };
 type Detail = { run: Run; nodes: RunNode[]; artifacts: Artifact[] };
 
 function date(value: string | null) { return value ? new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "short" }).format(new Date(value)) : "—"; }
 function statusColor(status: RunStatus | string) { return status === "succeeded" ? "hiveSuccess" : status === "failed" ? "hiveError" : status === "running" ? "hiveSky" : status === "queued" ? "hiveWarning" : "gray"; }
 function active(status: RunStatus) { return status === "queued" || status === "running"; }
+
+function ArtifactPreview({ artifactId, label }: { artifactId: string; label: string }) {
+  const [src, setSrc] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    let disposed = false;
+    let objectUrl: string | null = null;
+    setSrc(null);
+    setFailed(false);
+    void fetch(`${API_BASE}/api/artifacts/${artifactId}/preview`, { credentials: "include" })
+      .then(async (response) => {
+        if (!response.ok) throw new Error("Preview unavailable");
+        return response.blob();
+      })
+      .then((blob) => {
+        if (disposed) return;
+        objectUrl = URL.createObjectURL(blob);
+        setSrc(objectUrl);
+      })
+      .catch(() => { if (!disposed) setFailed(true); });
+    return () => {
+      disposed = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [artifactId]);
+
+  return <Paper withBorder p="xs" aria-label={`${label} preview`}>
+    {src ? <Image src={src} alt={`${label} generated output`} h={240} fit="contain" radius="sm" />
+      : <Group h={240} justify="center">{failed ? <Text size="sm" c="dimmed">Preview unavailable</Text> : <Loader size="sm" />}</Group>}
+  </Paper>;
+}
 
 export function RunsPage({ onNavigate }: { onNavigate: (view: AppView) => void }) {
   const [page, setPage] = useState(1);
@@ -98,12 +129,16 @@ export function RunsPage({ onNavigate }: { onNavigate: (view: AppView) => void }
         : result?.total === 0 ? <Stack className="agents-empty" align="center" gap="sm"><Badge color="hiveSky" variant="light">Run history</Badge><Title order={2} size="h3">No runs yet</Title><Text c="dimmed" ta="center" maw={480}>Open a saved workflow and choose Run workflow to queue its current definition for execution.</Text><Button variant="light" onClick={() => onNavigate("workflows")}>Browse workflows</Button></Stack>
           : <><Table.ScrollContainer minWidth={700}><Table verticalSpacing="sm" highlightOnHover><Table.Thead><Table.Tr><Table.Th>Workflow</Table.Th><Table.Th>Status</Table.Th><Table.Th>Started</Table.Th><Table.Th>Result</Table.Th></Table.Tr></Table.Thead><Table.Tbody>{rows}</Table.Tbody></Table></Table.ScrollContainer><Group justify="space-between" px="md" py="sm" className="agents-table-footer"><Text size="sm" c="dimmed">{result?.total ?? 0} {result?.total === 1 ? "run" : "runs"}</Text><Pagination value={page} onChange={setPage} total={result?.totalPages ?? 0} size="sm" withEdges /></Group></>}
     </Paper>
-    <Modal opened={selectedId !== null} onClose={() => setSelectedId(null)} title="Run details" size="lg" centered>
+    <Modal opened={selectedId !== null} onClose={() => setSelectedId(null)} title="Run details" size="xl" centered>
       {!detail && !detailError ? <Group justify="center" p="xl"><Loader size="sm" /></Group> : detailError ? <Alert color="hiveError" title="Could not load run">{detailError}</Alert> : detail && <Stack gap="md">
         <Group justify="space-between"><div><Text fw={650}>{detail.run.workflowSnapshotJson?.name ?? "Workflow"}</Text><Text size="xs" c="dimmed">Created {date(detail.run.createdAt)}</Text></div><Badge variant="light" color={statusColor(detail.run.status)}>{detail.run.status.replaceAll("_", " ")}</Badge></Group>
         {detail.run.errorSummary && <Alert color="hiveError" title="Run failed">{detail.run.errorSummary}</Alert>}
-        <div><Text fw={600} mb="xs">Agent steps</Text>{detail.nodes.length ? <Stack gap="xs">{detail.nodes.map((node) => <Paper key={node.nodeId} withBorder p="sm"><Group justify="space-between"><div><Text size="sm" fw={600}>{node.agentSnapshotJson?.name ?? node.nodeId}</Text><Text size="xs" c="dimmed">{agentModalityLabel(node.agentSnapshotJson?.modality ?? "agent")}</Text></div><Badge variant="light" color={statusColor(node.status)}>{node.status}</Badge></Group>{node.errorSummary && <Text size="xs" c="hiveError.3" mt="xs">{node.errorSummary}</Text>}</Paper>)}</Stack> : <Text size="sm" c="dimmed">No agent steps recorded.</Text>}</div>
-        <div><Text fw={600} mb="xs">Generated outputs</Text>{downloadError && <Alert color="hiveError" mb="xs">{downloadError}</Alert>}{detail.artifacts.length ? <Stack gap="xs">{detail.artifacts.map((artifact) => <Group key={artifact.id} justify="space-between"><div><Text size="sm">{artifact.displayName}</Text><Text size="xs" c="dimmed">{Math.ceil(artifact.byteSize / 1024)} KB · {date(artifact.createdAt)}</Text></div><Button variant="subtle" size="compact-sm" loading={downloadingId === artifact.id} onClick={() => void downloadArtifact(artifact)}>Download</Button></Group>)}</Stack> : <Text size="sm" c="dimmed">Outputs will appear here when available.</Text>}</div>
+        <div><Text fw={600} mb="xs">Agent steps</Text>{detail.nodes.length ? <Stack gap="xs">{detail.nodes.map((node) => <Paper key={node.nodeId} withBorder p="sm"><Group justify="space-between"><div><Text size="sm" fw={600}>{node.agentSnapshotJson?.name ?? node.nodeId}</Text><Text size="xs" c="dimmed">{agentModalityLabel(node.agentSnapshotJson?.modality ?? "agent", node.parameters?.modelId ?? node.agentSnapshotJson?.parameters?.modelId)}</Text></div><Badge variant="light" color={statusColor(node.status)}>{node.status}</Badge></Group>{node.errorSummary && <Text size="xs" c="hiveError.3" mt="xs">{node.errorSummary}</Text>}</Paper>)}</Stack> : <Text size="sm" c="dimmed">No agent steps recorded.</Text>}</div>
+        <div><Text fw={600} mb="xs">Generated outputs</Text>{downloadError && <Alert color="hiveError" mb="xs">{downloadError}</Alert>}{detail.artifacts.length ? <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="sm">{detail.artifacts.map((artifact) => {
+          const node = detail.nodes.find((item) => item.nodeId === artifact.runNodeId);
+          const label = node?.agentSnapshotJson?.name ?? artifact.displayName;
+          return <Paper key={artifact.id} withBorder p="sm"><Stack gap="xs"><Group justify="space-between" align="start"><div><Text size="sm" fw={600}>{label}</Text><Text size="xs" c="dimmed">{Math.ceil(artifact.byteSize / 1024)} KB · {date(artifact.createdAt)}</Text></div><Button variant="subtle" size="compact-sm" loading={downloadingId === artifact.id} onClick={() => void downloadArtifact(artifact)}>Download</Button></Group><ArtifactPreview artifactId={artifact.id} label={label} /></Stack></Paper>;
+        })}</SimpleGrid> : <Text size="sm" c="dimmed">Outputs will appear here when available.</Text>}</div>
       </Stack>}
     </Modal>
   </Stack>;

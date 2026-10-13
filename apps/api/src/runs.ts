@@ -2,6 +2,7 @@ import { and, count, desc, eq } from "drizzle-orm";
 import { Router } from "express";
 import { db } from "./db.js";
 import { artifacts, runNodes, runs } from "./schema.js";
+import { workflowExecutionOrder } from "./workflowExecutionOrder.js";
 
 const router = Router();
 
@@ -30,8 +31,17 @@ router.get("/:id", async (req, res, next) => {
     const [run] = await db.select().from(runs)
       .where(and(eq(runs.id, req.params.id), eq(runs.userId, res.locals.userId as string))).limit(1);
     if (!run) { res.status(404).json({ error: "run_not_found" }); return; }
-    const nodes = await db.select().from(runNodes).where(and(eq(runNodes.runId, run.id), eq(runNodes.userId, run.userId)));
-    const outputs = await db.select().from(artifacts).where(and(eq(artifacts.runId, run.id), eq(artifacts.userId, run.userId)));
+    const snapshot = run.workflowSnapshotJson as unknown as {
+      nodes?: Array<{ id: string }>;
+      edges?: Array<{ source: string; target: string }>;
+    };
+    const executionOrder = workflowExecutionOrder(snapshot.nodes ?? [], snapshot.edges ?? []);
+    const executionRank = new Map(executionOrder.map((node, index) => [node.id, index]));
+    const rank = (nodeId: string) => executionRank.get(nodeId) ?? Number.MAX_SAFE_INTEGER;
+    const nodes = (await db.select().from(runNodes).where(and(eq(runNodes.runId, run.id), eq(runNodes.userId, run.userId))))
+      .sort((left, right) => rank(left.nodeId) - rank(right.nodeId));
+    const outputs = (await db.select().from(artifacts).where(and(eq(artifacts.runId, run.id), eq(artifacts.userId, run.userId))))
+      .sort((left, right) => rank(left.runNodeId) - rank(right.runNodeId));
     res.json({ run, nodes, artifacts: outputs });
   } catch (error) { next(error); }
 });

@@ -4,16 +4,17 @@ import { addEdge, Background, BackgroundVariant, Controls, Handle, MiniMap, Posi
 import { ActionIcon, Alert, Badge, Button, Group, Loader, Modal, Pagination, Paper, Select, Stack, Table, Text, Textarea, TextInput, Title, Tooltip } from "@mantine/core";
 import { API_BASE } from "../auth";
 import { agentModalityLabel, type AgentModality } from "../agentModality";
+import { defaultImageModelParameters, ImageModelParametersFields, type ImageModelParameters } from "../components/ImageModelParametersFields";
 import type { AppView } from "../navigation/navigationState";
 import "@xyflow/react/dist/style.css";
 
 const PAGE_SIZE = 10;
 type Workflow = { id: string; name: string; description: string; nodeCount: number; createdAt: string; updatedAt: string };
 type WorkflowPageResult = { items: Workflow[]; page: number; pageSize: number; total: number; totalPages: number };
-type Agent = { id: string; name: string; modality: AgentModality; prompt: string };
-type AgentNodeData = { agentId: string; agentName: string; modality: string; agentPrompt: string; prompt: string };
+type Agent = { id: string; name: string; modality: AgentModality; prompt: string; parameters: Record<string, unknown> };
+type AgentNodeData = { agentId: string; agentName: string; modality: string; agentPrompt: string; prompt: string; parameters: ImageModelParameters };
 type WorkflowNode = Node<AgentNodeData, "agent">;
-type Definition = { nodes: Array<{ id: string; agentId: string; prompt: string; position: { x: number; y: number } }>; edges: Array<{ id: string; source: string; target: string }> };
+type Definition = { nodes: Array<{ id: string; agentId: string; prompt: string; parameters?: ImageModelParameters; position: { x: number; y: number } }>; edges: Array<{ id: string; source: string; target: string }> };
 type WorkflowForm = { name: string; description: string };
 const emptyForm: WorkflowForm = { name: "", description: "" };
 
@@ -95,6 +96,7 @@ export function WorkflowsPage({ onNavigate }: {
         return { id: node.id, type: "agent", position: node.position, data: {
           agentId: node.agentId, agentName: agent?.name ?? "Unavailable agent", modality: agent?.modality ?? "unknown",
           agentPrompt: agent?.prompt ?? "This agent is no longer available.", prompt: node.prompt ?? agent?.prompt ?? "",
+          parameters: { ...defaultImageModelParameters, ...agent?.parameters, ...node.parameters } as ImageModelParameters,
         } };
       });
       setNodes(mappedNodes); setEdges(definition.edges); nextNodeId.current = mappedNodes.length + 1;
@@ -107,7 +109,7 @@ export function WorkflowsPage({ onNavigate }: {
     setEdges((current) => addEdge({ ...connection, animated: true }, current)); setDirty(true);
   }, [setEdges]);
   const selectedNode = nodes.find((node) => node.selected) ?? null;
-  const agentOptions = useMemo(() => agents.map((agent) => ({ value: agent.id, label: `${agent.name} · ${agentModalityLabel(agent.modality)}` })), [agents]);
+  const agentOptions = useMemo(() => agents.map((agent) => ({ value: agent.id, label: `${agent.name} · ${agentModalityLabel(agent.modality, agent.parameters.modelId)}` })), [agents]);
 
   const openCreate = () => { setForm(emptyForm); setFormError(null); setFormOpened(true); };
   const openEdit = (item: Workflow) => {
@@ -130,7 +132,7 @@ export function WorkflowsPage({ onNavigate }: {
     const id = `node-${crypto.randomUUID?.() ?? nextNodeId.current++}`;
     const index = nodes.length;
     setNodes((current) => [...current, { id, type: "agent", position: { x: 90 + (index % 3) * 260, y: 90 + Math.floor(index / 3) * 170 }, data: {
-      agentId: "", agentName: "Choose an agent", modality: "unconfigured", agentPrompt: "Select an existing agent in the configuration panel.", prompt: "",
+      agentId: "", agentName: "Choose an agent", modality: "unconfigured", agentPrompt: "Select an existing agent in the configuration panel.", prompt: "", parameters: { ...defaultImageModelParameters },
     }, selected: true }]);
     setDirty(true);
   };
@@ -142,7 +144,7 @@ export function WorkflowsPage({ onNavigate }: {
   };
   const selectAgent = (agentId: string | null) => {
     const agent = agents.find((item) => item.id === agentId);
-    updateSelectedNode({ agentId: agent?.id ?? "", agentName: agent?.name ?? "Choose an agent", modality: agent?.modality ?? "unconfigured", agentPrompt: agent?.prompt ?? "Select an existing agent in the configuration panel.", prompt: agent?.prompt ?? "" });
+    updateSelectedNode({ agentId: agent?.id ?? "", agentName: agent?.name ?? "Choose an agent", modality: agent?.modality ?? "unconfigured", agentPrompt: agent?.prompt ?? "Select an existing agent in the configuration panel.", prompt: agent?.prompt ?? "", parameters: { ...defaultImageModelParameters, ...agent?.parameters } as ImageModelParameters });
   };
 
   const saveWorkflow = async () => {
@@ -151,13 +153,19 @@ export function WorkflowsPage({ onNavigate }: {
     if (nodes.some((node) => !node.data.agentId)) { setSaveError("Choose an agent for every node before saving."); return; }
     setSaving(true); setSaveError(null);
     const definition: Definition = {
-      nodes: nodes.map((node) => ({ id: node.id, agentId: node.data.agentId, prompt: node.data.prompt, position: node.position })),
+      nodes: nodes.map((node) => ({ id: node.id, agentId: node.data.agentId, prompt: node.data.prompt, parameters: node.data.parameters, position: node.position })),
       edges: edges.map((edge) => ({ id: edge.id, source: edge.source, target: edge.target })),
     };
     try {
       const response = await fetch(`${API_BASE}/api/workflows/${workflow.id}`, { method: "PUT", credentials: "include", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...draft, definition }) });
       const body = await response.json() as { workflow?: Workflow; error?: string };
-      if (!response.ok || !body.workflow) throw new Error(body.error === "invalid_workflow_agents" ? "One or more selected agents are unavailable. Review the nodes." : "Could not save this workflow.");
+      if (!response.ok || !body.workflow) {
+        const message = body.error === "invalid_workflow_agents" ? "One or more selected agents are unavailable. Review the nodes."
+          : body.error === "unsupported_image_connections" ? "Connections must point to a Qwen-Image-Edit-2511 node and use image-node outputs."
+            : body.error === "invalid_reference_count" ? "Each Qwen-Image-Edit-2511 node needs 1–10 incoming image connections."
+              : "Could not save this workflow.";
+        throw new Error(message);
+      }
       setWorkflow({ ...body.workflow, nodeCount: nodes.length }); setDirty(false); await loadWorkflows(page);
     } catch (error) { setSaveError(error instanceof Error ? error.message : "Could not save this workflow."); }
     finally { setSaving(false); }
@@ -232,9 +240,10 @@ export function WorkflowsPage({ onNavigate }: {
           {selectedNode ? <Stack gap="md">
             <div><Text className="page-eyebrow">Node configuration</Text><Title order={2} size="h4" mt={5}>Agent node</Title></div>
             <Select label="Agent" placeholder="Choose a premade agent" data={agentOptions} value={selectedNode.data.agentId || null} onChange={selectAgent} searchable nothingFoundMessage="No agents found" />
-            {selectedNode.data.agentId && <Paper className="workflow-agent-summary" withBorder><Group justify="space-between" gap="xs"><Text fw={600}>{selectedNode.data.agentName}</Text><Badge variant="light" color="hiveSky">{agentModalityLabel(selectedNode.data.modality)}</Badge></Group><Text size="xs" fw={600} mt="xs">Agent prompt</Text><Text size="xs" c="dimmed">{selectedNode.data.agentPrompt || "No agent prompt."}</Text></Paper>}
+            {selectedNode.data.agentId && <Paper className="workflow-agent-summary" withBorder><Group justify="space-between" gap="xs"><Text fw={600}>{selectedNode.data.agentName}</Text><Badge variant="light" color="hiveSky">{agentModalityLabel(selectedNode.data.modality, selectedNode.data.parameters.modelId)}</Badge></Group><Text size="xs" fw={600} mt="xs">Agent prompt</Text><Text size="xs" c="dimmed">{selectedNode.data.agentPrompt || "No agent prompt."}</Text></Paper>}
             <Textarea label="Prompt" description="Defaults to the selected agent’s prompt. Edit it for this workflow node." placeholder="Enter the prompt for this workflow node…" value={selectedNode.data.prompt} onChange={(event) => updateSelectedNode({ prompt: event.currentTarget.value })} maxLength={2000} minRows={5} autosize />
             <Text size="xs" c="dimmed">This node prompt is saved with the workflow and can differ from the reusable agent prompt.</Text>
+            {selectedNode.data.modality === "image" ? <ImageModelParametersFields value={selectedNode.data.parameters} onChange={(parameters) => updateSelectedNode({ parameters })} /> : <Text size="xs" c="dimmed">Model parameters are not available for this modality yet.</Text>}
           </Stack> : <Stack gap="md">
             <div><Text className="page-eyebrow">Workflow</Text><Title order={2} size="h4" mt={5}>Configuration</Title></div>
             <Text size="sm" c="dimmed">Select a node to configure its agent and prompt. Connect nodes on the canvas to define the workflow order.</Text>
@@ -281,7 +290,7 @@ export function WorkflowsPage({ onNavigate }: {
 }
 
 function AgentNodeView({ data, selected }: { data: AgentNodeData; selected: boolean }) {
-  return <Paper className="workflow-agent-node" data-selected={selected || undefined} withBorder shadow="sm"><Handle type="target" position={Position.Left} /><Group justify="space-between" gap="xs" wrap="nowrap"><Text size="xs" c="hiveSky.3" fw={700}>{agentModalityLabel(data.modality)}</Text>{data.agentId && <Badge size="xs" variant="light" color="hiveSky">Configured</Badge>}</Group><Text fw={650} mt={5} lineClamp={1}>{data.agentName}</Text><Text size="xs" c="dimmed" mt={3} lineClamp={3}>{data.prompt || "No prompt configured."}</Text><Handle type="source" position={Position.Right} /></Paper>;
+  return <Paper className="workflow-agent-node" data-selected={selected || undefined} withBorder shadow="sm"><Handle type="target" position={Position.Left} /><Group justify="space-between" gap="xs" wrap="nowrap"><Text size="xs" c="hiveSky.3" fw={700}>{agentModalityLabel(data.modality, data.parameters.modelId)}</Text>{data.agentId && <Badge size="xs" variant="light" color="hiveSky">Configured</Badge>}</Group><Text fw={650} mt={5} lineClamp={1}>{data.agentName}</Text><Text size="xs" c="dimmed" mt={3} lineClamp={3}>{data.prompt || "No prompt configured."}</Text><Handle type="source" position={Position.Right} /></Paper>;
 }
 
 function EditIcon() { return <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m14 5 5 5M4 20l4.2-.8L19 8.4a2.12 2.12 0 0 0-3-3L5.2 16.2 4 20Z" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" /></svg>; }

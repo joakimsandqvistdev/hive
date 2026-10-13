@@ -3,14 +3,18 @@ import { Router } from "express";
 import { z } from "zod";
 import { db } from "./db.js";
 import { agents, workflowNodes } from "./schema.js";
+import { defaultImageModelParameters, imageModelParametersSchema } from "./modelParameters.js";
 
 const router = Router();
 const modalities = ["text", "image", "audio", "video"] as const;
-const agentInput = z.object({
-  modality: z.enum(modalities),
+const agentFields = {
   name: z.string().trim().min(1).max(80),
   prompt: z.string().trim().max(500).default(""),
-});
+};
+const agentInput = z.discriminatedUnion("modality", [
+  z.object({ ...agentFields, modality: z.literal("image"), parameters: imageModelParametersSchema.default(defaultImageModelParameters) }),
+  z.object({ ...agentFields, modality: z.enum(["text", "audio", "video"]), parameters: z.record(z.string(), z.unknown()).default({}) }),
+]);
 
 function userId(res: import("express").Response) {
   return res.locals.userId as string;

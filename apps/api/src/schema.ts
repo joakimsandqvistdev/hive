@@ -39,6 +39,7 @@ export const agents = pgTable("agents", {
   modality: agentModality("modality").notNull(),
   name: text("name").notNull(),
   prompt: text("prompt").notNull().default(""),
+  parameters: jsonb("parameters_json").$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table) => [
@@ -66,6 +67,7 @@ export const workflowNodes = pgTable("workflow_nodes", {
   userId: uuid("user_id").notNull(),
   agentId: uuid("agent_id").notNull(),
   prompt: text("prompt").notNull().default(""),
+  parameters: jsonb("parameters_json").$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
   positionX: real("position_x").notNull().default(0),
   positionY: real("position_y").notNull().default(0),
 }, (table) => [
@@ -118,6 +120,7 @@ export const runNodes = pgTable("run_nodes", {
   status: runNodeStatus("status").notNull().default("queued"),
   agentSnapshotJson: jsonb("agent_snapshot_json").$type<Record<string, unknown>>().notNull(),
   prompt: text("prompt").notNull().default(""),
+  parameters: jsonb("parameters_json").$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
   resolvedInputJson: jsonb("resolved_input_json").$type<Record<string, unknown>>(),
   outputJson: jsonb("output_json").$type<Record<string, unknown>>(),
   errorCode: text("error_code"),
