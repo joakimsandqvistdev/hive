@@ -1,5 +1,10 @@
 # Current work
 
+## 2026-10-14 — Remove the unused legacy tasks table
+
+- Removed the unused `tasks` table from the Drizzle schema and generated migration `0013_free_charles_xavier` to drop it. The local table had zero rows; the migration uses a strict drop without cascading to unrelated database objects.
+- Applied the migration to the local database and verified `public.tasks` is absent. API typecheck and `git diff --check` passed. Updated the data model and recorded decision 0014; historical migrations/snapshots remain unchanged.
+
 ## 2026-10-14 — Add 128×128 output resolution
 
 - Added 128×128 as the minimum selectable output for Z-Image-Turbo and Qwen-Image-Edit-2511 in the shared agent/node settings, API schema, and runner validation. Existing 512×512 defaults are unchanged.
@@ -309,7 +314,7 @@
 - Added authenticated paginated list, create, read, and update API routes. Mutations require the configured web origin; duplicate names return a conflict response.
 - Replaced the Agents placeholder with a paginated table and a shared create/edit modal. The UI supports Text, Image, Audio, and Video agents, and reports sign-in, duplicate-name, validation, and connection errors.
 - Added an idempotent, account-scoped sample seed command and seeded one sample per modality for the sole existing local user. New users remain empty unless the seed command is run for them.
-- Preserved the legacy `tasks` table discovered in the initial migration rather than allowing Drizzle to drop it.
+- Initially preserved the legacy `tasks` table discovered in the initial migration; migration `0013_free_charles_xavier` now removes it because the app does not use it.
 - Verified API/web typechecks, the production build, migration application, and one seeded agent per modality in the local database. Vite reports a bundle-size advisory above 500 kB; no test suite was run.
 
 ## 2026-10-10 — Orchestration workspace navigation
