@@ -1,5 +1,5 @@
 services:
-  zimage-runner:
+  runner:
     deploy:
       resources:
         reservations:

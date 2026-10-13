@@ -22,6 +22,6 @@ The model's first local download occupied about 31 GB in the Hugging Face cache.
 - Developers need substantial persistent disk space and internet access for the initial model download.
 - Qwen-Image-Edit-2511 adds about 57.7 GB of model files and needs one to ten image references. Successful loading/inference has not yet been verified on the existing 8 GiB GPU host.
 - The current endpoint is intended for local development and is bound to `127.0.0.1`; production use needs private worker-to-runner networking and internal authentication.
-- The model cache survives container rebuilds. Removing the `zimage_model_cache` volume deletes the downloaded model.
+- The model cache survives container rebuilds. Decision [0012](0012-runner-and-model-cache-compose-names.md) changes the Compose key and creates a new backing Docker volume; the prior `hive_zimage_model_cache` remains unused until explicitly removed.
 - The current GPU override targets NVIDIA GPUs. Other hardware and CPU-only deployments need separate compatibility checks.
 - The runner API is private to the local Hive worker; model IDs are allow-listed and reference payloads are bounded.
