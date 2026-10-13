@@ -4,6 +4,8 @@ import { ActionIcon, Alert, Badge, Button, Group, Loader, Modal, Pagination, Pap
 import { API_BASE } from "../auth";
 import type { AppView } from "../navigation/navigationState";
 import { emptyWorkflowForm, type Workflow, type WorkflowForm } from "./workflowTypes";
+import { useDownloadedModels } from "../hooks/useDownloadedModels";
+import { ModelDownloadPrompt } from "../components/ModelDownloadPrompt";
 
 const PAGE_SIZE = 10;
 type WorkflowPageResult = { items: Workflow[]; page: number; pageSize: number; total: number; totalPages: number };
@@ -11,6 +13,7 @@ type WorkflowPageResult = { items: Workflow[]; page: number; pageSize: number; t
 function formatDate(value: string) { return new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(new Date(value)); }
 
 export function WorkflowLibrary({ onNavigate }: { onNavigate: (view: AppView) => void }) {
+  const { status: modelStatus, modelIds: downloadedModels, refresh: refreshDownloadedModels } = useDownloadedModels();
   const [page, setPage] = useState(1);
   const [result, setResult] = useState<WorkflowPageResult | null>(null);
   const [loading, setLoading] = useState(true);
@@ -37,11 +40,13 @@ export function WorkflowLibrary({ onNavigate }: { onNavigate: (view: AppView) =>
 
   useEffect(() => { void loadWorkflows(page); }, [loadWorkflows, page]);
 
-  const openCreate = () => { setForm(emptyWorkflowForm); setFormError(null); setFormOpened(true); };
+  const openCreate = () => { void refreshDownloadedModels(); setForm(emptyWorkflowForm); setFormError(null); setFormOpened(true); };
   const openEdit = (item: Workflow) => { window.location.hash = `workflows/${item.id}`; };
 
   const createWorkflow = async (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault(); setSavingForm(true); setFormError(null);
+    event.preventDefault();
+    if (modelStatus !== "ready" || downloadedModels.size === 0) return;
+    setSavingForm(true); setFormError(null);
     try {
       const response = await fetch(`${API_BASE}/api/workflows`, { method: "POST", credentials: "include", headers: { "content-type": "application/json" }, body: JSON.stringify(form) });
       const body = await response.json() as { workflow?: Workflow };
@@ -86,7 +91,7 @@ export function WorkflowLibrary({ onNavigate }: { onNavigate: (view: AppView) =>
           : <><Table.ScrollContainer minWidth={760}><Table verticalSpacing="sm" highlightOnHover><Table.Thead><Table.Tr><Table.Th>Name</Table.Th><Table.Th>Description</Table.Th><Table.Th>Nodes</Table.Th><Table.Th>Updated</Table.Th><Table.Th><span className="sr-only">Actions</span></Table.Th></Table.Tr></Table.Thead><Table.Tbody>{rows}</Table.Tbody></Table></Table.ScrollContainer><Group justify="space-between" px="md" py="sm" className="agents-table-footer"><Text size="sm" c="dimmed">{result?.total ?? 0} {result?.total === 1 ? "workflow" : "workflows"}</Text><Pagination value={page} onChange={setPage} total={result?.totalPages ?? 0} size="sm" withEdges /></Group></>}
     </Paper>
     <Modal opened={formOpened} onClose={() => setFormOpened(false)} title="Create workflow" centered>
-      <form onSubmit={(event) => void createWorkflow(event)}><Stack gap="md">{formError && <Alert color="hiveError" title="Could not create workflow">{formError}</Alert>}<TextInput label="Name" placeholder="e.g. Create a video from a script" value={form.name} maxLength={100} onChange={(event) => { const name = event.currentTarget.value; setForm((current) => ({ ...current, name })); }} required autoFocus /><Textarea label="Description" placeholder="What should this workflow do?" value={form.description} maxLength={1000} onChange={(event) => { const description = event.currentTarget.value; setForm((current) => ({ ...current, description })); }} minRows={3} autosize /><Group justify="flex-end"><Button variant="default" type="button" onClick={() => setFormOpened(false)}>Cancel</Button><Button type="submit" loading={savingForm}>Create workflow</Button></Group></Stack></form>
+      <form onSubmit={(event) => void createWorkflow(event)}><Stack gap="md">{formError && <Alert color="hiveError" title="Could not create workflow">{formError}</Alert>}{modelStatus !== "ready" || downloadedModels.size === 0 ? <ModelDownloadPrompt status={modelStatus} onOpenModels={() => onNavigate("models")} onClose={() => setFormOpened(false)} /> : <><TextInput label="Name" placeholder="e.g. Create a video from a script" value={form.name} maxLength={100} onChange={(event) => { const name = event.currentTarget.value; setForm((current) => ({ ...current, name })); }} required autoFocus /><Textarea label="Description" placeholder="What should this workflow do?" value={form.description} maxLength={1000} onChange={(event) => { const description = event.currentTarget.value; setForm((current) => ({ ...current, description })); }} minRows={3} autosize /><Group justify="flex-end"><Button variant="default" type="button" onClick={() => setFormOpened(false)}>Cancel</Button><Button type="submit" loading={savingForm}>Create workflow</Button></Group></>}</Stack></form>
     </Modal>
     <Modal opened={deleteTarget !== null} onClose={() => setDeleteTarget(null)} title="Confirm workflow removal" centered>
           {deleteTarget && <Stack gap="md">{deleteError && <Alert color="hiveError" title="Could not remove workflow">{deleteError}</Alert>}<Text>Are you sure you want to remove <Text component="span" fw={600}>{deleteTarget.name}</Text>?</Text><Text size="sm" c="dimmed">Its nodes and connections will be deleted. This cannot be undone.</Text>{(deleteTarget.activeRunCount ?? 0) > 0 && <Alert color="hiveWarning" title="Workflow is in use">This workflow has {deleteTarget.activeRunCount} queued or running {deleteTarget.activeRunCount === 1 ? "run" : "runs"} and can’t be removed.</Alert>}<Group justify="flex-end"><Button variant="default" onClick={() => setDeleteTarget(null)}>Cancel</Button><Button color="hiveError" loading={deleting} disabled={(deleteTarget.activeRunCount ?? 0) > 0} onClick={() => void removeWorkflow()}>Remove workflow</Button></Group></Stack>}

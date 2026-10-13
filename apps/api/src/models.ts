@@ -4,7 +4,7 @@ const router = Router();
 const runnerUrl = (process.env.IMAGE_RUNNER_URL ?? "http://127.0.0.1:8188").replace(/\/$/, "");
 const modelIds = new Set(["z-image-turbo", "qwen-image-edit-2511"]);
 
-async function forwardRunnerRequest(path: string, method = "GET") {
+export async function forwardRunnerRequest(path: string, method = "GET") {
   const response = await fetch(`${runnerUrl}${path}`, { method, signal: AbortSignal.timeout(15_000) });
   const body = await response.json().catch(() => ({}));
   return { response, body };

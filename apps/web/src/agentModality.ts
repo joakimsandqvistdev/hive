@@ -1,12 +1,9 @@
-export type AgentModality = "text" | "image" | "audio" | "video";
-export type AgentModelChoice = AgentModality | "qwen-image-edit-2511";
+export type AgentModality = "image";
+export type AgentModelChoice = "image" | "qwen-image-edit-2511";
 
 export const agentModalityOptions: Array<{ value: AgentModelChoice; label: string }> = [
-  { value: "text", label: "Text" },
   { value: "image", label: "Image (Z-Image-Turbo)" },
   { value: "qwen-image-edit-2511", label: "Image (Qwen-Image-Edit-2511)" },
-  { value: "audio", label: "Audio" },
-  { value: "video", label: "Video" },
 ];
 
 export function agentModalityLabel(value: string, modelId?: unknown): string {
