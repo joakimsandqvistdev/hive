@@ -9,7 +9,7 @@ from generation_process import GenerationProcessError
 class RunnerTests(unittest.IsolatedAsyncioTestCase):
     def test_selected_dimensions_reach_both_pipelines(self):
         for model_key in app.MODEL_REPOSITORIES:
-            for width, height in ((256, 256), (512, 512), (768, 768), (1024, 1024), (512, 768), (768, 512)):
+            for width, height in ((128, 128), (256, 256), (512, 512), (768, 768), (1024, 1024), (512, 768), (768, 512)):
                 with self.subTest(model=model_key, dimensions=(width, height)):
                     output = object()
                     references = [object()] if model_key == "qwen-image-edit-2511" else []
@@ -53,7 +53,7 @@ class RunnerTests(unittest.IsolatedAsyncioTestCase):
     async def test_invalid_dimensions_do_not_start_inference(self):
         with patch.object(app, "run_generation_process") as execute:
             with self.assertRaises(HTTPException) as caught:
-                await app.generate(request=Mock(), prompt="test", model_id="z-image-turbo", width=128, height=128,
+                await app.generate(request=Mock(), prompt="test", model_id="z-image-turbo", width=64, height=64,
                                    seed=42, num_inference_steps=9, true_cfg_scale=4, images=[])
             self.assertEqual(caught.exception.status_code, 422)
             execute.assert_not_called()

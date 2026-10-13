@@ -80,7 +80,12 @@ export function validateWorkflowDefinition(definition: WorkflowDefinition, agent
     nodeModalityById.set(node.id, agent.modality);
     let parameters: Record<string, unknown> = {};
     if (agent.modality === "image") {
-      const parsed = imageModelParametersSchema.safeParse({ ...agent.parameters, ...node.parameters });
+      const agentModelId = agent.parameters.modelId;
+      const parsed = imageModelParametersSchema.safeParse({
+        ...agent.parameters,
+        ...node.parameters,
+        ...(agentModelId === "z-image-turbo" || agentModelId === "qwen-image-edit-2511" ? { modelId: agentModelId } : {}),
+      });
       if (!parsed.success) return { ok: false, error: "invalid_parameters" };
       parameters = parsed.data;
       nodeModelById.set(node.id, parsed.data.modelId);

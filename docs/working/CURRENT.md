@@ -1,5 +1,17 @@
 # Current work
 
+## 2026-10-14 — Add 128×128 output resolution
+
+- Added 128×128 as the minimum selectable output for Z-Image-Turbo and Qwen-Image-Edit-2511 in the shared agent/node settings, API schema, and runner validation. Existing 512×512 defaults are unchanged.
+- Updated existing parameter/UI/runner test cases and model-parameter docs. The UI labels 128×128 as experimental and explains that reducing output size does not remove model loading memory needs; Qwen's publisher demo starts at 256×256.
+- API/web typechecks, production build, Python syntax validation, and `git diff --check` passed. Automated tests were not run. No containers were restarted while the Qwen model download is active.
+
+## 2026-10-14 — Use the reusable agent's model in workflow nodes
+
+- Removed the Image model selector from the workflow-node parameter pane. The selected agent now determines model identity in the editor, workflow validation/persistence, and run snapshots; other supported node-level parameter overrides remain available.
+- Updated decision 0005. API/web typechecks, production build, and `git diff --check` passed. No automated tests were run.
+- No containers were restarted because the Qwen model download is active; the running web container will show the UI update after a later safe restart.
+
 ## 2026-10-14 — Remove the model download concurrency cap
 
 - Removed the runner's maximum concurrent model-download count. Different models may now download at the same time; repeated starts for an active model remain idempotent, with per-model progress and cancellation.

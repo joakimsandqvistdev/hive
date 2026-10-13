@@ -84,7 +84,7 @@ Use UUID primary keys, `created_at`/`updated_at` timestamps, foreign keys, and i
 
 | Table | Important fields | Purpose |
 |---|---|---|
-| `agents` | `id`, `user_id`, `name`, `prompt`, `modality`, `parameters_json`, `created_at`, `updated_at` | Reusable, declarative agent configuration. Keep secrets out of JSON. Model IDs must refer to allow-listed locally installed/downloaded models. Image-agent parameters currently include resolution, seed/randomize-seed, and inference steps. |
+| `agents` | `id`, `user_id`, `name`, `prompt`, `modality`, `parameters_json`, `created_at`, `updated_at` | Reusable, declarative agent configuration. Keep secrets out of JSON. Model IDs must refer to allow-listed locally installed/downloaded models. Image-agent parameters currently include resolution (down to 128×128), seed/randomize-seed, and inference steps. |
 | `workflows` | `id`, `user_id`, `name`, `description`, `created_at`, `updated_at`, `archived_at` | Stable workflow identity and ownership; one current definition per workflow. |
 | `workflow_nodes` | `workflow_id`, `node_id`, `user_id`, `agent_id`, `prompt`, `parameters_json`, `position_x`, `position_y` | Current workflow nodes. Node prompts and model parameters default to the selected agent's values and may be edited for that workflow. Composite owner references prevent cross-user agent use. Saving a workflow replaces its node rows. |
 | `workflow_edges` | `workflow_id`, `edge_id`, `user_id`, `source_node_id`, `target_node_id` | Current directed node connections. Foreign keys ensure both endpoints exist in the same workflow. |

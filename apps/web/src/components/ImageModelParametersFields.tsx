@@ -2,7 +2,7 @@ import { NumberInput, Select, Stack, Switch, Text } from "@mantine/core";
 
 export type ImageModelParameters = {
   modelId: "z-image-turbo" | "qwen-image-edit-2511";
-  resolution: "256x256" | "512x512" | "768x768" | "1024x1024" | "512x768" | "768x512";
+  resolution: "128x128" | "256x256" | "512x512" | "768x768" | "1024x1024" | "512x768" | "768x512";
   seed: number;
   randomizeSeed: boolean;
   steps: number;
@@ -24,6 +24,7 @@ export const imageModelOptions = [
 ];
 
 export const imageResolutionOptions = [
+  { value: "128x128", label: "128 × 128 · low memory" },
   { value: "256x256", label: "256 × 256" },
   { value: "512x512", label: "512 × 512 · default" },
   { value: "768x768", label: "768 × 768" },
@@ -45,7 +46,11 @@ export function ImageModelParametersFields({ value, onChange, showModelSelect = 
       <Text size="xs" c="dimmed">Qwen-Image-Edit-2511 · Apache 2.0 · about 57.7 GB. Download it first from Models.</Text>
       <Text size="xs" c="dimmed">Connect 1–10 image nodes as references. Their order follows the canvas, top to bottom and then left to right.</Text>
     </Stack>}
-    <Select label="Resolution" data={imageResolutionOptions} value={value.resolution} onChange={(resolution) => {
+    <Select label="Resolution" description={value.resolution === "128x128"
+      ? value.modelId === "qwen-image-edit-2511"
+        ? "Experimental for Qwen; its published demo starts at 256 × 256. Model memory needs may still exceed your hardware."
+        : "Low resolution may reduce generation memory, but the model still needs memory to load."
+      : undefined} data={imageResolutionOptions} value={value.resolution} onChange={(resolution) => {
       if (resolution) onChange({ ...value, resolution: resolution as ImageModelParameters["resolution"] });
     }} allowDeselect={false} />
     <Switch label="Randomize seed for each run" checked={value.randomizeSeed} onChange={(event) => onChange({ ...value, randomizeSeed: event.currentTarget.checked })} />

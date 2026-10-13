@@ -39,5 +39,7 @@ export function buildWorkflowRunSnapshot(workflow: WorkflowIdentity, nodes: Work
 }
 
 function effectiveNodeParameters(node: WorkflowRunNodeSource) {
-  return node.modality === "image" && Object.keys(node.parameters).length === 0 ? node.agentParameters : node.parameters;
+  if (node.modality !== "image") return node.parameters;
+  const modelId = node.agentParameters.modelId ?? node.parameters.modelId;
+  return { ...node.agentParameters, ...node.parameters, modelId };
 }
