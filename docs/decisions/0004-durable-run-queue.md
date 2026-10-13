@@ -16,6 +16,6 @@ Workflow execution is long-running and must not depend on an HTTP request remain
 ## Consequences
 
 - Runs remain queued across API or worker restarts because PostgreSQL is the source of truth.
-- The queue, polling worker, Z-Image image-node adapter, and worker-owned state transitions are implemented. Current execution supports disconnected image nodes; connected graphs and text, audio, or video execution fail explicitly.
+- The queue, polling worker, Z-Image-Turbo adapter, Qwen-Image-Edit-2511 adapter, and worker-owned state transitions are implemented. Image nodes execute in topological order. Incoming edges to a Qwen edit node pass source PNGs as references (up to ten); other connection targets and text, audio, or video execution fail explicitly.
 - PNG outputs live in an opaque-key local artifact directory; metadata and ownership are stored in PostgreSQL. The API streams artifacts only to their owner.
 - A heartbeat lease allows interrupted runs to be reclaimed up to three attempts. Cancellation remains unimplemented; process/runner failures are recorded as failed runs.

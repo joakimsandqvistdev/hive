@@ -1,0 +1,1 @@
+ALTER TABLE "run_nodes" ADD COLUMN "parameters_json" jsonb DEFAULT '{}'::jsonb NOT NULL;

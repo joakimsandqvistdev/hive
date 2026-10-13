@@ -1,5 +1,43 @@
 # Current work
 
+## 2026-10-13 — Preserve workflow execution order in run details
+
+- Confirmed that the worker executes nodes serially in topological order. A node becomes ready only after all incoming edges have been satisfied, so all direct predecessors finish before their shared downstream node starts; a failure stops the run before dependent nodes execute.
+- Extracted the worker's stable topological ordering into shared API logic and use the same ordering for run-detail agent steps and generated output previews. No database migration was needed.
+- API/web typechecks, API build, and `git diff --check` passed. Automated tests were not run.
+
+## 2026-10-13 — Fix multipart numeric dimension validation
+
+- The remaining 422 was caused by declaring multipart `width`/`height` values as numeric `Literal` types; multipart values arrive as strings, so Pydantic rejected even valid values such as 512. Changed them to parsed integers and explicitly allow only the five supported resolution pairs.
+- Rebuilt the runner with the NVIDIA Compose override. Health reports CUDA and 8 GiB GPU memory; a non-generating invalid-dimension probe reaches the intended `Unsupported image dimensions` validation, confirming numeric form parsing. API/web typechecks, API build, Python syntax validation, and `git diff --check` passed. No inference request was made; the workflow should now be rerun.
+
+## 2026-10-13 — Diagnose repeated image-runner 422 responses
+
+- Confirmed the rebuilt runner is healthy, sees CUDA, and advertises multipart form fields; the latest failed run still reaches it and fails on a Z-Image-Turbo node. Persisted node values inspected so far (512×512, 9 steps, short prompt) satisfy the published field constraints, so the precise invalid field is not retained in the old run record.
+- Updated the worker to retain only safe FastAPI validation locations/messages in run errors, excluding submitted values and prompts. The watched worker should reload automatically; rerun once and inspect the node error for the specific rejected field if the 422 persists.
+
+## 2026-10-13 — Rebuild stale image runner after request validation failure
+
+- Diagnosed HTTP 422: the running local runner advertised the legacy JSON `/generate` schema, while the current worker sends multipart form data. Rebuilt/recreated the runner and restored the existing NVIDIA Compose override.
+- Verified `/generate` now advertises `multipart/form-data`; `/health` reports ready with CUDA available and the RTX 2080's 8 GiB detected. No inference request was made; rerun the failed workflow from the UI to confirm its generation.
+
+## 2026-10-13 — Preview workflow node outputs in run details
+
+- Added an authenticated, owner-scoped inline image preview endpoint and image previews in the run detail modal, grouped and labeled by the producing workflow node. Existing download actions remain available.
+- API/web typechecks and builds plus `git diff --check` passed. Automated tests were not run.
+
+## 2026-10-13 — Add Qwen-Image-Edit-2511 workflow support
+
+- Added Qwen-Image-Edit-2511 as an image model choice for agents and workflow nodes. Model-specific settings reuse the existing JSON parameters; no additional database migration was needed for this integration.
+- Connected image-node outputs now become one to ten references to a Qwen edit node, ordered top-to-bottom then left-to-right on the canvas. The local runner switches between the Qwen and Z-Image-Turbo pipelines and validates uploaded references before loading/switching the model.
+- Added the model's Apache 2.0 attribution to Licenses and recorded decision 0006. The model files are about 57.7 GB. Typechecks and `git diff --check` passed. Automated tests and Qwen inference were not run; the current host's ability to load/run this checkpoint remains unverified.
+
+## 2026-10-13 — Configure image model parameters on agents and workflow nodes
+
+- Added agent and per-node image settings for resolution, seed/randomize-seed, and inference steps. Workflow nodes initialize from selected agent settings; runs snapshot settings and persist a randomized seed before execution so retries reuse it.
+- Updated the Z-Image-Turbo runner to accept the configured inference steps and added migrations `0009_chilly_iron_patriot` (agent/workflow settings and existing-image defaults) and `0010_lazy_miss_america` (run-node settings). Both migrations applied successfully to the configured local database.
+- Recorded the parameter policy in decision 0005 and updated the orchestration data model. API/web typechecks and API/web production builds passed; Vite reports its existing >500 kB bundle advisory. `git diff --check` passed. Automated tests were not run. Docker Compose could not reach the Docker Desktop engine, so the updated runner container was not rebuilt; rebuild it before using custom step counts, and then run an image workflow to verify inference end to end.
+
 ## 2026-10-13 — Build run prompts from agent and node prompts
 
 - Removed the prompt dialog from the workflow Run action; it now queues the saved workflow directly.

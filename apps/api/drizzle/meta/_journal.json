@@ -64,6 +64,20 @@
       "when": 1791885065849,
       "tag": "0008_fearless_centennial",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1791889930667,
+      "tag": "0009_chilly_iron_patriot",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1791891045102,
+      "tag": "0010_lazy_miss_america",
+      "breakpoints": true
     }
   ]
 }

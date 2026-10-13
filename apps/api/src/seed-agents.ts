@@ -1,6 +1,7 @@
 import { and, eq, sql } from "drizzle-orm";
 import { db, pool } from "./db.js";
 import { agents, users } from "./schema.js";
+import { defaultImageModelParameters } from "./modelParameters.js";
 
 const email = process.env.AGENT_SEED_USER_EMAIL?.trim();
 if (!email) {
@@ -16,7 +17,7 @@ if (!email) {
 
     const samples = [
       { modality: "text" as const, name: "Sample Text Writer", prompt: "Draft and refine clear, coherent text based on the run request." },
-      { modality: "image" as const, name: "Sample Image Creator", prompt: "Create a visual image that follows the run request." },
+      { modality: "image" as const, name: "Sample Image Creator", prompt: "Create a visual image that follows the run request.", parameters: defaultImageModelParameters },
       { modality: "audio" as const, name: "Sample Audio Creator", prompt: "Generate speech or sound that follows the run request." },
       { modality: "video" as const, name: "Sample Video Creator", prompt: "Assemble scenes and motion that follow the run request." },
     ];

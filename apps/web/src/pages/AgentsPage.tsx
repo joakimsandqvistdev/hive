@@ -2,14 +2,15 @@ import { useCallback, useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { ActionIcon, Alert, Badge, Button, Group, Loader, Modal, Pagination, Paper, Select, Stack, Table, Text, Textarea, TextInput, Title, Tooltip } from "@mantine/core";
 import { API_BASE } from "../auth";
-import { agentModalityLabel, agentModalityOptions, type AgentModality } from "../agentModality";
+import { agentModalityLabel, agentModalityOptions, type AgentModality, type AgentModelChoice } from "../agentModality";
+import { defaultImageModelParameters, ImageModelParametersFields, type ImageModelParameters } from "../components/ImageModelParametersFields";
 
 const PAGE_SIZE = 10;
 type Modality = AgentModality;
-type Agent = { id: string; modality: Modality; name: string; prompt: string; createdAt: string; updatedAt: string; workflowUsageCount: number };
+type Agent = { id: string; modality: Modality; name: string; prompt: string; parameters: Record<string, unknown>; createdAt: string; updatedAt: string; workflowUsageCount: number };
 type AgentPage = { items: Agent[]; page: number; pageSize: number; total: number; totalPages: number };
-type AgentForm = { modality: Modality | ""; name: string; prompt: string };
-const emptyForm: AgentForm = { modality: "text", name: "", prompt: "" };
+type AgentForm = { modality: AgentModelChoice | ""; name: string; prompt: string; parameters: ImageModelParameters };
+const emptyForm: AgentForm = { modality: "text", name: "", prompt: "", parameters: { ...defaultImageModelParameters } };
 
 function formatDate(value: string) {
   return new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(new Date(value));
@@ -56,7 +57,8 @@ export function AgentsPage() {
 
   const openEdit = (agent: Agent) => {
     setEditingAgent(agent);
-    setForm({ modality: agent.modality, name: agent.name, prompt: agent.prompt });
+    const parameters = { ...defaultImageModelParameters, ...agent.parameters } as ImageModelParameters;
+    setForm({ modality: agent.modality === "image" && parameters.modelId === "qwen-image-edit-2511" ? "qwen-image-edit-2511" : agent.modality, name: agent.name, prompt: agent.prompt, parameters });
     setFormError(null);
     setModalOpened(true);
   };
@@ -76,7 +78,7 @@ export function AgentsPage() {
         method: editingAgent ? "PATCH" : "POST",
         credentials: "include",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify(form),
+        body: JSON.stringify({ ...form, modality: form.modality === "qwen-image-edit-2511" ? "image" : form.modality, parameters: form.modality === "image" || form.modality === "qwen-image-edit-2511" ? form.parameters : {} }),
       });
       const body = await response.json() as { error?: string };
       if (response.status === 409) { setFormError("An agent with this name already exists. Choose a different name."); return; }
@@ -121,7 +123,7 @@ export function AgentsPage() {
   const rows = result?.items.map((agent) => (
     <Table.Tr key={agent.id}>
       <Table.Td><Text fw={600}>{agent.name}</Text></Table.Td>
-      <Table.Td><Badge variant="light" color="hiveSky">{agentModalityLabel(agent.modality)}</Badge></Table.Td>
+      <Table.Td><Badge variant="light" color="hiveSky">{agentModalityLabel(agent.modality, agent.parameters.modelId)}</Badge></Table.Td>
       <Table.Td><Text size="sm" c={agent.prompt ? undefined : "dimmed"} lineClamp={2}>{agent.prompt || "No prompt"}</Text></Table.Td>
       <Table.Td><Text size="sm" c="dimmed">{formatDate(agent.createdAt)}</Text></Table.Td>
       <Table.Td><Text size="sm" c="dimmed">{formatDate(agent.updatedAt)}</Text></Table.Td>
@@ -180,9 +182,15 @@ export function AgentsPage() {
         <form onSubmit={saveAgent}>
           <Stack gap="md">
             {formError && <Alert color="hiveError" title="Could not save agent">{formError}</Alert>}
-            <Select label="Agent type" placeholder="Choose a modality" data={agentModalityOptions} value={form.modality} onChange={(value) => setForm((current) => ({ ...current, modality: (value ?? "") as AgentForm["modality"] }))} allowDeselect={false} required />
+            <Select label="Agent type" placeholder="Choose a modality" data={agentModalityOptions} value={form.modality} onChange={(value) => setForm((current) => {
+              const modality = (value ?? "") as AgentForm["modality"];
+              const isImage = modality === "image" || modality === "qwen-image-edit-2511";
+              const modelId = modality === "qwen-image-edit-2511" ? "qwen-image-edit-2511" : "z-image-turbo";
+              return { ...current, modality, parameters: isImage ? { ...current.parameters, ...defaultImageModelParameters, modelId, steps: modelId === "qwen-image-edit-2511" ? 40 : 9, trueCfgScale: 4 } : current.parameters };
+            })} allowDeselect={false} required />
             <TextInput label="Name" placeholder="e.g. Story Writer" value={form.name} onChange={(event) => { const name = event.currentTarget.value; setForm((current) => ({ ...current, name })); }} maxLength={80} required autoFocus />
             <Textarea label="Prompt" placeholder="Write the base instructions this agent should follow." value={form.prompt} onChange={(event) => { const prompt = event.currentTarget.value; setForm((current) => ({ ...current, prompt })); }} maxLength={500} minRows={3} autosize />
+            {form.modality === "image" || form.modality === "qwen-image-edit-2511" ? <ImageModelParametersFields showModelSelect={false} value={form.parameters} onChange={(parameters) => setForm((current) => ({ ...current, parameters, modality: parameters.modelId === "qwen-image-edit-2511" ? "qwen-image-edit-2511" : "image" }))} /> : <Text size="xs" c="dimmed">Model parameters are not available for this modality yet.</Text>}
             <Text size="xs" c="dimmed">Names must be unique in your agent library, ignoring capitalization.</Text>
             <Group justify="flex-end" mt="xs">
               {editingAgent && <Tooltip label={editingAgent.workflowUsageCount ? "This agent is used by a workflow" : "Remove agent"}><span><ActionIcon type="button" variant="subtle" color="hiveError" aria-label={`Remove ${editingAgent.name}`} disabled={editingAgent.workflowUsageCount > 0} onClick={() => openDelete(editingAgent)}><svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3m3 0-.8 12.2a1 1 0 0 1-1 .8H7.8a1 1 0 0 1-1-.8L6 7m4 4v5m4-5v5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"/></svg></ActionIcon></span></Tooltip>}
