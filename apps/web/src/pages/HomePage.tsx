@@ -16,7 +16,7 @@ export function HomePage({ onNavigate }: { onNavigate: (view: AppView) => void }
         {!user && <Button w="fit-content" onClick={openLoginModal}>Log in to get started</Button>}
         <Group gap="xs" className="welcome-signature">
           <Text className="signature-mark" aria-hidden="true">&gt;_</Text>
-          <Text size="sm" fw={550} c="hiveSky.3">A little room to grow</Text>
+          <Text size="sm" fw={550} c="hiveSky.7">A little room to grow</Text>
         </Group>
       </Stack>
       {user ? <Paper className="home-note" withBorder>

@@ -118,7 +118,7 @@ export function RunsPage({ onNavigate }: { onNavigate: (view: AppView) => void }
     <Table.Td><Text fw={600}>{run.workflowSnapshotJson?.name ?? "Workflow"}</Text><Text size="xs" c="dimmed" ff="monospace">{run.id.slice(0, 8)}</Text></Table.Td>
     <Table.Td><Badge variant="light" color={statusColor(run.status)}>{run.status.replaceAll("_", " ")}</Badge></Table.Td>
     <Table.Td><Text size="sm" c="dimmed">{date(run.createdAt)}</Text></Table.Td>
-    <Table.Td><Text size="sm" c={run.errorSummary ? "hiveError.3" : "dimmed"} lineClamp={2}>{run.errorSummary ?? (active(run.status) ? "Waiting for worker…" : "—")}</Text></Table.Td>
+    <Table.Td><Text size="sm" c={run.errorSummary ? "hiveError.7" : "dimmed"} lineClamp={2}>{run.errorSummary ?? (active(run.status) ? "Waiting for worker…" : "—")}</Text></Table.Td>
   </Table.Tr>);
 
   return <Stack className="workspace-page" gap="lg">
@@ -133,7 +133,7 @@ export function RunsPage({ onNavigate }: { onNavigate: (view: AppView) => void }
       {!detail && !detailError ? <Group justify="center" p="xl"><Loader size="sm" /></Group> : detailError ? <Alert color="hiveError" title="Could not load run">{detailError}</Alert> : detail && <Stack gap="md">
         <Group justify="space-between"><div><Text fw={650}>{detail.run.workflowSnapshotJson?.name ?? "Workflow"}</Text><Text size="xs" c="dimmed">Created {date(detail.run.createdAt)}</Text></div><Badge variant="light" color={statusColor(detail.run.status)}>{detail.run.status.replaceAll("_", " ")}</Badge></Group>
         {detail.run.errorSummary && <Alert color="hiveError" title="Run failed">{detail.run.errorSummary}</Alert>}
-        <div><Text fw={600} mb="xs">Agent steps</Text>{detail.nodes.length ? <Stack gap="xs">{detail.nodes.map((node) => <Paper key={node.nodeId} withBorder p="sm"><Group justify="space-between"><div><Text size="sm" fw={600}>{node.agentSnapshotJson?.name ?? node.nodeId}</Text><Text size="xs" c="dimmed">{agentModalityLabel(node.agentSnapshotJson?.modality ?? "agent", node.parameters?.modelId ?? node.agentSnapshotJson?.parameters?.modelId)}</Text></div><Badge variant="light" color={statusColor(node.status)}>{node.status}</Badge></Group>{node.errorSummary && <Text size="xs" c="hiveError.3" mt="xs">{node.errorSummary}</Text>}</Paper>)}</Stack> : <Text size="sm" c="dimmed">No agent steps recorded.</Text>}</div>
+        <div><Text fw={600} mb="xs">Agent steps</Text>{detail.nodes.length ? <Stack gap="xs">{detail.nodes.map((node) => <Paper key={node.nodeId} withBorder p="sm"><Group justify="space-between"><div><Text size="sm" fw={600}>{node.agentSnapshotJson?.name ?? node.nodeId}</Text><Text size="xs" c="dimmed">{agentModalityLabel(node.agentSnapshotJson?.modality ?? "agent", node.parameters?.modelId ?? node.agentSnapshotJson?.parameters?.modelId)}</Text></div><Badge variant="light" color={statusColor(node.status)}>{node.status}</Badge></Group>{node.errorSummary && <Text size="xs" c="hiveError.7" mt="xs">{node.errorSummary}</Text>}</Paper>)}</Stack> : <Text size="sm" c="dimmed">No agent steps recorded.</Text>}</div>
         <div><Text fw={600} mb="xs">Generated outputs</Text>{downloadError && <Alert color="hiveError" mb="xs">{downloadError}</Alert>}{detail.artifacts.length ? <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="sm">{detail.artifacts.map((artifact) => {
           const node = detail.nodes.find((item) => item.nodeId === artifact.runNodeId);
           const label = node?.agentSnapshotJson?.name ?? artifact.displayName;

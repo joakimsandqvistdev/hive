@@ -1,5 +1,12 @@
 # Current work
 
+## 2026-10-13 — Apply the selected Soft workspace UI
+
+- Replaced the enforced dark appearance with the user's selected light Soft workspace design: pale gray workspace/sidebar, white rounded panels, blue actions and navigation selection, quieter shadows, and more spacious table rows. Updated shared theme/styles and explicit light-surface text shades across Home, Agents, Runs, and workflow editing.
+- Updated `docs/DESIGN_SYSTEM.md` and recorded decision 0009; existing navigation and API behavior are preserved.
+- Six existing web tests, web typecheck/build, and `git diff --check` passed. Build retains the known >500 kB bundle advisory. Visually reviewed desktop Home/Licenses, the login dialog, and 390px mobile Home (no horizontal overflow). The review browser was signed out, so authenticated tables and workflow canvas still need visual review in the user's signed-in session. API/database tests were not run for this presentation-only change.
+
+
 ## 2026-10-13 — 256 minimum resolution and cleanup on failed runs
 
 - Added 256×256 to the shared agent/node selector, API resolution schema, and runner validation for both image models. Existing 512×512 defaults and saved settings remain unchanged; no migration required.

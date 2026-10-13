@@ -213,7 +213,7 @@ export function WorkflowsPage({ onNavigate }: {
         <Group justify="space-between" wrap="nowrap">
           <Group gap="sm" wrap="nowrap">
             <Button variant="subtle" onClick={closeEditor}>← Workflows</Button>
-            <div className="workflow-editor-title"><Text fw={650} lineClamp={1}>{workflow?.name ?? "Workflow"}</Text><Text size="xs" c={dirty ? "hiveWarning.3" : "dimmed"}>{dirty ? "Unsaved changes" : "All changes saved"}</Text></div>
+            <div className="workflow-editor-title"><Text fw={650} lineClamp={1}>{workflow?.name ?? "Workflow"}</Text><Text size="xs" c={dirty ? "hiveWarning.8" : "dimmed"}>{dirty ? "Unsaved changes" : "All changes saved"}</Text></div>
             <Button variant="subtle" onClick={() => { setForm({ ...draft }); setFormError(null); setFormOpened(true); }}>Details</Button>
           </Group>
           <Group gap="xs" wrap="nowrap">
@@ -290,7 +290,7 @@ export function WorkflowsPage({ onNavigate }: {
 }
 
 function AgentNodeView({ data, selected }: { data: AgentNodeData; selected: boolean }) {
-  return <Paper className="workflow-agent-node" data-selected={selected || undefined} withBorder shadow="sm"><Handle type="target" position={Position.Left} /><Group justify="space-between" gap="xs" wrap="nowrap"><Text size="xs" c="hiveSky.3" fw={700}>{agentModalityLabel(data.modality, data.parameters.modelId)}</Text>{data.agentId && <Badge size="xs" variant="light" color="hiveSky">Configured</Badge>}</Group><Text fw={650} mt={5} lineClamp={1}>{data.agentName}</Text><Text size="xs" c="dimmed" mt={3} lineClamp={3}>{data.prompt || "No prompt configured."}</Text><Handle type="source" position={Position.Right} /></Paper>;
+  return <Paper className="workflow-agent-node" data-selected={selected || undefined} withBorder shadow="sm"><Handle type="target" position={Position.Left} /><Group justify="space-between" gap="xs" wrap="nowrap"><Text size="xs" c="hiveSky.7" fw={700}>{agentModalityLabel(data.modality, data.parameters.modelId)}</Text>{data.agentId && <Badge size="xs" variant="light" color="hiveSky">Configured</Badge>}</Group><Text fw={650} mt={5} lineClamp={1}>{data.agentName}</Text><Text size="xs" c="dimmed" mt={3} lineClamp={3}>{data.prompt || "No prompt configured."}</Text><Handle type="source" position={Position.Right} /></Paper>;
 }
 
 function EditIcon() { return <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m14 5 5 5M4 20l4.2-.8L19 8.4a2.12 2.12 0 0 0-3-3L5.2 16.2 4 20Z" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" /></svg>; }
