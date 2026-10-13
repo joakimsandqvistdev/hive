@@ -1,5 +1,11 @@
 # Current work
 
+## 2026-10-13 — Report model download progress and support cancellation
+
+- The Models API now reports per-model transferred and total bytes. The Models cards show downloaded GB and a progress bar, with a cancel action while a download is queued or running.
+- Downloads run in a supervised subprocess so cancellation can stop transfer before removing only that model's Hub cache and isolated Xet cache. Completed model caches remain available.
+- Updated the runner API documentation. Python syntax compilation and `git diff --check` passed. Docker was unavailable during this continuation, so production builds and live runner checks could not be repeated; no large model download or automated tests were run.
+
 ## 2026-10-13 — Share model download prompt between creation modals
 
 - Extracted the model-checking, no-download, and unavailable states plus consistent Models/Close actions into `ModelDownloadPrompt`, reused by both the agent and workflow creation modals.
