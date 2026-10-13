@@ -85,7 +85,8 @@ export function ModelsPage() {
         body: "{}",
       });
       if (!response.ok) {
-        if (response.status === 409) throw new Error("Another model download is already in progress.");
+        const body = await response.json().catch(() => ({})) as { detail?: { code?: string } };
+        if (body.detail?.code === "download_cancelling") throw new Error("This model download is still cancelling. Try again shortly.");
         throw new Error("Could not start the model download. Try again.");
       }
       await refresh();
@@ -117,7 +118,7 @@ export function ModelsPage() {
       <Button variant="default" onClick={() => void refresh()} loading={loading}>Refresh status</Button>
     </Group>
     <Alert color="hiveSky" title="Models are downloaded on demand">
-      Hive does not bundle model weights. When you choose Download, the selected weights are fetched from the model publisher and stored in the local Docker runner’s persistent model cache. Models can only be used after their download completes.
+      Hive does not bundle model weights. Downloads are fetched from the model publisher and stored in the local Docker runner’s persistent cache. A model can be used after its download completes.
     </Alert>
     {pageError && <Alert color="hiveError" title="Model status unavailable" onClose={() => setPageError(null)} withCloseButton>{pageError}</Alert>}
     <SimpleGrid cols={{ base: 1, lg: 2 }}>
@@ -147,7 +148,7 @@ export function ModelsPage() {
             <Group justify="space-between" align="center" mt="auto">
               <Text component="a" href={detail.source} target="_blank" rel="noreferrer" size="sm" c="hiveSky">Model card</Text>
               {busy ? <Button variant="light" color="hiveError" disabled={status === "cancelling"} loading={cancelling === detail.id || status === "cancelling"} onClick={() => void cancelDownload(detail.id)}>Cancel download</Button>
-                : <Button disabled={loading || !state || downloadActive || status === "downloaded"} loading={requesting === detail.id} onClick={() => void startDownload(detail.id)}>
+                : <Button disabled={loading || !state || status === "downloaded"} loading={requesting === detail.id} onClick={() => void startDownload(detail.id)}>
                   {status === "downloaded" ? "Downloaded" : status === "failed" ? "Retry download" : "Download model"}
                 </Button>}
             </Group>

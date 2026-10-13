@@ -255,8 +255,11 @@ async def download_model(model_id: str) -> dict[str, str]:
             DOWNLOAD_STATUS[model_id] = {"status": "downloaded"}
         return {"id": model_id, "status": "downloaded"}
     with DOWNLOAD_LOCK:
-        if any(value.get("status") in {"queued", "downloading", "cancelling"} for value in DOWNLOAD_STATUS.values()):
-            raise HTTPException(status_code=409, detail={"code": "download_in_progress"})
+        model_status = DOWNLOAD_STATUS.get(model_id, {}).get("status")
+        if model_status in {"queued", "downloading"}:
+            return {"id": model_id, "status": str(model_status)}
+        if model_status == "cancelling":
+            raise HTTPException(status_code=409, detail={"code": "download_cancelling"})
         DOWNLOAD_STATUS[model_id] = {"status": "queued", "downloadedBytes": 0, "totalBytes": 0}
         DOWNLOAD_TASKS[model_id] = asyncio.create_task(run_model_download(model_id))
     return {"id": model_id, "status": "queued"}

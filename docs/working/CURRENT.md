@@ -1,5 +1,19 @@
 # Current work
 
+## 2026-10-14 — Remove the model download concurrency cap
+
+- Removed the runner's maximum concurrent model-download count. Different models may now download at the same time; repeated starts for an active model remain idempotent, with per-model progress and cancellation.
+- Removed concurrency and combined-resource messaging from the Models page and removed the cap from runner status. Updated decision 0013, runner documentation, and orchestration design.
+- API/web typechecks, Python syntax compilation, `git diff --check`, and web production build passed. The rebuilt web service is healthy and returns HTTP 200.
+- Two model downloads were active during this change and are still progressing. The runner container was left untouched to preserve them; it must be restarted after they finish to load the uncapped runner code.
+
+## 2026-10-14 — Allow parallel model downloads
+
+- Enabled up to two distinct model downloads at once in the runner. Repeated starts for an already active model are idempotent; each model retains independent progress and cancellation.
+- Exposed the concurrency limit through the Models API and updated the Models UI to allow parallel starts while explaining combined bandwidth and disk requirements. Updated decision 0013, runner documentation, and orchestration design.
+- API/web typechecks and builds, Python syntax compilation, and `git diff --check` passed. Rebuilt the local app and runner with the NVIDIA configuration; all services are healthy, and the runner reports `maxConcurrentDownloads: 2`. No downloads were started.
+- No automated tests were run.
+
 ## 2026-10-14 — Rename runner service folder
 
 - Moved the runner code and guide under `services/runner` and updated the Compose build context and README links. This aligns the folder with the existing `runner` Compose service name without changing Docker volumes or cached model files.
