@@ -7,7 +7,7 @@
     "dev": "vite --host 0.0.0.0",
     "build": "tsc -b && vite build",
     "typecheck": "tsc --noEmit",
-    "test": "tsx tests/navigationState.test.ts"
+    "test": "tsx --test tests/navigationState.test.ts tests/imageModelParametersFields.test.tsx"
   },
   "dependencies": {
     "@mantine/core": "^9.7.1",

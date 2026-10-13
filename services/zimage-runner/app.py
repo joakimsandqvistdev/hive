@@ -1,15 +1,19 @@
 import asyncio
+import ctypes
 import gc
 import io
+import logging
 import os
+import traceback
 from contextlib import asynccontextmanager
 from typing import Literal
 
 import torch
 from diffusers import QwenImageEditPlusPipeline, ZImagePipeline
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import StreamingResponse
 from PIL import Image
+from generation_process import GenerationProcessError, run_generation_process
 
 
 MODEL_REPOSITORIES = {
@@ -25,6 +29,36 @@ GPU_MEMORY_GIB = (
     else 0
 )
 GENERATION_LOCK = asyncio.Semaphore(1)
+LOGGER = logging.getLogger("uvicorn.error")
+try:
+    MALLOC_TRIM = getattr(ctypes.CDLL(None), "malloc_trim", None)
+except OSError:
+    MALLOC_TRIM = None
+if MALLOC_TRIM is not None:
+    MALLOC_TRIM.argtypes = [ctypes.c_size_t]
+    MALLOC_TRIM.restype = ctypes.c_int
+
+
+def release_pipeline():
+    global PIPELINE
+    PIPELINE = None
+    gc.collect()
+    if torch.cuda.is_available():
+        torch.cuda.empty_cache()
+    # glibc can retain freed CPU weights in its arenas after Python collection.
+    if MALLOC_TRIM is not None:
+        MALLOC_TRIM(0)
+
+
+def report_generation_failure(error: Exception, model_key: str) -> str:
+    # Do not log exception messages, source lines, or locals: these can contain inputs.
+    frames = " > ".join(
+        f"{os.path.basename(frame.filename)}:{frame.lineno}:{frame.name}"
+        for frame in traceback.extract_tb(error.__traceback__)
+    )
+    code = "out_of_memory" if isinstance(error, (torch.OutOfMemoryError, MemoryError)) else "generation_failed"
+    LOGGER.error("Image runner failure model=%s code=%s type=%s frames=%s", model_key, code, type(error).__name__, frames)
+    return code
 
 
 def load_pipeline(model_key: str):
@@ -48,10 +82,12 @@ def load_pipeline(model_key: str):
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    global PIPELINE, CURRENT_MODEL_KEY
-    PIPELINE = await asyncio.to_thread(load_pipeline, CURRENT_MODEL_KEY)
-    yield
-    PIPELINE = None
+    # Load weights only for generation; idle startup must not retain model memory.
+    release_pipeline()
+    try:
+        yield
+    finally:
+        release_pipeline()
 
 
 app = FastAPI(title="Hive Z-Image Runner", version="0.1.0", lifespan=lifespan)
@@ -60,7 +96,9 @@ app = FastAPI(title="Hive Z-Image Runner", version="0.1.0", lifespan=lifespan)
 @app.get("/health")
 async def health() -> dict[str, str | bool | float]:
     return {
-        "status": "ready" if PIPELINE is not None else "loading",
+        "status": "busy" if GENERATION_LOCK.locked() else "ready",
+        "pipeline_loaded": False,
+        "generation_active": GENERATION_LOCK.locked(),
         "model": MODEL_REPOSITORIES[CURRENT_MODEL_KEY],
         "device": DEVICE,
         "gpu_available": torch.cuda.is_available(),
@@ -71,17 +109,18 @@ async def health() -> dict[str, str | bool | float]:
 
 @app.post("/generate")
 async def generate(
+    request: Request,
     prompt: str = Form(min_length=1, max_length=8000),
     model_id: Literal["z-image-turbo", "qwen-image-edit-2511"] = Form(default="z-image-turbo"),
-    width: int = Form(default=512, ge=512, le=1024),
-    height: int = Form(default=512, ge=512, le=1024),
+    width: int = Form(default=512, ge=256, le=1024),
+    height: int = Form(default=512, ge=256, le=1024),
     seed: int = Form(default=42, ge=0, le=2**63 - 1),
     num_inference_steps: int = Form(default=9, ge=4, le=50),
     true_cfg_scale: float = Form(default=4.0, ge=0, le=10),
     images: list[UploadFile] = File(default=[]),
 ) -> StreamingResponse:
-    global PIPELINE, CURRENT_MODEL_KEY
-    if (width, height) not in {(512, 512), (768, 768), (1024, 1024), (512, 768), (768, 512)}:
+    global CURRENT_MODEL_KEY
+    if (width, height) not in {(256, 256), (512, 512), (768, 768), (1024, 1024), (512, 768), (768, 512)}:
         raise HTTPException(status_code=422, detail="Unsupported image dimensions")
     if model_id == "qwen-image-edit-2511" and not 1 <= len(images) <= 10:
         raise HTTPException(status_code=422, detail="Qwen-Image-Edit-2511 requires 1 to 10 reference images")
@@ -91,46 +130,81 @@ async def generate(
         raise HTTPException(status_code=422, detail="Z-Image-Turbo supports at most 12 inference steps")
 
     # Reject invalid references before potentially downloading or swapping in the large Qwen model.
-    reference_images = await load_reference_images(images)
     async with GENERATION_LOCK:
+        reference_images = []
         try:
-            if PIPELINE is None or CURRENT_MODEL_KEY != model_id:
-                old_pipeline = PIPELINE
-                PIPELINE = None
-                del old_pipeline
-                gc.collect()
-                if torch.cuda.is_available():
-                    torch.cuda.empty_cache()
-                PIPELINE = await asyncio.to_thread(load_pipeline, model_id)
-                CURRENT_MODEL_KEY = model_id
-            image = await asyncio.to_thread(generate_image, model_id, prompt, width, height, seed, num_inference_steps, true_cfg_scale, reference_images)
+            reference_images = await load_reference_images(images)
+            CURRENT_MODEL_KEY = model_id
+            encoded = await run_generation_process(
+                generation_worker,
+                (model_id, prompt, width, height, seed, num_inference_steps, true_cfg_scale, reference_images),
+                request.is_disconnected,
+            )
+        except GenerationProcessError as error:
+            status_code = 499 if error.code == "request_cancelled" else 504 if error.code == "generation_timeout" else 500
+            raise HTTPException(status_code=status_code, detail={"code": error.code}) from None
         except HTTPException:
             raise
         except Exception as error:
-            # Keep implementation details and prompt content out of the HTTP response.
-            raise HTTPException(status_code=500, detail="Image generation failed") from error
+            code = report_generation_failure(error, model_id)
+            # Release tensors referenced by the failure before the finally cleanup.
+            error.__traceback__ = None
+            # Only fixed error codes cross the internal HTTP boundary.
+            raise HTTPException(status_code=500, detail={"code": code}) from None
+        finally:
+            for reference in reference_images:
+                reference.close()
+            reference_images.clear()
+            release_pipeline()
 
-    output = io.BytesIO()
-    image.save(output, format="PNG")
-    output.seek(0)
-    return StreamingResponse(output, media_type="image/png")
+    return StreamingResponse(io.BytesIO(encoded), media_type="image/png")
+
+
+def generation_worker(sender, model_key, prompt, width, height, seed, steps, true_cfg_scale, references):
+    global PIPELINE
+    image = None
+    try:
+        PIPELINE = load_pipeline(model_key)
+        image = generate_image(model_key, prompt, width, height, seed, steps, true_cfg_scale, references)
+        output = io.BytesIO()
+        image.save(output, format="PNG")
+        encoded = output.getvalue()
+        if len(encoded) > 25 * 1024 * 1024:
+            raise RuntimeError("Output exceeds the internal size limit")
+        sender.send(("result", encoded))
+    except Exception as error:
+        code = report_generation_failure(error, model_key)
+        error.__traceback__ = None
+        sender.send(("error", code))
+    finally:
+        if image is not None:
+            image.close()
+        for reference in references:
+            reference.close()
+        release_pipeline()
+        sender.close()
 
 
 async def load_reference_images(files: list[UploadFile]) -> list[Image.Image]:
     references: list[Image.Image] = []
     total_bytes = 0
-    for file in files:
-        if file.content_type not in ("image/png", "image/jpeg", "image/webp"):
-            raise HTTPException(status_code=415, detail="Reference images must be PNG, JPEG, or WebP")
-        content = await file.read(10 * 1024 * 1024 + 1)
-        total_bytes += len(content)
-        if len(content) > 10 * 1024 * 1024 or total_bytes > 25 * 1024 * 1024:
-            raise HTTPException(status_code=413, detail="Reference images exceed size limits")
-        try:
-            image = Image.open(io.BytesIO(content)).convert("RGB")
-            references.append(image)
-        except Exception as error:
-            raise HTTPException(status_code=415, detail="A reference file is not a valid image") from error
+    try:
+        for file in files:
+            if file.content_type not in ("image/png", "image/jpeg", "image/webp"):
+                raise HTTPException(status_code=415, detail="Reference images must be PNG, JPEG, or WebP")
+            content = await file.read(10 * 1024 * 1024 + 1)
+            total_bytes += len(content)
+            if len(content) > 10 * 1024 * 1024 or total_bytes > 25 * 1024 * 1024:
+                raise HTTPException(status_code=413, detail="Reference images exceed size limits")
+            try:
+                with Image.open(io.BytesIO(content)) as source:
+                    references.append(source.convert("RGB"))
+            except Exception as error:
+                raise HTTPException(status_code=415, detail="A reference file is not a valid image") from error
+    except BaseException:
+        for reference in references:
+            reference.close()
+        raise
     return references
 
 
@@ -144,6 +218,8 @@ def generate_image(model_key: str, prompt: str, width: int, height: int, seed: i
         result = PIPELINE(
             prompt=prompt,
             image=references,
+            width=width,
+            height=height,
             num_inference_steps=steps,
             true_cfg_scale=true_cfg_scale,
             negative_prompt=" ",

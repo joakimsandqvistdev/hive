@@ -7,7 +7,9 @@
 
 Run image models in a dedicated Python/Diffusers HTTP service, separate from Hive's TypeScript API. The allow-listed models currently are Z-Image-Turbo and Qwen-Image-Edit-2511. The runner switches models on demand so only one large pipeline is resident at a time. Build it with Docker Compose, expose its development endpoint on localhost only, keep Hugging Face model files in a named persistent volume, and make NVIDIA GPU assignment an optional Compose override.
 
-The runner accepts a bounded prompt, dimensions, and optional seed, and streams a PNG response. It loads the model at process startup and serializes generation requests. A GPU with less than 16 GiB automatically uses sequential CPU offload; 512x512 is the request default. This fallback succeeded on the development machine's NVIDIA RTX 2080 with 8 GiB VRAM, but speed and memory behavior depend on the machine.
+The runner accepts a bounded prompt, dimensions, and optional seed, and streams a PNG response. It loads models on demand and serializes generation requests (see decision 0007). A GPU with less than 16 GiB automatically uses sequential CPU offload; 512x512 is the request default. This fallback succeeded on the development machine's NVIDIA RTX 2080 with 8 GiB VRAM, but speed and memory behavior depend on the machine.
+
+Per [decision 0007](0007-image-node-memory-cleanup.md), the runner releases its pipeline and unused memory after each node, then reloads from disk cache for the next request.
 
 ## Context
 

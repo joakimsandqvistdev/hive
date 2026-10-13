@@ -10,6 +10,7 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test:integration": "tsx tests/workflowApi.integration.test.ts",
+    "test:runner": "tsx --test tests/imageRunnerClient.test.ts tests/imageRunnerErrors.test.ts tests/modelParameters.test.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:seed:agents": "tsx src/seed-agents.ts",
@@ -22,6 +23,7 @@
     "drizzle-orm": "^0.44.5",
     "express": "^5.1.0",
     "pg": "^8.16.3",
+    "undici": "^7.30.0",
     "zod": "^4.1.11"
   },
   "devDependencies": {

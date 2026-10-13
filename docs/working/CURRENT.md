@@ -1,5 +1,46 @@
 # Current work
 
+## 2026-10-13 — 256 minimum resolution and cleanup on failed runs
+
+- Added 256×256 to the shared agent/node selector, API resolution schema, and runner validation for both image models. Existing 512×512 defaults and saved settings remain unchanged; no migration required.
+- Isolated each model load/inference/PNG encode in a temporary spawned process. Parent waits for process teardown on success, failure, disconnect, timeout, and cancellation before allowing another generation. Decoded reference images also close if a later input fails validation. Recorded decision 0008, updated parameter decision 0005 and cleanup decision 0007.
+- Six web tests, nine API runner/parameter tests, and eleven Python tests passed. Python checks include real process success/error/crash/disconnect/timeout/task-cancellation teardown, large IPC output, mocked model-load/inference/encode failures, and partial-reference cleanup. API/web typechecks/builds and `git diff --check` passed. Initial web build was blocked by sandbox `spawn EPERM`; rerun with approved child-process access passed, retaining the existing >500 kB advisory. No API/database integration tests or model inference were run.
+- Confirmed no queued/running workflows, rebuilt/recreated the runner with NVIDIA configuration and model cache preserved. Health confirms ready, CUDA, `generation_active: false`; a 256×256 Qwen validation-only request reaches the missing-reference check, confirming form dimension acceptance without loading a model. Qwen's peak-memory requirement and actual 256 inference remain unverified; rerun a saved workflow with the new resolution to check them.
+
+## 2026-10-13 — Fix five-minute image-runner fetch failures
+
+- Latest failed run's two Turbo nodes succeeded; its Qwen node failed with `fetch failed` after 5m04s while the runner remained healthy and continued processing. This strongly indicates Node fetch's default five-minute response-header timeout; the old run did not retain the underlying transport error code, so its exact cause cannot be proven retrospectively.
+- Added a runner-scoped Undici client with explicit one-hour header/body timeouts and the existing one-hour overall deadline/worker cancellation. Added safe timeout, unavailable-runner, and connection-closed error summaries without submitted data. Multipart fields/reference ordering and output checks are preserved; no automatic retry was added. Added the Undici dependency and a `test:runner` script, and updated the runner README.
+- Seven local HTTP/error regression tests, API typecheck/build, and `git diff --check` passed. Initial typecheck/build caught a native-vs-Undici FormData type mismatch; fixed by using Undici FormData consistently. Install reported five dependency audit findings; no audit fixes or unrelated dependency updates were applied (unrelated npm lockfile metadata changes were removed). No inference request or API integration test was run.
+- Confirmed zero queued/running workflows, then restarted the runner to clear the disconnected request belonging to the already-failed run; health confirms ready with CUDA and no loaded pipeline. The watched development worker should pick up the client change; production workers need the rebuilt API/restart. The workflow can now be rerun. Qwen inference/GPU suitability remains unverified.
+
+## 2026-10-13 — Select Qwen agent and node output resolution
+
+- Exposed the shared Resolution selector for Qwen in agent and workflow-node forms, with the same five options as Z-Image-Turbo. Existing settings/snapshots already persist resolution and the worker already sends dimensions, so no migration was required.
+- The runner now forwards width/height to the Qwen pipeline. Updated decision 0005 to explicitly replace automatic Qwen output sizing with the selected dimensions, and documented output/reference preprocessing separately in the runner README.
+- Five web regression tests (including both shared form configurations) and six mocked Python runner tests passed; the runner tests cover all five dimensions for both pipelines. API/web typechecks and production builds plus `git diff --check` passed. Web build retains its existing >500 kB bundle advisory. The first new form-test run needed an explicit React import; sandbox child-process restrictions required rerunning the test with approved access. No API integration tests or inference request were run.
+- Rebuilt/recreated the idle local runner with its NVIDIA override and preserved model cache; health confirms ready with CUDA and no loaded pipeline. Qwen reference preprocessing is unchanged, so reducing output resolution does not guarantee inference fits on the GPU.
+
+## 2026-10-13 — Free current idle runner memory
+
+- Confirmed zero queued/running workflows before restarting the local runner. Its startup Z-Image pipeline was still loaded, with container RAM use at 11.76 GiB and total GPU use at 645 MiB.
+- Unloading after startup and glibc heap trimming did not reclaim most RAM on this runtime (about 12.1 GiB remained despite `pipeline_loaded: false`). Switched to loading weights only on generation and recreated the idle runner; health confirms ready with CUDA and no loaded pipeline. The next generation request performs model loading/validation. Added optional glibc heap trimming to normal cleanup; it is best-effort.
+- Final runner RAM is 450.9 MiB, down from 11.76 GiB (about 11.3 GiB reclaimed). Total GPU use fell from 645 to 520 MiB; other desktop/runtime GPU use remains. Model disk cache and database/artifacts were preserved. No inference request was made.
+- Five mocked Python cleanup/startup tests and `git diff --check` passed. Updated decision 0007, decision 0003, and runner README; no TypeScript checks were rerun for this Python-only change. Qwen's inference OOM remains unresolved; per-node cleanup may still leave runtime-held host memory until process recreation.
+
+## 2026-10-13 — Release image-runner memory after every node
+
+- The runner now encodes each PNG, closes temporary images, unloads the pipeline, collects unused objects, and clears unused CUDA memory before releasing the generation lock, on success and failure. Subsequent nodes reload from the existing disk cache, trading loading latency for lower retained memory.
+- Idle health remains ready with `pipeline_loaded: false`. Startup model loading, workflow/artifact behavior, and model parameters remain unchanged. Recorded decision 0007 and updated the runner README and decision 0003.
+- Three mocked Python tests (success cleanup/reload, inference failures, encoding failure) and four worker error regression tests passed; `git diff --check` passed. Rebuilt the local runner with the NVIDIA override and preserved cache. Initial readiness polling expired during model startup; a subsequent health probe confirmed ready with CUDA/8 GiB and the new `pipeline_loaded` field. No inference request made by this chat; no additional TypeScript build/typecheck was run for this Python-only change.
+- A user-triggered retry captured by the existing diagnostics confirms Qwen CUDA `OutOfMemoryError` inside native attention. Per-node cleanup does not lower this step's peak memory requirement; successful Qwen inference remains unverified.
+
+## 2026-10-13 — Diagnose Qwen inference HTTP 500
+
+- Logs confirm Qwen downloaded and loaded, then failed before completing its first inference step. The original exception was swallowed and cannot be recovered from the existing logs. The RTX 2080 has 8 GiB VRAM; after failure, NVIDIA reported 7559 MiB in use. Memory exhaustion is suspected but not confirmed.
+- Added fixed memory/generic failure codes, worker error guidance, and safe runner diagnostics (exception type and stack locations only). Failed pipelines are unloaded and unused CUDA memory cleared so later requests reload cleanly. Updated the runner README; no model or parameter policy changed.
+- Four worker error regression tests and mocked Python failure-handling tests (CUDA OOM, host OOM, generic exception, log privacy, pipeline/cache cleanup) passed. API/web typechecks, API build, and `git diff --check` passed. Rebuilt/recreated the local runner with the NVIDIA override and preserved model cache; health confirms ready with CUDA and 8 GiB GPU memory. No inference request made; rerun the workflow to capture the precise underlying failure with the new diagnostics.
+
 ## 2026-10-13 — Preserve workflow execution order in run details
 
 - Confirmed that the worker executes nodes serially in topological order. A node becomes ready only after all incoming edges have been satisfied, so all direct predecessors finish before their shared downstream node starts; a failure stops the run before dependent nodes execute.
