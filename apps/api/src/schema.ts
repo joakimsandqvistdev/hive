@@ -1,4 +1,4 @@
-import { boolean, foreignKey, index, integer, jsonb, pgEnum, pgTable, primaryKey, real, serial, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
+import { boolean, foreignKey, index, integer, jsonb, pgEnum, pgTable, primaryKey, real, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
 export const agentModality = pgEnum("agent_modality", ["image"]);
@@ -25,13 +25,6 @@ export const sessions = pgTable("sessions", {
   index("sessions_user_id_idx").on(table.userId),
   index("sessions_expires_at_idx").on(table.expiresAt),
 ]);
-
-// Retained from the initial database migration so future schema diffs do not drop it.
-export const tasks = pgTable("tasks", {
-  id: serial("id").primaryKey(),
-  title: text("title").notNull(),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-});
 
 export const agents = pgTable("agents", {
   id: uuid("id").defaultRandom().primaryKey(),
