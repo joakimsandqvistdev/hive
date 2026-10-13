@@ -85,6 +85,13 @@
       "when": 1791914254000,
       "tag": "0011_cancelled_run_nodes",
       "breakpoints": true
+    },
+    {
+      "breakpoints": true,
+      "idx": 12,
+      "tag": "0012_image_only_agents",
+      "version": "7",
+      "when": 1791917807101
     }
   ]
 }

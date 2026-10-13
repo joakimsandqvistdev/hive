@@ -37,7 +37,7 @@ function AppContent({ view, onNavigate, sidebarCollapsed, workflowEditorActive, 
     <AppLayout view={view} onNavigate={onNavigate} workflowEditorActive={workflowEditorActive} sidebarCollapsed={sidebarCollapsed} onToggleNavigation={onToggleNavigation}>
       {isProtectedView && loading ? <SignInRequiredPage loading />
         : isProtectedView && !user ? <SignInRequiredPage />
-          : view === "agents" ? <AgentsPage />
+          : view === "agents" ? <AgentsPage onNavigate={onNavigate} />
             : view === "workflows" ? <WorkflowsPage onNavigate={onNavigate} />
               : view === "runs" ? <RunsPage onNavigate={onNavigate} />
                 : view === "models" ? <ModelsPage />

@@ -4,19 +4,22 @@ import { ActionIcon, Alert, Badge, Button, Group, Loader, Modal, Pagination, Pap
 import { API_BASE } from "../auth";
 import { agentModalityLabel, agentModalityOptions, type AgentModality, type AgentModelChoice } from "../agentModality";
 import { defaultImageModelParameters, ImageModelParametersFields, type ImageModelParameters } from "../components/ImageModelParametersFields";
+import { ModelDownloadPrompt } from "../components/ModelDownloadPrompt";
+import type { AppView } from "../navigation/navigationState";
+import { useDownloadedModels } from "../hooks/useDownloadedModels";
 
 const PAGE_SIZE = 10;
 type Modality = AgentModality;
 type Agent = { id: string; modality: Modality; name: string; prompt: string; parameters: Record<string, unknown>; createdAt: string; updatedAt: string; workflowUsageCount: number };
 type AgentPage = { items: Agent[]; page: number; pageSize: number; total: number; totalPages: number };
 type AgentForm = { modality: AgentModelChoice | ""; name: string; prompt: string; parameters: ImageModelParameters };
-const emptyForm: AgentForm = { modality: "text", name: "", prompt: "", parameters: { ...defaultImageModelParameters } };
+const emptyForm: AgentForm = { modality: "", name: "", prompt: "", parameters: { ...defaultImageModelParameters } };
 
 function formatDate(value: string) {
   return new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(new Date(value));
 }
 
-export function AgentsPage() {
+export function AgentsPage({ onNavigate }: { onNavigate: (view: AppView) => void }) {
   const [page, setPage] = useState(1);
   const [result, setResult] = useState<AgentPage | null>(null);
   const [loading, setLoading] = useState(true);
@@ -29,6 +32,7 @@ export function AgentsPage() {
   const [formError, setFormError] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Agent | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const { status: modelStatus, modelIds: downloadedModels, refresh: loadModelAvailability } = useDownloadedModels();
 
   const loadAgents = useCallback(async (requestedPage: number) => {
     setLoading(true);
@@ -47,15 +51,24 @@ export function AgentsPage() {
   }, []);
 
   useEffect(() => { void loadAgents(page); }, [loadAgents, page]);
+  const modelOptions: Array<{ value: AgentModelChoice; label: string; disabled?: boolean }> = agentModalityOptions.map((option) => {
+    const modelId = option.value === "image" ? "z-image-turbo" : option.value === "qwen-image-edit-2511" ? "qwen-image-edit-2511" : null;
+    const unavailable = modelId !== null && !downloadedModels.has(modelId);
+    return { ...option, label: unavailable ? `${option.label} · download in Models` : option.label, disabled: unavailable };
+  });
 
   const openCreate = () => {
+    void loadModelAvailability();
     setEditingAgent(null);
-    setForm(emptyForm);
+    const modality = modelStatus === "ready" ? downloadedModels.has("z-image-turbo") ? "image" : downloadedModels.has("qwen-image-edit-2511") ? "qwen-image-edit-2511" : "" : "";
+    const modelId = modality === "qwen-image-edit-2511" ? "qwen-image-edit-2511" : "z-image-turbo";
+    setForm({ ...emptyForm, modality, parameters: { ...defaultImageModelParameters, modelId, steps: modelId === "qwen-image-edit-2511" ? 40 : 9 } });
     setFormError(null);
     setModalOpened(true);
   };
 
   const openEdit = (agent: Agent) => {
+    void loadModelAvailability();
     setEditingAgent(agent);
     const parameters = { ...defaultImageModelParameters, ...agent.parameters } as ImageModelParameters;
     setForm({ modality: agent.modality === "image" && parameters.modelId === "qwen-image-edit-2511" ? "qwen-image-edit-2511" : agent.modality, name: agent.name, prompt: agent.prompt, parameters });
@@ -81,7 +94,9 @@ export function AgentsPage() {
         body: JSON.stringify({ ...form, modality: form.modality === "qwen-image-edit-2511" ? "image" : form.modality, parameters: form.modality === "image" || form.modality === "qwen-image-edit-2511" ? form.parameters : {} }),
       });
       const body = await response.json() as { error?: string };
-      if (response.status === 409) { setFormError("An agent with this name already exists. Choose a different name."); return; }
+      if (body.error === "model_not_downloaded") { setFormError("Download this model from Models before creating or switching to this image agent."); return; }
+      if (body.error === "model_runner_unavailable") { setFormError("The model runner is unavailable. Start the runner and try again."); return; }
+      if (response.status === 409 && body.error === "duplicate_name") { setFormError("An agent with this name already exists. Choose a different name."); return; }
       if (response.status === 401) { setFormError("Sign in to create or edit agents."); return; }
       if (!response.ok) { setFormError(body.error === "invalid_agent" ? "Check the name and prompt and try again." : "Could not save this agent. Please try again."); return; }
       setModalOpened(false);
@@ -145,6 +160,8 @@ export function AgentsPage() {
     </Table.Tr>
   ));
 
+  const modelRequiredMessage = !editingAgent && (modelStatus !== "ready" || downloadedModels.size === 0);
+
   return (
     <Stack className="workspace-page" gap="lg">
       <Group justify="space-between" align="end">
@@ -182,7 +199,8 @@ export function AgentsPage() {
         <form onSubmit={saveAgent}>
           <Stack gap="md">
             {formError && <Alert color="hiveError" title="Could not save agent">{formError}</Alert>}
-            <Select label="Agent type" placeholder="Choose a modality" data={agentModalityOptions} value={form.modality} onChange={(value) => setForm((current) => {
+            {modelRequiredMessage ? <ModelDownloadPrompt status={modelStatus} onOpenModels={() => onNavigate("models")} onClose={() => setModalOpened(false)} /> : <>
+            <Select label="Agent type" placeholder="Choose a modality" data={modelOptions} value={form.modality} onChange={(value) => setForm((current) => {
               const modality = (value ?? "") as AgentForm["modality"];
               const isImage = modality === "image" || modality === "qwen-image-edit-2511";
               const modelId = modality === "qwen-image-edit-2511" ? "qwen-image-edit-2511" : "z-image-turbo";
@@ -190,13 +208,14 @@ export function AgentsPage() {
             })} allowDeselect={false} required />
             <TextInput label="Name" placeholder="e.g. Story Writer" value={form.name} onChange={(event) => { const name = event.currentTarget.value; setForm((current) => ({ ...current, name })); }} maxLength={80} required autoFocus />
             <Textarea label="Prompt" placeholder="Write the base instructions this agent should follow." value={form.prompt} onChange={(event) => { const prompt = event.currentTarget.value; setForm((current) => ({ ...current, prompt })); }} maxLength={500} minRows={3} autosize />
-            {form.modality === "image" || form.modality === "qwen-image-edit-2511" ? <ImageModelParametersFields showModelSelect={false} value={form.parameters} onChange={(parameters) => setForm((current) => ({ ...current, parameters, modality: parameters.modelId === "qwen-image-edit-2511" ? "qwen-image-edit-2511" : "image" }))} /> : <Text size="xs" c="dimmed">Model parameters are not available for this modality yet.</Text>}
+            {form.modality === "image" || form.modality === "qwen-image-edit-2511" ? <ImageModelParametersFields showModelSelect={false} value={form.parameters} onChange={(parameters) => setForm((current) => ({ ...current, parameters, modality: parameters.modelId === "qwen-image-edit-2511" ? "qwen-image-edit-2511" : "image" }))} /> : <Text size="xs" c="dimmed">Download an image model from Models, then select it here.</Text>}
             <Text size="xs" c="dimmed">Names must be unique in your agent library, ignoring capitalization.</Text>
             <Group justify="flex-end" mt="xs">
               {editingAgent && <Tooltip label={editingAgent.workflowUsageCount ? "This agent is used by a workflow" : "Remove agent"}><span><ActionIcon type="button" variant="subtle" color="hiveError" aria-label={`Remove ${editingAgent.name}`} disabled={editingAgent.workflowUsageCount > 0} onClick={() => openDelete(editingAgent)}><svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3m3 0-.8 12.2a1 1 0 0 1-1 .8H7.8a1 1 0 0 1-1-.8L6 7m4 4v5m4-5v5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"/></svg></ActionIcon></span></Tooltip>}
               <Button variant="default" type="button" onClick={() => setModalOpened(false)}>Cancel</Button>
               <Button type="submit" loading={saving}>{editingAgent ? "Save changes" : "Create agent"}</Button>
             </Group>
+            </>}
           </Stack>
         </form>
       </Modal>

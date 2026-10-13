@@ -1,5 +1,28 @@
 # Current work
 
+## 2026-10-13 — Share model download prompt between creation modals
+
+- Extracted the model-checking, no-download, and unavailable states plus consistent Models/Close actions into `ModelDownloadPrompt`, reused by both the agent and workflow creation modals.
+- API/web production build passed in Docker and the updated web container is running. `git diff --check` passed. Build retains the Vite advisory for a JavaScript chunk over 500 kB; no tests run.
+
+## 2026-10-13 — Guide creation flows to model downloads
+
+- The create-agent and create-workflow modals check downloaded model status before showing their forms. If none are downloaded, each says “No models are downloaded yet” and offers a direct Models navigation button; creation fields and actions stay hidden.
+- Model status errors display a separate unavailable message. The agent form is only gated during creation; editing an existing agent remains available.
+- Added a shared downloaded-model status hook. API/web production build passed in Docker and the updated web container is running. `git diff --check` passed. Build retains the Vite advisory for a JavaScript chunk over 500 kB; no tests run.
+
+## 2026-10-13 — Limit agents to downloaded image models
+
+- Removed Text, Audio, and Video from the agent form and API schema. New agent rows must use Image and pass the existing local-runner downloaded-model check.
+- Restricted the PostgreSQL `agent_modality` enum to `image`. The migration deletes unreferenced legacy non-image agents and fails with a clear message if any current or saved workflow version still references them. The inspected local database had no agent rows.
+- Updated the seed command and data model documentation to include only Image agents. The migration applied successfully to the local database; its only agent enum value is now `image`, and it contains no agent rows. API/web production builds and container restarts passed; `git diff --check` passed. The build reports the existing Vite advisory for a JavaScript chunk over 500 kB. No tests run.
+
+## 2026-10-13 — Require downloaded models for image agents
+
+- Image model choices that are not downloaded in the local runner are disabled in the agent form, with a prompt to get them from Models.
+- The API verifies runner availability before creating an image agent or changing an existing agent to a different image model. Editing other fields on an existing agent remains possible if its model is no longer present.
+- API and web production builds passed in Docker, and the updated API/web containers are running. `git diff --check` passed. The build reports the existing Vite advisory for a JavaScript chunk over 500 kB; no tests run.
+
 ## 2026-10-13 — Explicit local model downloads
 
 - Added an authenticated Models view listing Z-Image-Turbo and Qwen-Image-Edit-2511 with summaries, estimated disk use, hardware recommendations, model-card links, and download status/actions.
