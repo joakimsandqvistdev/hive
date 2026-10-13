@@ -127,7 +127,7 @@ export function AgentsPage() {
       <Table.Td><Text size="sm" c={agent.prompt ? undefined : "dimmed"} lineClamp={2}>{agent.prompt || "No prompt"}</Text></Table.Td>
       <Table.Td><Text size="sm" c="dimmed">{formatDate(agent.createdAt)}</Text></Table.Td>
       <Table.Td><Text size="sm" c="dimmed">{formatDate(agent.updatedAt)}</Text></Table.Td>
-      <Table.Td><Text size="sm" c={agent.workflowUsageCount ? "hiveWarning.3" : "dimmed"}>{agent.workflowUsageCount ? `Used by ${agent.workflowUsageCount} ${agent.workflowUsageCount === 1 ? "workflow" : "workflows"}` : "—"}</Text></Table.Td>
+      <Table.Td><Text size="sm" c={agent.workflowUsageCount ? "hiveWarning.8" : "dimmed"}>{agent.workflowUsageCount ? `Used by ${agent.workflowUsageCount} ${agent.workflowUsageCount === 1 ? "workflow" : "workflows"}` : "—"}</Text></Table.Td>
       <Table.Td>
         <Group gap={4} wrap="nowrap">
           <Tooltip label={`Edit ${agent.name}`}>

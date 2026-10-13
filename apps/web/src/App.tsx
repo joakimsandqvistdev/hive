@@ -15,7 +15,7 @@ export default function App() {
   const { view, sidebarCollapsed, workflowEditorActive, navigate, toggleSidebar } = useAppNavigation();
 
   return (
-    <MantineProvider theme={theme} forceColorScheme="dark">
+    <MantineProvider theme={theme} forceColorScheme="light">
       <AuthProvider>
         <AppContent view={view} onNavigate={navigate} sidebarCollapsed={sidebarCollapsed} workflowEditorActive={workflowEditorActive} onToggleNavigation={toggleSidebar} />
       </AuthProvider>
