@@ -150,11 +150,17 @@ def model_is_downloaded(model_id: str) -> bool:
     marker = Path(os.getenv("HF_HOME", "~/.cache/huggingface")).expanduser() / f".hive-{model_id}-download-complete"
     if not marker.is_file():
         return False
+    if model_id == "kokoro-82m" and not kokoro_english_model_path().joinpath("en_core_web_sm", "__init__.py").is_file():
+        return False
     try:
         snapshot_download(MODEL_REPOSITORIES[model_id], local_files_only=True)
         return True
     except Exception:
         return False
+
+
+def kokoro_english_model_path() -> Path:
+    return Path(os.getenv("HF_HOME", "~/.cache/huggingface")).expanduser() / "hive-kokoro" / "en_core_web_sm"
 
 
 def model_cache_paths(model_id: str) -> tuple[Path, Path, Path]:
@@ -168,12 +174,17 @@ def model_cache_paths(model_id: str) -> tuple[Path, Path, Path]:
 
 def remove_partial_model_cache(model_id: str) -> None:
     repo_cache, xet_cache, marker = model_cache_paths(model_id)
-    for cache_path in (repo_cache, xet_cache):
+    # A Kokoro weights download can predate the G2P sidecar. Preserve those
+    # verified weights if the user cancels the one-time sidecar completion.
+    preserve_kokoro_weights = model_id == "kokoro-82m" and marker.is_file() and repo_cache.exists()
+    cache_paths = (kokoro_english_model_path(),) if preserve_kokoro_weights else (repo_cache, xet_cache, kokoro_english_model_path())
+    for cache_path in cache_paths:
         if cache_path.is_symlink():
             cache_path.unlink()
         elif cache_path.exists():
             shutil.rmtree(cache_path)
-    marker.unlink(missing_ok=True)
+    if not preserve_kokoro_weights:
+        marker.unlink(missing_ok=True)
 
 
 async def run_model_download(model_id: str) -> None:
@@ -493,6 +504,11 @@ def audio_generation_worker(sender, model_key, prompt, voice, speed):
     try:
         import numpy as np
         import wave
+        if model_key == "kokoro-82m":
+            english_model_path = kokoro_english_model_path()
+            if not (english_model_path / "en_core_web_sm" / "__init__.py").is_file():
+                raise RuntimeError("Kokoro's English text-processing model is not downloaded")
+            sys.path.insert(0, str(english_model_path))
         from kokoro import KPipeline
 
         language_code = voice[0]

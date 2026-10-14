@@ -2,9 +2,14 @@
 
 import importlib
 import json
+import os
+from pathlib import Path
+import shutil
 import sys
 import threading
 import time
+from urllib.request import urlopen
+from zipfile import ZipFile
 
 
 MODEL_REPOSITORIES = {
@@ -27,6 +32,44 @@ PROGRESS_LOCK = threading.Lock()
 DOWNLOADED_BYTES = 0
 TOTAL_BYTES = 0
 LAST_EMIT = 0.0
+KOKORO_ENGLISH_MODEL_URL = "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl"
+
+
+def download_kokoro_english_model() -> None:
+    """Cache Misaki's English G2P data beside Kokoro's weights, outside the image."""
+    hf_home = Path(os.getenv("HF_HOME", "~/.cache/huggingface")).expanduser()
+    cache_root = hf_home / "hive-kokoro"
+    model_path = cache_root / "en_core_web_sm"
+    partial_path = cache_root / "en_core_web_sm.partial"
+    wheel_path = cache_root / "en_core_web_sm-3.8.0.whl.partial"
+    if (model_path / "en_core_web_sm" / "__init__.py").is_file():
+        return
+
+    cache_root.mkdir(parents=True, exist_ok=True)
+    shutil.rmtree(partial_path, ignore_errors=True)
+    wheel_path.unlink(missing_ok=True)
+
+    with urlopen(KOKORO_ENGLISH_MODEL_URL, timeout=30) as response:
+        total = int(response.headers.get("Content-Length", 0))
+        track_progress(total=total)
+        downloaded = 0
+        with wheel_path.open("wb") as wheel:
+            while chunk := response.read(1024 * 1024):
+                wheel.write(chunk)
+                downloaded += len(chunk)
+                track_progress(downloaded=len(chunk))
+
+    partial_path.mkdir()
+    with ZipFile(wheel_path) as archive:
+        root = partial_path.resolve()
+        for member in archive.infolist():
+            destination = (partial_path / member.filename).resolve()
+            if destination != root and root not in destination.parents:
+                raise ValueError("English model archive contains an invalid path")
+        archive.extractall(partial_path)
+    wheel_path.unlink(missing_ok=True)
+    shutil.rmtree(model_path, ignore_errors=True)
+    partial_path.replace(model_path)
 
 
 def emit_progress(force: bool = False) -> None:
@@ -91,6 +134,8 @@ def main() -> int:
         from huggingface_hub import snapshot_download
 
         snapshot_download(MODEL_REPOSITORIES[model_id])
+        if model_id == "kokoro-82m":
+            download_kokoro_english_model()
         with PROGRESS_LOCK:
             emit_progress(force=True)
         return 0
