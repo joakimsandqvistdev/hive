@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { imageModelParametersSchema } from "./modelParameters.js";
+import { imageModelIdSchema, imageModelParametersSchema } from "./modelParameters.js";
 
 const nodeSchema = z.object({
   id: z.string().min(1).max(100),
@@ -12,6 +12,7 @@ const edgeSchema = z.object({
   id: z.string().min(1).max(120),
   source: z.string().min(1).max(100),
   target: z.string().min(1).max(100),
+  targetHandle: z.string().max(40).optional(),
 });
 
 export const workflowDefinitionSchema = z.object({ nodes: z.array(nodeSchema).max(100), edges: z.array(edgeSchema).max(300) })
@@ -22,6 +23,9 @@ export const workflowDefinitionSchema = z.object({ nodes: z.array(nodeSchema).ma
       nodeIds.add(node.id);
     });
     definition.edges.forEach((edge, index) => {
+      if (edge.targetHandle && edge.targetHandle !== "image" && edge.targetHandle !== "mask") {
+        context.addIssue({ code: "custom", path: ["edges", index, "targetHandle"], message: "Connections must use a supported image input." });
+      }
       if (!nodeIds.has(edge.source) || !nodeIds.has(edge.target)) {
         context.addIssue({ code: "custom", path: ["edges", index], message: "Edges must connect existing nodes." });
       }
@@ -84,7 +88,7 @@ export function validateWorkflowDefinition(definition: WorkflowDefinition, agent
       const parsed = imageModelParametersSchema.safeParse({
         ...agent.parameters,
         ...node.parameters,
-        ...(agentModelId === "z-image-turbo" || agentModelId === "qwen-image-edit-2511" ? { modelId: agentModelId } : {}),
+        ...(imageModelIdSchema.safeParse(agentModelId).success ? { modelId: agentModelId } : {}),
       });
       if (!parsed.success) return { ok: false, error: "invalid_parameters" };
       parameters = parsed.data;
@@ -95,20 +99,22 @@ export function validateWorkflowDefinition(definition: WorkflowDefinition, agent
     nodes.push({ ...node, prompt: node.prompt ?? agent.prompt ?? "", parameters });
   }
 
-  const incomingReferences = new Map<string, Set<string>>();
   for (const edge of definition.edges) {
-    if (nodeModalityById.get(edge.source) !== "image" || nodeModelById.get(edge.target) !== "qwen-image-edit-2511") {
+    if (nodeModalityById.get(edge.source) !== "image" || !["qwen-image-edit-2511", "instruct-pix2pix", "sd15-inpainting", "longcat-image-edit-turbo", "flux2-klein-4b"].includes(nodeModelById.get(edge.target) ?? "")) {
       return { ok: false, error: "unsupported_image_connections" };
     }
-    const sources = incomingReferences.get(edge.target) ?? new Set<string>();
-    sources.add(edge.source);
-    incomingReferences.set(edge.target, sources);
   }
   for (const node of definition.nodes) {
-    if (nodeModelById.get(node.id) === "qwen-image-edit-2511") {
-      const count = incomingReferences.get(node.id)?.size ?? 0;
-      if (count < 1 || count > 10) return { ok: false, error: "invalid_reference_count" };
-    }
+    const modelId = nodeModelById.get(node.id);
+    const incoming = definition.edges.filter((edge) => edge.target === node.id);
+    const images = incoming.filter((edge) => (edge.targetHandle ?? "image") === "image").length;
+    const masks = incoming.filter((edge) => edge.targetHandle === "mask").length;
+    const valid = modelId === "qwen-image-edit-2511" ? images >= 1 && images <= 10 && masks === 0
+      : modelId === "instruct-pix2pix" || modelId === "longcat-image-edit-turbo" ? images === 1 && masks === 0
+        : modelId === "sd15-inpainting" ? images === 1 && masks === 1 && incoming.length === 2
+          : modelId === "flux2-klein-4b" ? images <= 4 && masks === 0
+            : incoming.length === 0;
+    if (!valid) return { ok: false, error: "invalid_reference_count" };
   }
   return { ok: true, nodes };
 }

@@ -3,7 +3,7 @@ import type { FormEvent } from "react";
 import { ActionIcon, Alert, Badge, Button, Group, Loader, Modal, Pagination, Paper, Select, Stack, Table, Text, Textarea, TextInput, Title, Tooltip } from "@mantine/core";
 import { API_BASE } from "../auth";
 import { agentModalityLabel, agentModalityOptions, type AgentModality, type AgentModelChoice } from "../agentModality";
-import { defaultImageModelParameters, ImageModelParametersFields, type ImageModelParameters } from "../components/ImageModelParametersFields";
+import { defaultImageModelParameters, imageModelDefaultSteps, imageModelOptions, ImageModelParametersFields, type ImageModelParameters } from "../components/ImageModelParametersFields";
 import { ModelDownloadPrompt } from "../components/ModelDownloadPrompt";
 import type { AppView } from "../navigation/navigationState";
 import { useDownloadedModels } from "../hooks/useDownloadedModels";
@@ -52,7 +52,7 @@ export function AgentsPage({ onNavigate }: { onNavigate: (view: AppView) => void
 
   useEffect(() => { void loadAgents(page); }, [loadAgents, page]);
   const modelOptions: Array<{ value: AgentModelChoice; label: string; disabled?: boolean }> = agentModalityOptions.map((option) => {
-    const modelId = option.value === "image" ? "z-image-turbo" : option.value === "qwen-image-edit-2511" ? "qwen-image-edit-2511" : null;
+    const modelId = option.value === "image" ? "z-image-turbo" : option.value;
     const unavailable = modelId !== null && !downloadedModels.has(modelId);
     return { ...option, label: unavailable ? `${option.label} · download in Models` : option.label, disabled: unavailable };
   });
@@ -60,9 +60,9 @@ export function AgentsPage({ onNavigate }: { onNavigate: (view: AppView) => void
   const openCreate = () => {
     void loadModelAvailability();
     setEditingAgent(null);
-    const modality = modelStatus === "ready" ? downloadedModels.has("z-image-turbo") ? "image" : downloadedModels.has("qwen-image-edit-2511") ? "qwen-image-edit-2511" : "" : "";
-    const modelId = modality === "qwen-image-edit-2511" ? "qwen-image-edit-2511" : "z-image-turbo";
-    setForm({ ...emptyForm, modality, parameters: { ...defaultImageModelParameters, modelId, steps: modelId === "qwen-image-edit-2511" ? 40 : 9 } });
+    const modelId = modelStatus === "ready" ? (imageModelOptions.find((option) => downloadedModels.has(option.value))?.value ?? "") : "";
+    const selectedModelId = (modelId || "z-image-turbo") as ImageModelParameters["modelId"];
+    setForm({ ...emptyForm, modality: (modelId === "z-image-turbo" ? "image" : modelId) as AgentForm["modality"], parameters: { ...defaultImageModelParameters, modelId: selectedModelId, steps: imageModelDefaultSteps(selectedModelId), trueCfgScale: 4, guidanceScale: modelId === "flux2-klein-4b" ? 1 : modelId === "sana-sprint-06b" || modelId === "sd35-medium" ? 4.5 : 7.5 } });
     setFormError(null);
     setModalOpened(true);
   };
@@ -71,7 +71,7 @@ export function AgentsPage({ onNavigate }: { onNavigate: (view: AppView) => void
     void loadModelAvailability();
     setEditingAgent(agent);
     const parameters = { ...defaultImageModelParameters, ...agent.parameters } as ImageModelParameters;
-    setForm({ modality: agent.modality === "image" && parameters.modelId === "qwen-image-edit-2511" ? "qwen-image-edit-2511" : agent.modality, name: agent.name, prompt: agent.prompt, parameters });
+    setForm({ modality: parameters.modelId === "z-image-turbo" ? "image" : parameters.modelId, name: agent.name, prompt: agent.prompt, parameters });
     setFormError(null);
     setModalOpened(true);
   };
@@ -91,7 +91,7 @@ export function AgentsPage({ onNavigate }: { onNavigate: (view: AppView) => void
         method: editingAgent ? "PATCH" : "POST",
         credentials: "include",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ ...form, modality: form.modality === "qwen-image-edit-2511" ? "image" : form.modality, parameters: form.modality === "image" || form.modality === "qwen-image-edit-2511" ? form.parameters : {} }),
+        body: JSON.stringify({ ...form, modality: "image", parameters: form.parameters }),
       });
       const body = await response.json() as { error?: string };
       if (body.error === "model_not_downloaded") { setFormError("Download this model from Models before creating or switching to this image agent."); return; }
@@ -202,13 +202,14 @@ export function AgentsPage({ onNavigate }: { onNavigate: (view: AppView) => void
             {modelRequiredMessage ? <ModelDownloadPrompt status={modelStatus} onOpenModels={() => onNavigate("models")} onClose={() => setModalOpened(false)} /> : <>
             <Select label="Agent type" placeholder="Choose a modality" data={modelOptions} value={form.modality} onChange={(value) => setForm((current) => {
               const modality = (value ?? "") as AgentForm["modality"];
-              const isImage = modality === "image" || modality === "qwen-image-edit-2511";
-              const modelId = modality === "qwen-image-edit-2511" ? "qwen-image-edit-2511" : "z-image-turbo";
-              return { ...current, modality, parameters: isImage ? { ...current.parameters, ...defaultImageModelParameters, modelId, steps: modelId === "qwen-image-edit-2511" ? 40 : 9, trueCfgScale: 4 } : current.parameters };
+              const isImage = Boolean(modality);
+              const modelId = modality === "image" ? "z-image-turbo" : modality;
+              const selectedModelId = (modelId || "z-image-turbo") as ImageModelParameters["modelId"];
+              return { ...current, modality, parameters: isImage ? { ...current.parameters, ...defaultImageModelParameters, modelId: selectedModelId, steps: imageModelDefaultSteps(selectedModelId), trueCfgScale: 4, guidanceScale: modelId === "flux2-klein-4b" ? 1 : modelId === "sana-sprint-06b" || modelId === "sd35-medium" ? 4.5 : 7.5 } : current.parameters };
             })} allowDeselect={false} required />
             <TextInput label="Name" placeholder="e.g. Story Writer" value={form.name} onChange={(event) => { const name = event.currentTarget.value; setForm((current) => ({ ...current, name })); }} maxLength={80} required autoFocus />
             <Textarea label="Prompt" placeholder="Write the base instructions this agent should follow." value={form.prompt} onChange={(event) => { const prompt = event.currentTarget.value; setForm((current) => ({ ...current, prompt })); }} maxLength={500} minRows={3} autosize />
-            {form.modality === "image" || form.modality === "qwen-image-edit-2511" ? <ImageModelParametersFields showModelSelect={false} value={form.parameters} onChange={(parameters) => setForm((current) => ({ ...current, parameters, modality: parameters.modelId === "qwen-image-edit-2511" ? "qwen-image-edit-2511" : "image" }))} /> : <Text size="xs" c="dimmed">Download an image model from Models, then select it here.</Text>}
+            {form.modality ? <ImageModelParametersFields showModelSelect={false} value={form.parameters} onChange={(parameters) => setForm((current) => ({ ...current, parameters, modality: parameters.modelId === "z-image-turbo" ? "image" : parameters.modelId }))} /> : <Text size="xs" c="dimmed">Download an image model from Models, then select it here.</Text>}
             <Text size="xs" c="dimmed">Names must be unique in your agent library, ignoring capitalization.</Text>
             <Group justify="flex-end" mt="xs">
               {editingAgent && <Tooltip label={editingAgent.workflowUsageCount ? "This agent is used by a workflow" : "Remove agent"}><span><ActionIcon type="button" variant="subtle" color="hiveError" aria-label={`Remove ${editingAgent.name}`} disabled={editingAgent.workflowUsageCount > 0} onClick={() => openDelete(editingAgent)}><svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3m3 0-.8 12.2a1 1 0 0 1-1 .8H7.8a1 1 0 0 1-1-.8L6 7m4 4v5m4-5v5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"/></svg></ActionIcon></span></Tooltip>}

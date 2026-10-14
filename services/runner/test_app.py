@@ -12,14 +12,21 @@ class RunnerTests(unittest.IsolatedAsyncioTestCase):
             for width, height in ((128, 128), (256, 256), (512, 512), (768, 768), (1024, 1024), (512, 768), (768, 512)):
                 with self.subTest(model=model_key, dimensions=(width, height)):
                     output = object()
-                    references = [object()] if model_key == "qwen-image-edit-2511" else []
+                    references = [object(), object()] if model_key == "sd15-inpainting" else [object()] if model_key in {"qwen-image-edit-2511", "instruct-pix2pix", "longcat-image-edit-turbo"} else []
                     pipeline = Mock(return_value=Mock(images=[output]))
                     with patch.object(app, "PIPELINE", pipeline), patch.object(app, "DEVICE", "cpu"):
-                        self.assertIs(app.generate_image(model_key, "prompt", width, height, 42, 9, 4, references), output)
-                    self.assertEqual(pipeline.call_args.kwargs["width"], width)
-                    self.assertEqual(pipeline.call_args.kwargs["height"], height)
+                        steps = 8 if model_key == "longcat-image-edit-turbo" else 4 if model_key in {"flux2-klein-4b", "sdxl-turbo"} else 2 if model_key == "sana-sprint-06b" else 9
+                        self.assertIs(app.generate_image(model_key, "prompt", width, height, 42, steps, 4, references), output)
+                    if model_key != "longcat-image-edit-turbo":
+                        self.assertEqual(pipeline.call_args.kwargs["width"], width)
+                        self.assertEqual(pipeline.call_args.kwargs["height"], height)
                     if references:
-                        self.assertIs(pipeline.call_args.kwargs["image"], references)
+                        if model_key == "longcat-image-edit-turbo":
+                            self.assertIs(pipeline.call_args.args[0], references[0])
+                        else:
+                            self.assertIs(pipeline.call_args.kwargs.get("image"), references if model_key in {"qwen-image-edit-2511", "flux2-klein-4b"} else references[0])
+                    if model_key == "sd15-inpainting":
+                        self.assertIs(pipeline.call_args.kwargs["mask_image"], references[1])
 
     async def test_startup_does_not_load_weights(self):
         with patch.object(app, "load_pipeline") as load:
@@ -34,6 +41,7 @@ class RunnerTests(unittest.IsolatedAsyncioTestCase):
             reference = Mock()
             execute = AsyncMock(return_value=b"encoded PNG", side_effect=GenerationProcessError(code) if code else None)
             with self.subTest(code=code), patch.object(app, "load_reference_images", AsyncMock(return_value=[reference])), \
+                patch.object(app, "model_is_downloaded", return_value=True), \
                 patch.object(app, "run_generation_process", execute), patch.object(app, "release_pipeline") as cleanup:
                 args = dict(request=Mock(is_disconnected=AsyncMock(return_value=False)), prompt="edit",
                             model_id="qwen-image-edit-2511", width=256, height=256, seed=42,

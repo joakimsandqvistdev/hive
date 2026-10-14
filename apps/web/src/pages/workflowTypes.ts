@@ -8,7 +8,7 @@ export type AgentNodeData = { agentId: string; agentName: string; modality: stri
 export type WorkflowNode = Node<AgentNodeData, "agent">;
 export type Definition = {
   nodes: Array<{ id: string; agentId: string; prompt: string; parameters?: ImageModelParameters; position: { x: number; y: number } }>;
-  edges: Array<{ id: string; source: string; target: string }>;
+  edges: Array<{ id: string; source: string; target: string; targetHandle?: string | null }>;
 };
 export type WorkflowForm = { name: string; description: string };
 export const emptyWorkflowForm: WorkflowForm = { name: "", description: "" };

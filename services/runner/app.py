@@ -14,7 +14,7 @@ from contextlib import asynccontextmanager
 from typing import Literal
 
 import torch
-from diffusers import QwenImageEditPlusPipeline, ZImagePipeline
+from diffusers import QwenImageEditPlusPipeline, StableDiffusionInpaintPipeline, StableDiffusionInstructPix2PixPipeline, ZImagePipeline
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import StreamingResponse
 from PIL import Image
@@ -25,6 +25,15 @@ from generation_process import GenerationProcessError, run_generation_process
 MODEL_REPOSITORIES = {
     "z-image-turbo": "Tongyi-MAI/Z-Image-Turbo",
     "qwen-image-edit-2511": "Qwen/Qwen-Image-Edit-2511",
+    "instruct-pix2pix": "timbrooks/instruct-pix2pix",
+    "sd15-inpainting": "stable-diffusion-v1-5/stable-diffusion-inpainting",
+    "longcat-image-edit-turbo": "meituan-longcat/LongCat-Image-Edit-Turbo",
+    "flux2-klein-4b": "black-forest-labs/FLUX.2-klein-4B",
+    "sd15-base": "stable-diffusion-v1-5/stable-diffusion-v1-5",
+    "sdxl-base-1.0": "stabilityai/stable-diffusion-xl-base-1.0",
+    "sd35-medium": "stabilityai/stable-diffusion-3.5-medium",
+    "sdxl-turbo": "stabilityai/sdxl-turbo",
+    "sana-sprint-06b": "Efficient-Large-Model/Sana_Sprint_0.6B_1024px_diffusers",
 }
 PIPELINE = None
 CURRENT_MODEL_KEY = os.getenv("STARTUP_MODEL_KEY", "z-image-turbo")
@@ -81,9 +90,37 @@ def load_pipeline(model_key: str):
         dtype = torch.float32
 
     repository = MODEL_REPOSITORIES[model_key]
-    pipeline_class = QwenImageEditPlusPipeline if model_key == "qwen-image-edit-2511" else ZImagePipeline
-    pipeline = pipeline_class.from_pretrained(repository, torch_dtype=dtype, local_files_only=True)
-    if DEVICE == "cuda" and GPU_MEMORY_GIB < 16:
+    if model_key == "qwen-image-edit-2511":
+        pipeline_class = QwenImageEditPlusPipeline
+    elif model_key == "instruct-pix2pix":
+        pipeline_class = StableDiffusionInstructPix2PixPipeline
+    elif model_key == "sd15-inpainting":
+        pipeline_class = StableDiffusionInpaintPipeline
+    elif model_key == "longcat-image-edit-turbo":
+        from diffusers import LongCatImageEditPipeline
+        pipeline_class = LongCatImageEditPipeline
+    elif model_key == "flux2-klein-4b":
+        from diffusers import Flux2KleinPipeline
+        pipeline_class = Flux2KleinPipeline
+    elif model_key == "sd15-base":
+        from diffusers import StableDiffusionPipeline
+        pipeline_class = StableDiffusionPipeline
+    elif model_key in {"sdxl-base-1.0", "sdxl-turbo"}:
+        from diffusers import StableDiffusionXLPipeline
+        pipeline_class = StableDiffusionXLPipeline
+    elif model_key == "sd35-medium":
+        from diffusers import StableDiffusion3Pipeline
+        pipeline_class = StableDiffusion3Pipeline
+    elif model_key == "sana-sprint-06b":
+        from diffusers import SanaSprintPipeline
+        pipeline_class = SanaSprintPipeline
+    else:
+        pipeline_class = ZImagePipeline
+    variant = "fp16" if model_key in {"sdxl-base-1.0", "sdxl-turbo"} and DEVICE == "cuda" else None
+    pipeline = pipeline_class.from_pretrained(repository, torch_dtype=dtype, local_files_only=True, **({"variant": variant} if variant else {}))
+    if DEVICE == "cuda" and GPU_MEMORY_GIB < 16 and model_key in {"longcat-image-edit-turbo", "flux2-klein-4b", "sdxl-base-1.0", "sd35-medium"}:
+        pipeline.enable_model_cpu_offload()
+    elif DEVICE == "cuda" and GPU_MEMORY_GIB < 16:
         # Lower-VRAM GPUs may work through sequential offload, at a substantial speed cost.
         pipeline.enable_sequential_cpu_offload()
     else:
@@ -316,12 +353,15 @@ async def health() -> dict[str, str | bool | float]:
 async def generate(
     request: Request,
     prompt: str = Form(min_length=1, max_length=8000),
-    model_id: Literal["z-image-turbo", "qwen-image-edit-2511"] = Form(default="z-image-turbo"),
+    model_id: Literal["z-image-turbo", "qwen-image-edit-2511", "instruct-pix2pix", "sd15-inpainting", "longcat-image-edit-turbo", "flux2-klein-4b", "sd15-base", "sdxl-base-1.0", "sd35-medium", "sdxl-turbo", "sana-sprint-06b"] = Form(default="z-image-turbo"),
     width: int = Form(default=512, ge=128, le=1024),
     height: int = Form(default=512, ge=128, le=1024),
     seed: int = Form(default=42, ge=0, le=2**63 - 1),
-    num_inference_steps: int = Form(default=9, ge=4, le=50),
+    num_inference_steps: int = Form(default=9, ge=1, le=50),
     true_cfg_scale: float = Form(default=4.0, ge=0, le=10),
+    image_guidance_scale: float = Form(default=1.5, ge=0, le=3),
+    strength: float = Form(default=0.75, gt=0, le=1),
+    guidance_scale: float = Form(default=7.5, ge=0, le=20),
     images: list[UploadFile] = File(default=[]),
 ) -> StreamingResponse:
     global CURRENT_MODEL_KEY
@@ -329,10 +369,20 @@ async def generate(
         raise HTTPException(status_code=422, detail="Unsupported image dimensions")
     if model_id == "qwen-image-edit-2511" and not 1 <= len(images) <= 10:
         raise HTTPException(status_code=422, detail="Qwen-Image-Edit-2511 requires 1 to 10 reference images")
+    if model_id in {"instruct-pix2pix", "sd15-inpainting", "longcat-image-edit-turbo"} and len(images) != (2 if model_id == "sd15-inpainting" else 1):
+        raise HTTPException(status_code=422, detail="This model requires its configured source image and mask inputs")
+    if model_id == "flux2-klein-4b" and len(images) > 4:
+        raise HTTPException(status_code=422, detail="FLUX.2 Klein supports up to four reference images")
     if model_id == "z-image-turbo" and images:
         raise HTTPException(status_code=422, detail="Z-Image-Turbo does not accept reference images")
+    if model_id in {"sd15-base", "sdxl-base-1.0", "sd35-medium", "sdxl-turbo", "sana-sprint-06b"} and images:
+        raise HTTPException(status_code=422, detail="This text-to-image model does not accept reference images")
     if model_id == "z-image-turbo" and num_inference_steps > 12:
         raise HTTPException(status_code=422, detail="Z-Image-Turbo supports at most 12 inference steps")
+    if model_id in {"sana-sprint-06b", "sdxl-turbo"} and not 1 <= num_inference_steps <= 4:
+        raise HTTPException(status_code=422, detail="This Turbo model supports 1 to 4 inference steps")
+    if model_id not in {"sana-sprint-06b", "sdxl-turbo"} and num_inference_steps < 4:
+        raise HTTPException(status_code=422, detail="This model requires at least 4 inference steps")
     if not await asyncio.to_thread(model_is_downloaded, model_id):
         raise HTTPException(status_code=409, detail={"code": "model_not_downloaded"})
 
@@ -344,7 +394,7 @@ async def generate(
             CURRENT_MODEL_KEY = model_id
             encoded = await run_generation_process(
                 generation_worker,
-                (model_id, prompt, width, height, seed, num_inference_steps, true_cfg_scale, reference_images),
+                (model_id, prompt, width, height, seed, num_inference_steps, true_cfg_scale, reference_images, image_guidance_scale, strength, guidance_scale),
                 request.is_disconnected,
             )
         except GenerationProcessError as error:
@@ -367,12 +417,12 @@ async def generate(
     return StreamingResponse(io.BytesIO(encoded), media_type="image/png")
 
 
-def generation_worker(sender, model_key, prompt, width, height, seed, steps, true_cfg_scale, references):
+def generation_worker(sender, model_key, prompt, width, height, seed, steps, true_cfg_scale, references, image_guidance_scale=1.5, strength=0.75, guidance_scale=7.5):
     global PIPELINE
     image = None
     try:
         PIPELINE = load_pipeline(model_key)
-        image = generate_image(model_key, prompt, width, height, seed, steps, true_cfg_scale, references)
+        image = generate_image(model_key, prompt, width, height, seed, steps, true_cfg_scale, references, image_guidance_scale, strength, guidance_scale)
         output = io.BytesIO()
         image.save(output, format="PNG")
         encoded = output.getvalue()
@@ -415,7 +465,7 @@ async def load_reference_images(files: list[UploadFile]) -> list[Image.Image]:
     return references
 
 
-def generate_image(model_key: str, prompt: str, width: int, height: int, seed: int, steps: int, true_cfg_scale: float, references: list[Image.Image]):
+def generate_image(model_key: str, prompt: str, width: int, height: int, seed: int, steps: int, true_cfg_scale: float, references: list[Image.Image], image_guidance_scale: float = 1.5, strength: float = 0.75, guidance_scale: float = 7.5):
     if PIPELINE is None:
         raise RuntimeError("Model pipeline is not loaded")
 
@@ -434,6 +484,22 @@ def generate_image(model_key: str, prompt: str, width: int, height: int, seed: i
             generator=generator,
             num_images_per_prompt=1,
         )
+    elif model_key == "instruct-pix2pix":
+        result = PIPELINE(prompt=prompt, image=references[0], width=width, height=height, num_inference_steps=steps, image_guidance_scale=image_guidance_scale, guidance_scale=7.5, generator=generator)
+    elif model_key == "sd15-inpainting":
+        result = PIPELINE(prompt=prompt, image=references[0], mask_image=references[1], width=width, height=height, num_inference_steps=steps, strength=strength, guidance_scale=guidance_scale, generator=generator)
+    elif model_key == "longcat-image-edit-turbo":
+        result = PIPELINE(references[0], prompt, negative_prompt="", guidance_scale=1, num_inference_steps=8, generator=torch.Generator("cpu").manual_seed(seed))
+    elif model_key == "flux2-klein-4b":
+        result = PIPELINE(prompt=prompt, image=references if references else None, width=width, height=height, num_inference_steps=steps, guidance_scale=guidance_scale, generator=generator)
+    elif model_key == "sana-sprint-06b":
+        result = PIPELINE(prompt=prompt, width=width, height=height, num_inference_steps=steps, guidance_scale=guidance_scale, generator=generator)
+    elif model_key == "sdxl-turbo":
+        result = PIPELINE(prompt=prompt, width=width, height=height, num_inference_steps=steps, guidance_scale=0.0, generator=generator)
+    elif model_key == "sd35-medium":
+        result = PIPELINE(prompt=prompt, width=width, height=height, num_inference_steps=steps, guidance_scale=guidance_scale, generator=generator)
+    elif model_key in {"sd15-base", "sdxl-base-1.0"}:
+        result = PIPELINE(prompt=prompt, width=width, height=height, num_inference_steps=steps, guidance_scale=guidance_scale, generator=generator)
     else:
         result = PIPELINE(
             prompt=prompt,

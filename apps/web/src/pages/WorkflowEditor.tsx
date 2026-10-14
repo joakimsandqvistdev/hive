@@ -3,7 +3,7 @@ import { addEdge, Background, BackgroundVariant, Controls, Handle, MiniMap, Posi
 import { Alert, Badge, Button, Group, Loader, Modal, Paper, Select, Stack, Text, Textarea, TextInput, Title } from "@mantine/core";
 import { API_BASE } from "../auth";
 import { agentModalityLabel } from "../agentModality";
-import { defaultImageModelParameters, ImageModelParametersFields } from "../components/ImageModelParametersFields";
+import { defaultImageModelParameters, imageModelOptions, ImageModelParametersFields } from "../components/ImageModelParametersFields";
 import type { AppView } from "../navigation/navigationState";
 import { emptyWorkflowForm } from "./workflowTypes";
 import type { Agent, AgentNodeData, Definition, Workflow, WorkflowForm, WorkflowNode } from "./workflowTypes";
@@ -53,8 +53,8 @@ export function WorkflowEditor({ workflowId, onClose, onNavigate }: {
       const mappedNodes: WorkflowNode[] = definition.nodes.map((node) => {
         const agent = byId.get(node.agentId);
         const parameters = { ...defaultImageModelParameters, ...agent?.parameters, ...node.parameters } as AgentNodeData["parameters"];
-        if (agent?.parameters.modelId === "z-image-turbo" || agent?.parameters.modelId === "qwen-image-edit-2511") {
-          parameters.modelId = agent.parameters.modelId;
+        if (agent?.parameters.modelId && imageModelOptions.some((option) => option.value === agent.parameters.modelId)) {
+          parameters.modelId = agent.parameters.modelId as typeof parameters.modelId;
         }
         return { id: node.id, type: "agent", position: node.position, data: {
           agentId: node.agentId, agentName: agent?.name ?? "Unavailable agent", modality: agent?.modality ?? "unknown",
@@ -100,7 +100,7 @@ export function WorkflowEditor({ workflowId, onClose, onNavigate }: {
     setSaving(true); setSaveError(null);
     const definition: Definition = {
       nodes: nodes.map((node) => ({ id: node.id, agentId: node.data.agentId, prompt: node.data.prompt, parameters: node.data.parameters, position: node.position })),
-      edges: edges.map((edge) => ({ id: edge.id, source: edge.source, target: edge.target })),
+      edges: edges.map((edge) => ({ id: edge.id, source: edge.source, target: edge.target, targetHandle: edge.targetHandle })),
     };
     try {
       const response = await fetch(`${API_BASE}/api/workflows/${workflow.id}`, { method: "PUT", credentials: "include", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...draft, definition }) });
@@ -108,7 +108,7 @@ export function WorkflowEditor({ workflowId, onClose, onNavigate }: {
       if (!response.ok || !body.workflow) {
         const message = body.error === "invalid_workflow_agents" ? "One or more selected agents are unavailable. Review the nodes."
           : body.error === "unsupported_image_connections" ? "Connections must point to a Qwen-Image-Edit-2511 node and use image-node outputs."
-            : body.error === "invalid_reference_count" ? "Each Qwen-Image-Edit-2511 node needs 1–10 incoming image connections."
+          : body.error === "invalid_reference_count" ? "Check this model’s required Image and Mask connections on the workflow canvas."
               : "Could not save this workflow.";
         throw new Error(message);
       }
@@ -171,6 +171,7 @@ export function WorkflowEditor({ workflowId, onClose, onNavigate }: {
           {selectedNode.data.agentId && <Paper className="workflow-agent-summary" withBorder><Group justify="space-between" gap="xs"><Text fw={600}>{selectedNode.data.agentName}</Text><Badge variant="light" color="hiveSky">{agentModalityLabel(selectedNode.data.modality, selectedNode.data.parameters.modelId)}</Badge></Group><Text size="xs" fw={600} mt="xs">Agent prompt</Text><Text size="xs" c="dimmed">{selectedNode.data.agentPrompt || "No agent prompt."}</Text></Paper>}
           <Textarea label="Prompt" description="Defaults to the selected agent’s prompt. Edit it for this workflow node." placeholder="Enter the prompt for this workflow node…" value={selectedNode.data.prompt} onChange={(event) => updateSelectedNode({ prompt: event.currentTarget.value })} maxLength={2000} minRows={5} autosize />
           <Text size="xs" c="dimmed">This node prompt is saved with the workflow and can differ from the reusable agent prompt.</Text>
+          {selectedNode.data.parameters.modelId === "sd15-inpainting" && <Text size="xs" c="dimmed">Connect a source image to Image and a black/white mask image to Mask. White mask pixels are edited.</Text>}
           {selectedNode.data.modality === "image" ? <ImageModelParametersFields showModelSelect={false} value={selectedNode.data.parameters} onChange={(parameters) => updateSelectedNode({ parameters })} /> : <Text size="xs" c="dimmed">Model parameters are not available for this modality yet.</Text>}
         </Stack> : <Stack gap="md">
           <div><Text className="page-eyebrow">Workflow</Text><Title order={2} size="h4" mt={5}>Configuration</Title></div>
@@ -196,5 +197,5 @@ export function WorkflowEditor({ workflowId, onClose, onNavigate }: {
 const nodeTypes = { agent: AgentNodeView };
 
 function AgentNodeView({ data, selected }: { data: AgentNodeData; selected: boolean }) {
-  return <Paper className="workflow-agent-node" data-selected={selected || undefined} withBorder shadow="sm"><Handle type="target" position={Position.Left} /><Group justify="space-between" gap="xs" wrap="nowrap"><Text size="xs" c="hiveSky.7" fw={700}>{agentModalityLabel(data.modality, data.parameters.modelId)}</Text>{data.agentId && <Badge size="xs" variant="light" color="hiveSky">Configured</Badge>}</Group><Text fw={650} mt={5} lineClamp={1}>{data.agentName}</Text><Text size="xs" c="dimmed" mt={3} lineClamp={3}>{data.prompt || "No prompt configured."}</Text><Handle type="source" position={Position.Right} /></Paper>;
+  return <Paper className="workflow-agent-node" data-selected={selected || undefined} withBorder shadow="sm"><Handle id="image" type="target" position={Position.Left} style={{ top: "40%" }} /><Text className="workflow-input-label" style={{ top: "34%" }}>Image</Text><Handle id="mask" type="target" position={Position.Left} style={{ top: "68%" }} /><Text className="workflow-input-label" style={{ top: "62%" }}>Mask</Text><Group justify="space-between" gap="xs" wrap="nowrap"><Text size="xs" c="hiveSky.7" fw={700}>{agentModalityLabel(data.modality, data.parameters.modelId)}</Text>{data.agentId && <Badge size="xs" variant="light" color="hiveSky">Configured</Badge>}</Group><Text fw={650} mt={5} lineClamp={1}>{data.agentName}</Text><Text size="xs" c="dimmed" mt={3} lineClamp={3}>{data.prompt || "No prompt configured."}</Text><Handle type="source" position={Position.Right} /></Paper>;
 }

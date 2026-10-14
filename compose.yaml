@@ -24,6 +24,7 @@ services:
     environment:
       STARTUP_MODEL_KEY: z-image-turbo
       HF_HOME: /cache/huggingface
+      HF_TOKEN: ${HF_TOKEN:-}
       PORT: "8000"
     ports:
       - "127.0.0.1:8188:8000"

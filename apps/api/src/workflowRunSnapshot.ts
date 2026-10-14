@@ -13,7 +13,7 @@ export type WorkflowRunNodeSource = {
   positionY: number;
 };
 
-export type WorkflowSnapshotEdge = { id: string; source: string; target: string };
+export type WorkflowSnapshotEdge = { id: string; source: string; target: string; targetHandle?: string | null };
 
 /** Build the immutable graph snapshot and per-node run rows from the transaction's owner-scoped query results. */
 export function buildWorkflowRunSnapshot(workflow: WorkflowIdentity, nodes: WorkflowRunNodeSource[], edges: WorkflowSnapshotEdge[]) {
