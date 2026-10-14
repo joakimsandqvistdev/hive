@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Alert, Badge, Button, Group, Loader, Modal, Paper, Select, Stack, Text, Textarea, TextInput, Title } from "@mantine/core";
-import { Handle, Position, type NodeProps, type NodeTypes } from "@xyflow/react";
-import { GraphEditor, createId, removeConnection, removeNode, type GraphDocument, type GraphEditorTheme, type GraphNodeRendererData } from "ionodes";
+import { Alert, Button, Group, Loader, Modal, Select, Stack, Text, Textarea, TextInput, Title } from "@mantine/core";
+import { GraphEditor, createId, removeConnection, removeNode, type GraphDocument } from "ionodes";
 import { apiFetch } from "../apiClient";
 import { useDownloadedModels } from "../hooks/useDownloadedModels";
 import { defaultImageModelParameters, imageModelDefaultSteps, type ImageModelParameters } from "../components/ImageModelParametersFields";
@@ -14,28 +13,6 @@ import type { ModelIoContract } from "../modelIoTypes";
 import type { DataType, Definition, Workflow, WorkflowNode, WorkflowNodeData } from "./workflowTypes";
 import { addWorkflowNode, toIonodesGraph, toWorkflowDefinition, toWorkflowNode, validateWorkflowConnection } from "./ionodesWorkflowAdapter";
 import "ionodes/style.css";
-
-const ionodesTheme = {
-  "--ionodes-bg": "var(--mantine-color-gray-0)",
-  "--ionodes-panel": "var(--mantine-color-white)",
-  "--ionodes-panel-raised": "var(--mantine-color-gray-1)",
-  "--ionodes-border": "var(--mantine-color-gray-3)",
-  "--ionodes-text": "var(--mantine-color-text)",
-  "--ionodes-muted": "var(--mantine-color-dimmed)",
-  "--ionodes-subtle": "var(--mantine-color-dimmed)",
-  "--ionodes-accent": "var(--mantine-color-hiveSky-6)",
-  "--ionodes-accent-strong": "var(--mantine-color-hiveSky-7)",
-  "--ionodes-danger": "var(--mantine-color-hiveError-6)",
-  "--ionodes-success": "var(--mantine-color-green-7)",
-  "--ionodes-font-sans": "var(--mantine-font-family)",
-  "--ionodes-font-mono": "var(--mantine-font-family-monospace)",
-  "--ionodes-panel-padding": "16px",
-  "--ionodes-control-height": "36px",
-  "--ionodes-focus-ring": "var(--mantine-color-hiveSky-6)",
-  "--ionodes-radius": "var(--mantine-radius-md)",
-} satisfies GraphEditorTheme;
-
-const nodeTypes = { workflow: WorkflowCanvasNode } satisfies NodeTypes;
 
 export function WorkflowEditor({ workflowId, onClose, onNavigate }: { workflowId: string; onClose: () => void; onNavigate: (view: AppView) => void }) {
   const [workflow, setWorkflow] = useState<Workflow | null>(null);
@@ -145,10 +122,9 @@ export function WorkflowEditor({ workflowId, onClose, onNavigate }: { workflowId
     finally { setRunning(false); }
   }
   return <div className="workflow-editor-page">
-    <header className="workflow-editor-header"><Group justify="space-between"><Group><Button variant="subtle" onClick={() => { if (!dirty || window.confirm("Discard unsaved workflow changes?")) onClose(); }}>Back</Button><div><Text className="page-eyebrow">Workflow editor</Text><Title order={2} size="h3">{workflow?.name ?? "Workflow"}</Title></div><Button variant="subtle" onClick={() => setDetailsOpen(true)}>Edit details</Button></Group><Group><Button variant="light" onClick={() => void run()} loading={running} disabled={dirty || !graph.nodes.length || loading || saving || uploading}>Run workflow</Button><Button onClick={() => void save()} loading={saving} disabled={!dirty || uploading}>Save workflow</Button></Group></Group></header>
-    {error && <Alert m="sm" color="hiveError" title="Workflow">{error}</Alert>}
+    <header className="workflow-editor-header"><Group justify="space-between" className="workflow-editor-header-row"><Group className="workflow-header-leading" gap="sm"><Button variant="subtle" onClick={() => { if (!dirty || window.confirm("Discard unsaved workflow changes?")) onClose(); }}>Back</Button>{error && <Alert className="workflow-header-error" color="hiveError" variant="light" radius="sm" p="xs" role="alert">{error}</Alert>}</Group><Group><Button variant="subtle" onClick={() => setDetailsOpen(true)}>Edit details</Button><Button variant="light" onClick={() => void run()} loading={running} disabled={dirty || !graph.nodes.length || loading || saving || uploading}>Run workflow</Button><Button onClick={() => void save()} loading={saving} disabled={!dirty || uploading}>Save workflow</Button></Group></Group></header>
     {loading ? <Group justify="center" className="workflow-editor-loading"><Loader /><Text>Loading workflow…</Text></Group> : workflow && <div className="workflow-editor-body">
-      <section className="workflow-editor-canvas" aria-label="Workflow canvas"><GraphEditor graph={graph} onChange={(next) => { setGraph(next); setDirty(true); setError(null); }} onSelectionChange={({ nodeIds, connectionIds }) => { setSelectedNodeId(nodeIds[0] ?? null); setSelectedConnectionId(connectionIds[0] ?? null); }} validateConnection={validateWorkflowConnection} nodeTypes={nodeTypes} getNodeType={() => "workflow"} showPalette={false} showInspector={false} className="hive-ionodes" theme={ionodesTheme} canvas={{ backgroundColor: "var(--mantine-color-gray-0)", backgroundGap: 22, backgroundSize: 1, connectionColor: "var(--mantine-color-hiveSky-6)", invalidConnectionColor: "var(--mantine-color-hiveError-6)", showMiniMap: true }} />{!graph.nodes.length && <div className="workflow-canvas-empty"><Text fw={600}>Start building this workflow</Text><Text size="sm" c="dimmed">Add input nodes and downloaded models, then connect matching ports.</Text></div>}</section>
+      <section className="workflow-editor-canvas" aria-label="Workflow canvas"><GraphEditor graph={graph} graphTitle={workflow?.name ?? "Workflow"} onChange={(next) => { setGraph(next); setDirty(true); setError(null); }} onSelectionChange={({ nodeIds, connectionIds }) => { setSelectedNodeId(nodeIds[0] ?? null); setSelectedConnectionId(connectionIds[0] ?? null); }} validateConnection={validateWorkflowConnection} showConnectionWarnings={false} showEmptyState={false} showPalette={false} showInspector={false} showStatusBar={false} className="hive-ionodes" theme={{ "--ionodes-bg": "var(--mantine-color-gray-0)" }} canvas={{ hideAttribution: true, backgroundColor: "#d6dde5", miniMapMaskColor: "rgba(124, 135, 148, 0.16)", miniMapNodeColor: (_node, invalid) => invalid ? "var(--mantine-color-hiveError-6)" : "var(--mantine-color-hiveSky-6)" }} /></section>
       <aside className="workflow-config-panel" aria-label="Node configuration"><Group grow mb="lg"><Button variant="light" onClick={() => { void downloaded.refresh(); setPickerOpen(true); }}>Add node</Button><Button variant="light" color="hiveError" disabled={(!selected && !selectedConnectionId) || uploading} onClick={() => { if (selected) setRemoveOpen(true); else if (selectedConnectionId) { setGraph((current) => removeConnection(current, selectedConnectionId)); setSelectedConnectionId(null); setDirty(true); } }}>Remove selected</Button></Group>
         <WorkflowNodeConfiguration selected={selected} types={types} downloadedModelIds={downloaded.modelIds} uploading={uploading} onUpdate={update} onUpload={(file) => void upload(file)} />
       </aside></div>}
@@ -158,18 +134,4 @@ export function WorkflowEditor({ workflowId, onClose, onNavigate }: { workflowId
     </ConfirmActionModal>
     <Modal opened={detailsOpen} onClose={() => setDetailsOpen(false)} title="Workflow details" centered>{workflow && <Stack><TextInput label="Name" value={workflow.name} maxLength={100} onChange={(event) => { setWorkflow({ ...workflow, name: event.currentTarget.value }); setDirty(true); }} /><Textarea label="Description" value={workflow.description} maxLength={1000} onChange={(event) => { setWorkflow({ ...workflow, description: event.currentTarget.value }); setDirty(true); }} /><Button onClick={() => setDetailsOpen(false)}>Done</Button></Stack>}</Modal>
   </div>;
-}
-function WorkflowCanvasNode({ data, selected }: NodeProps) {
-  const { graphNode } = data as unknown as GraphNodeRendererData;
-  const metadata = graphNode.metadata as { kind?: string; dataTypeId?: string | null } | undefined;
-  return <Paper className="workflow-node" data-selected={selected || undefined} withBorder shadow="sm">
-    <Badge variant="light" size="xs">{metadata?.kind === "input" ? `${metadata.dataTypeId ?? "data"} input` : "Model"}</Badge>
-    <Text fw={650} mt={6} lineClamp={2}>{graphNode.title}</Text>
-    <Text size="xs" c="dimmed" mt={4} lineClamp={2}>{graphNode.description}</Text>
-    <Stack className="workflow-node-connectors" gap={4} mt="sm">{graphNode.connectors.map((connector) => <div className={`workflow-node-connector workflow-node-connector-${connector.direction}`} key={connector.id}>
-      {connector.direction === "input" && <Handle id={connector.id} type="target" position={Position.Left} />}
-      <Text size="xs" lineClamp={1}>{connector.label}</Text>
-      {connector.direction === "output" && <Handle id={connector.id} type="source" position={Position.Right} />}
-    </div>)}</Stack>
-  </Paper>;
 }

@@ -476,3 +476,13 @@
 - Split the workflow library and editor into route-level components with local state, preserving hash navigation and existing interactions. Shared UI workflow types now live in a dedicated module.
 - Moved workflow request schemas and agent/model/connection validation into `workflowDefinition.ts`. Moved immutable run and run-node snapshot mapping into `workflowRunSnapshot.ts`; HTTP routes retain request handling and transactional persistence.
 - Production TypeScript/Vite build and `git diff --check` passed. No separate test suite run. One run was active, so the running containers were not restarted; the updated app image was built without interrupting it.
+
+## 2026-10-15 — Refine workflow canvas presentation
+
+- Added stable, bright datatype colors to Hive's ionodes adapter (text, image, video, audio, plus deterministic fallback colors). Lightened the workflow canvas to the Hive gray palette; customized React Flow zoom/fit controls and minimap to use Mantine border, surface, and accent tokens.
+- Added ionodes `showEmptyState` option and disabled it in Hive; removed Hive's separate “Start building this workflow” overlay. Removed the workflow title/eyebrow from the header while retaining Back and moving Edit details beside Run/Save.
+- ionodes empty-state API published as `df94a5b`; Hive submodule pointer updated. Hive host production build passed after rebuilding local ionodes library output. No tests run.
+- Docker rebuild/start did not complete: PostgreSQL container repeatedly panics with `No space left on device` while writing its checkpoint file, leaving the database unhealthy and migration container exited. Free space in Docker's data disk, then rerun `npm run local` and visually verify the latest editor changes.
+- Fixed Klein workflow node creation: its image input and output share the `image` port key, so Hive now includes connector direction in generated ionodes IDs. Added an adapter regression test; web tests and typecheck pass. Restart/rebuild the local app to load the updated frontend bundle.
+- Darkened the workflow canvas zoom/fit SVG icons by setting their inherited `color` to gray-9 (including hover state); React Flow's SVG paths use `fill: currentColor`.
+- Moved workflow validation and operation errors into a compact inline alert beside Back in the editor header; added responsive width constraints so long messages remain readable without covering the canvas.
