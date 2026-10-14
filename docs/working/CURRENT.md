@@ -3,10 +3,12 @@
 ## 2026-10-14 — Add Kokoro-82M text-to-speech
 
 - Added Kokoro-82M to the local runner download catalog and as a typed text-to-audio model. Its required text prompt produces a WAV artifact; voice and speed are configurable on workflow nodes and outputs use existing audio previews.
+- Run details now show each produced model artifact inline with its workflow node, including native audio playback controls for generated WAVs.
+- Diagnosed Kokoro inference failure: Misaki attempted a runtime spaCy pipeline download and hit PEP 668. The pinned en_core_web_sm 3.8 wheel is now downloaded and cached alongside Kokoro weights; the readiness check detects the sidecar and supports older installs with a one-time completion download. Added its MIT license entry.
 - Added audio modality support, separated enum and catalog migrations, Models page grouping/card, Apache-2.0 notices for weights/package, GPL-3.0-or-later notice for eSpeak NG, and updated architecture/data-model docs plus decision 0020.
 - Fixed local migration failure: PostgreSQL rejects use of a just-added enum value in Drizzle's transaction. Migration 0017 now recreates the enum with `audio` and casts the existing model column.
-- API/web typechecks, Python syntax compilation, Drizzle schema comparison, and `git diff --check` passed. No tests, migration application, model download, Docker rebuild, or container refresh has been performed.
-- Next: complete the checks, then rebuild the runner and apply migrations during a planned service refresh; download Kokoro and run a workflow to verify speech generation.
+- Python syntax compilation and `git diff --check` passed. Rebuilt and refreshed only the runner while no workflows or model downloads were active; model cache volume was preserved. Downloaded the 12.8 MB English pipeline and verified a short Kokoro request produced a WAV. No test suite or database migration was run.
+- Next: verify an end-to-end workflow run with a text input connected to a Kokoro node.
 
 ## 2026-10-14 — Consolidate repeated API and workflow UI patterns
 
