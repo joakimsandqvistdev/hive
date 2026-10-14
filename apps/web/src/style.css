@@ -65,6 +65,7 @@ body { color: var(--mantine-color-text); background: var(--mantine-color-gray-0)
 .workflow-canvas .react-flow__controls-button { border-bottom-color: var(--mantine-color-gray-2); }
 .workflow-agent-node { position: relative; width: 210px; padding: 14px; border-color: var(--mantine-color-gray-2); background: var(--mantine-color-white); }
 .workflow-input-label { position: absolute; left: -48px; width: 40px; transform: translateY(-50%); text-align: right; font-size: 10px; color: var(--mantine-color-dimmed); pointer-events: none; }
+.workflow-output-label { position: absolute; right: -48px; width: 40px; transform: translateY(-50%); text-align: left; font-size: 10px; color: var(--mantine-color-dimmed); pointer-events: none; }
 .workflow-agent-node[data-selected] { border-color: var(--mantine-color-hiveSky-7); box-shadow: 0 0 0 1px var(--mantine-color-hiveSky-7); }
 .workflow-agent-node .react-flow__handle { width: 9px; height: 9px; border: 2px solid var(--mantine-color-white); background: var(--mantine-color-hiveSky-7); }
 .workflow-editor-main { height: calc(100vh - 64px); min-height: 0; overflow: hidden; }

@@ -4,6 +4,7 @@ import { db } from "./db.js";
 import { agents, runNodes, runs, workflowEdges, workflowNodes, workflows } from "./schema.js";
 import { createWorkflowSchema, saveWorkflowSchema, startRunSchema, validateWorkflowDefinition } from "./workflowDefinition.js";
 import { buildWorkflowRunSnapshot } from "./workflowRunSnapshot.js";
+import { loadModelIoContracts } from "./modelContracts.js";
 
 const router = Router();
 function userId(res: import("express").Response) { return res.locals.userId as string; }
@@ -59,10 +60,20 @@ router.get("/:id", async (req, res, next) => {
       db.select().from(workflowNodes).where(eq(workflowNodes.workflowId, workflow.id)),
       db.select().from(workflowEdges).where(eq(workflowEdges.workflowId, workflow.id)).orderBy(asc(workflowEdges.edgeId)),
     ]);
-    res.json({ workflow, definition: {
-      nodes: nodes.map((node) => ({ id: node.nodeId, agentId: node.agentId, prompt: node.prompt, parameters: node.parameters, position: { x: node.positionX, y: node.positionY } })),
-      edges: edges.map((edge) => ({ id: edge.edgeId, source: edge.sourceNodeId, target: edge.targetNodeId })),
-    } });
+    const nodeDefinition = nodes.map((node) => ({ id: node.nodeId, agentId: node.agentId, prompt: node.prompt, parameters: node.parameters, position: { x: node.positionX, y: node.positionY } }));
+    const edgeDefinition = edges.map((edge) => ({ id: edge.edgeId, source: edge.sourceNodeId, sourceHandle: edge.sourceHandle, target: edge.targetNodeId, targetHandle: edge.targetHandle }));
+    let normalizedEdges = edgeDefinition;
+    if (nodes.length) {
+      const nodeAgentIds = [...new Set(nodes.map((node) => node.agentId))];
+      const [agentRows, modelContracts] = await Promise.all([
+        db.select({ id: agents.id, prompt: agents.prompt, modality: agents.modality, parameters: agents.parameters }).from(agents)
+          .where(and(eq(agents.userId, userId(res)), inArray(agents.id, nodeAgentIds))),
+        loadModelIoContracts(),
+      ]);
+      const validation = validateWorkflowDefinition({ nodes: nodeDefinition, edges: edgeDefinition }, agentRows, modelContracts);
+      if (validation.ok) normalizedEdges = validation.edges;
+    }
+    res.json({ workflow, definition: { nodes: nodeDefinition, edges: normalizedEdges } });
   } catch (error) { next(error); }
 });
 
@@ -72,6 +83,7 @@ router.post("/:id/runs", async (req, res, next) => {
   if (!parsed.success) { res.status(400).json({ error: "invalid_run_input", details: parsed.error.flatten() }); return; }
   const ownerId = userId(res);
   try {
+    const modelContracts = await loadModelIoContracts();
     const result = await db.transaction(async (tx) => {
       const [workflow] = await tx.select().from(workflows)
         .where(and(eq(workflows.id, req.params.id), eq(workflows.userId, ownerId), sql`${workflows.archivedAt} is null`))
@@ -94,9 +106,9 @@ router.post("/:id/runs", async (req, res, next) => {
         .where(eq(workflowNodes.workflowId, workflow.id));
       if (rows.length === 0) return "empty_workflow" as const;
 
-      const edges = await tx.select({ id: workflowEdges.edgeId, source: workflowEdges.sourceNodeId, target: workflowEdges.targetNodeId })
+      const edges = await tx.select({ id: workflowEdges.edgeId, source: workflowEdges.sourceNodeId, sourceHandle: workflowEdges.sourceHandle, target: workflowEdges.targetNodeId, targetHandle: workflowEdges.targetHandle })
         .from(workflowEdges).where(eq(workflowEdges.workflowId, workflow.id)).orderBy(asc(workflowEdges.edgeId));
-      const snapshot = buildWorkflowRunSnapshot(workflow, rows, edges);
+      const snapshot = buildWorkflowRunSnapshot(workflow, rows, edges, modelContracts);
       const [run] = await tx.insert(runs).values({
         userId: ownerId,
         workflowId: workflow.id,
@@ -125,6 +137,7 @@ router.put("/:id", async (req, res, next) => {
   const ownerId = userId(res);
   const referencedAgentIds = [...new Set(parsed.data.definition.nodes.map((node) => node.agentId))];
   try {
+    const modelContracts = await loadModelIoContracts();
     const result = await db.transaction(async (tx) => {
       const [existing] = await tx.select().from(workflows)
         .where(and(eq(workflows.id, req.params.id), eq(workflows.userId, ownerId), sql`${workflows.archivedAt} is null`)).limit(1).for("update");
@@ -133,7 +146,7 @@ router.put("/:id", async (req, res, next) => {
         ? await tx.select({ id: agents.id, prompt: agents.prompt, modality: agents.modality, parameters: agents.parameters }).from(agents)
           .where(and(eq(agents.userId, ownerId), inArray(agents.id, referencedAgentIds)))
         : [];
-      const validation = validateWorkflowDefinition(parsed.data.definition, agentRows);
+      const validation = validateWorkflowDefinition(parsed.data.definition, agentRows, modelContracts);
       if (!validation.ok) return validation.error;
       const [updated] = await tx.update(workflows).set({ name: parsed.data.name, description: parsed.data.description, updatedAt: new Date() })
         .where(and(eq(workflows.id, existing.id), eq(workflows.userId, ownerId))).returning();
@@ -152,12 +165,14 @@ router.put("/:id", async (req, res, next) => {
         })));
       }
       if (parsed.data.definition.edges.length) {
-        await tx.insert(workflowEdges).values(parsed.data.definition.edges.map((edge) => ({
+        await tx.insert(workflowEdges).values(validation.edges.map((edge) => ({
           workflowId: existing.id,
           edgeId: edge.id,
           userId: ownerId,
           sourceNodeId: edge.source,
+          sourceHandle: edge.sourceHandle,
           targetNodeId: edge.target,
+          targetHandle: edge.targetHandle,
         })));
       }
       return updated;
@@ -165,8 +180,9 @@ router.put("/:id", async (req, res, next) => {
     if (result === null) { res.status(404).json({ error: "workflow_not_found" }); return; }
     if (result === "invalid_agents") { res.status(400).json({ error: "invalid_workflow_agents" }); return; }
     if (result === "invalid_parameters") { res.status(400).json({ error: "invalid_model_parameters" }); return; }
-    if (result === "unsupported_image_connections") { res.status(400).json({ error: "unsupported_image_connections" }); return; }
-    if (result === "invalid_reference_count") { res.status(400).json({ error: "invalid_reference_count" }); return; }
+    if (result === "invalid_model_contract") { res.status(400).json({ error: "invalid_model_contract" }); return; }
+    if (result === "incompatible_data_types") { res.status(400).json({ error: "incompatible_data_types" }); return; }
+    if (result === "invalid_input_counts") { res.status(400).json({ error: "invalid_input_counts" }); return; }
     res.json({ workflow: result });
   } catch (error) {
     if (isUniqueViolation(error)) { res.status(409).json({ error: "duplicate_name" }); return; }

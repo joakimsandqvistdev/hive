@@ -48,32 +48,6 @@ export function imageModelDefaultSteps(modelId: ImageModelParameters["modelId"])
   return 9;
 }
 
-export function imageModelInputDescription(modelId: ImageModelParameters["modelId"]) {
-  switch (modelId) {
-    case "z-image-turbo": return "Text prompt only. Connect no image nodes.";
-    case "qwen-image-edit-2511": return "Connect 1–10 image nodes as references.";
-    case "instruct-pix2pix": return "Connect exactly one source image to edit with the prompt.";
-    case "sd15-inpainting": return "Connect a source image to Image and a black/white mask to Mask (white areas are replaced).";
-    case "longcat-image-edit-turbo": return "Connect exactly one source image to edit with the prompt.";
-    case "flux2-klein-4b": return "Text-to-image with no connections, or connect 1–4 reference images for editing.";
-    case "sd15-base": return "Text prompt only. Connect no image nodes.";
-    case "sdxl-base-1.0": return "Text prompt only. Connect no image nodes.";
-    case "sd35-medium": return "Text prompt only. Connect no image nodes.";
-    case "sdxl-turbo": return "Text prompt only. Generates in 1–4 steps. Connect no image nodes.";
-    case "sana-sprint-06b": return "Text prompt only. Generates in 1–4 steps. Connect no image nodes.";
-  }
-}
-
-export function imageModelReferenceRules(modelId: ImageModelParameters["modelId"]) {
-  switch (modelId) {
-    case "qwen-image-edit-2511": return { min: 1, max: 10, mask: false };
-    case "instruct-pix2pix": case "longcat-image-edit-turbo": return { min: 1, max: 1, mask: false };
-    case "sd15-inpainting": return { min: 1, max: 1, mask: true };
-    case "flux2-klein-4b": return { min: 0, max: 4, mask: false };
-    default: return { min: 0, max: 0, mask: false };
-  }
-}
-
 export const imageResolutionOptions = [
   { value: "128x128", label: "128 × 128 · low memory" },
   { value: "256x256", label: "256 × 256" },
@@ -94,7 +68,6 @@ export function ImageModelParametersFields({ value, onChange, showModelSelect = 
       if (modelId && imageModelOptions.some((option) => option.value === modelId)) onChange({ ...value, modelId: modelId as ImageModelParameters["modelId"], steps: imageModelDefaultSteps(modelId as ImageModelParameters["modelId"]), trueCfgScale: 4, guidanceScale: modelId === "flux2-klein-4b" ? 1 : modelId === "sana-sprint-06b" || modelId === "sd35-medium" ? 4.5 : 7.5 });
     }} allowDeselect={false} />}
     <Stack gap={4}>
-      <Text size="xs" c="dimmed">{imageModelInputDescription(value.modelId)} Connectors are assigned by their target port in the workflow canvas.</Text>
       {value.modelId === "qwen-image-edit-2511" && <Text size="xs" c="dimmed">Qwen-Image-Edit-2511 · Apache 2.0 · about 57.7 GB. Download it first from Models.</Text>}
       {value.modelId === "longcat-image-edit-turbo" && <Text size="xs" c="hiveWarning.8">Large model; CPU offload is slow and can require substantial system memory.</Text>}
       {value.modelId === "flux2-klein-4b" && <Text size="xs" c="hiveWarning.8">Its publisher recommends about 13 GB VRAM; CPU offload may increase system memory use and reduce speed.</Text>}

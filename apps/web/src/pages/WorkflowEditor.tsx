@@ -1,13 +1,14 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { addEdge, Background, BackgroundVariant, Controls, Handle, MiniMap, Position, ReactFlow, useEdgesState, useNodesState, type Connection, type Edge } from "@xyflow/react";
 import { Alert, Badge, Button, Group, Loader, Modal, Paper, Select, Stack, Text, Textarea, TextInput, Title } from "@mantine/core";
 import { API_BASE } from "../auth";
 import { agentModalityLabel } from "../agentModality";
-import { defaultImageModelParameters, imageModelOptions, ImageModelParametersFields } from "../components/ImageModelParametersFields";
+import { defaultImageModelParameters, ImageModelParametersFields } from "../components/ImageModelParametersFields";
 import { defaultVideoModelParameters, VideoModelParametersFields, type VideoModelParameters } from "../components/VideoModelParametersFields";
 import type { AppView } from "../navigation/navigationState";
 import { emptyWorkflowForm } from "./workflowTypes";
 import type { Agent, AgentNodeData, Definition, Workflow, WorkflowForm, WorkflowNode } from "./workflowTypes";
+import { formatModelPortCardinality, type ModelIoContract, type ModelIoPort } from "../modelIoTypes";
 import "@xyflow/react/dist/style.css";
 
 export function WorkflowEditor({ workflowId, onClose, onNavigate }: {
@@ -18,6 +19,7 @@ export function WorkflowEditor({ workflowId, onClose, onNavigate }: {
   const [workflow, setWorkflow] = useState<Workflow | null>(null);
   const [draft, setDraft] = useState<WorkflowForm>(emptyWorkflowForm);
   const [agents, setAgents] = useState<Agent[]>([]);
+  const [modelContracts, setModelContracts] = useState<ModelIoContract[]>([]);
   const [detailLoading, setDetailLoading] = useState(false);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [saveError, setSaveError] = useState<string | null>(null);
@@ -39,17 +41,23 @@ export function WorkflowEditor({ workflowId, onClose, onNavigate }: {
     void Promise.all([
       fetch(`${API_BASE}/api/workflows/${workflowId}`, { credentials: "include" }),
       fetch(`${API_BASE}/api/agents?page=1&pageSize=50`, { credentials: "include" }),
-    ]).then(async ([workflowResponse, agentsResponse]) => {
+      fetch(`${API_BASE}/api/models/contracts`, { credentials: "include" }),
+    ]).then(async ([workflowResponse, agentsResponse, contractsResponse]) => {
       const workflowBody = await workflowResponse.json() as { workflow?: Workflow; definition?: Definition };
       const agentBody = await agentsResponse.json() as { items?: Agent[] };
+      const contractsBody = await contractsResponse.json() as { models?: ModelIoContract[] };
       if (!workflowResponse.ok) throw new Error(workflowResponse.status === 404 ? "This workflow could not be found." : "Could not open this workflow.");
       if (!agentsResponse.ok) throw new Error("Could not load the agent library.");
+      if (!contractsResponse.ok) throw new Error("Could not load model input and output definitions.");
       if (cancelled || !workflowBody.workflow) return;
       const definition = workflowBody.definition ?? { nodes: [], edges: [] };
       const availableAgents = agentBody.items ?? [];
+      const availableContracts = contractsBody.models ?? [];
+      const contractsById = new Map(availableContracts.map((contract) => [contract.modelId, contract]));
       setWorkflow(workflowBody.workflow);
       setDraft({ name: workflowBody.workflow.name, description: workflowBody.workflow.description });
       setAgents(availableAgents);
+      setModelContracts(availableContracts);
       const byId = new Map(availableAgents.map((agent) => [agent.id, agent]));
       const mappedNodes: WorkflowNode[] = definition.nodes.map((node) => {
         const agent = byId.get(node.agentId);
@@ -57,12 +65,12 @@ export function WorkflowEditor({ workflowId, onClose, onNavigate }: {
         const parameters = agent?.modality === "video"
           ? { ...defaultVideoModelParameters((modelId === "cogvideox-2b" ? modelId : "wan2.1-t2v-1.3b") as VideoModelParameters["modelId"]), ...agent.parameters, ...node.parameters } as AgentNodeData["parameters"]
           : { ...defaultImageModelParameters, ...agent?.parameters, ...node.parameters } as AgentNodeData["parameters"];
-        if (agent?.modality === "image" && agent.parameters.modelId && imageModelOptions.some((option) => option.value === agent.parameters.modelId)) parameters.modelId = agent.parameters.modelId as typeof parameters.modelId;
+        if (agent?.modality === "image" && contractsById.get(modelId)?.modality === "image") parameters.modelId = modelId as typeof parameters.modelId;
         if (agent?.modality === "video" && ["wan2.1-t2v-1.3b", "cogvideox-2b"].includes(modelId)) parameters.modelId = modelId as typeof parameters.modelId;
         return { id: node.id, type: "agent", position: node.position, data: {
           agentId: node.agentId, agentName: agent?.name ?? "Unavailable agent", modality: agent?.modality ?? "unknown",
           agentPrompt: agent?.prompt ?? "This agent is no longer available.", prompt: node.prompt ?? agent?.prompt ?? "",
-          parameters,
+          parameters, inputPorts: contractsById.get(modelId)?.inputs ?? [], outputPorts: contractsById.get(modelId)?.outputs ?? [], inputGroups: contractsById.get(modelId)?.inputGroups ?? [],
         } };
       });
       setNodes(mappedNodes); setEdges(definition.edges); nextNodeId.current = mappedNodes.length + 1;
@@ -81,7 +89,7 @@ export function WorkflowEditor({ workflowId, onClose, onNavigate }: {
     const id = `node-${crypto.randomUUID?.() ?? nextNodeId.current++}`;
     const index = nodes.length;
     setNodes((current) => [...current, { id, type: "agent", position: { x: 90 + (index % 3) * 260, y: 90 + Math.floor(index / 3) * 170 }, data: {
-      agentId: "", agentName: "Choose an agent", modality: "unconfigured", agentPrompt: "Select an existing agent in the configuration panel.", prompt: "", parameters: { ...defaultImageModelParameters },
+      agentId: "", agentName: "Choose an agent", modality: "unconfigured", agentPrompt: "Select an existing agent in the configuration panel.", prompt: "", parameters: { ...defaultImageModelParameters }, inputPorts: [], outputPorts: [], inputGroups: [],
     }, selected: true }]);
     setDirty(true);
   };
@@ -94,10 +102,11 @@ export function WorkflowEditor({ workflowId, onClose, onNavigate }: {
   const selectAgent = (agentId: string | null) => {
     const agent = agents.find((item) => item.id === agentId);
     const modelId = agent?.parameters.modelId;
+    const modelContract = modelContracts.find((contract) => contract.modelId === modelId);
     const parameters = agent?.modality === "video"
       ? { ...defaultVideoModelParameters(modelId === "cogvideox-2b" ? "cogvideox-2b" : "wan2.1-t2v-1.3b"), ...agent.parameters } as AgentNodeData["parameters"]
       : { ...defaultImageModelParameters, ...agent?.parameters } as AgentNodeData["parameters"];
-    updateSelectedNode({ agentId: agent?.id ?? "", agentName: agent?.name ?? "Choose an agent", modality: agent?.modality ?? "unconfigured", agentPrompt: agent?.prompt ?? "Select an existing agent in the configuration panel.", prompt: agent?.prompt ?? "", parameters });
+    updateSelectedNode({ agentId: agent?.id ?? "", agentName: agent?.name ?? "Choose an agent", modality: agent?.modality ?? "unconfigured", agentPrompt: agent?.prompt ?? "Select an existing agent in the configuration panel.", prompt: agent?.prompt ?? "", parameters, inputPorts: modelContract?.inputs ?? [], outputPorts: modelContract?.outputs ?? [], inputGroups: modelContract?.inputGroups ?? [] });
   };
 
   const saveWorkflow = async () => {
@@ -114,8 +123,9 @@ export function WorkflowEditor({ workflowId, onClose, onNavigate }: {
       const body = await response.json() as { workflow?: Workflow; error?: string };
       if (!response.ok || !body.workflow) {
         const message = body.error === "invalid_workflow_agents" ? "One or more selected agents are unavailable. Review the nodes."
-          : body.error === "unsupported_image_connections" ? "Image connections require an image-producing source and a compatible image-editing agent. Text-to-video agents do not accept image connections."
-          : body.error === "invalid_reference_count" ? "Check this model’s required Image and Mask connections on the workflow canvas."
+          : body.error === "invalid_model_contract" ? "A selected model has no valid input and output definition."
+          : body.error === "incompatible_data_types" ? "Connect outputs only to inputs with matching data types."
+          : body.error === "invalid_input_counts" ? "Check the required input connections and per-port limits shown on the nodes."
               : "Could not save this workflow.";
         throw new Error(message);
       }
@@ -178,7 +188,7 @@ export function WorkflowEditor({ workflowId, onClose, onNavigate }: {
           {selectedNode.data.agentId && <Paper className="workflow-agent-summary" withBorder><Group justify="space-between" gap="xs"><Text fw={600}>{selectedNode.data.agentName}</Text><Badge variant="light" color="hiveSky">{agentModalityLabel(selectedNode.data.modality, selectedNode.data.parameters.modelId)}</Badge></Group><Text size="xs" fw={600} mt="xs">Agent prompt</Text><Text size="xs" c="dimmed">{selectedNode.data.agentPrompt || "No agent prompt."}</Text></Paper>}
           <Textarea label="Prompt" description="Defaults to the selected agent’s prompt. Edit it for this workflow node." placeholder="Enter the prompt for this workflow node…" value={selectedNode.data.prompt} onChange={(event) => updateSelectedNode({ prompt: event.currentTarget.value })} maxLength={2000} minRows={5} autosize />
           <Text size="xs" c="dimmed">This node prompt is saved with the workflow and can differ from the reusable agent prompt.</Text>
-          {selectedNode.data.parameters.modelId === "sd15-inpainting" && <Text size="xs" c="dimmed">Connect a source image to Image and a black/white mask image to Mask. White mask pixels are edited.</Text>}
+          <ModelPortSummary inputs={selectedNode.data.inputPorts} outputs={selectedNode.data.outputPorts} groups={selectedNode.data.inputGroups} />
           {selectedNode.data.modality === "video" && "fps" in selectedNode.data.parameters
             ? <VideoModelParametersFields value={selectedNode.data.parameters} onChange={(parameters) => updateSelectedNode({ parameters })} />
             : selectedNode.data.modality === "image" ? <ImageModelParametersFields showModelSelect={false} value={selectedNode.data.parameters as import("../components/ImageModelParametersFields").ImageModelParameters} onChange={(parameters) => updateSelectedNode({ parameters })} />
@@ -207,5 +217,18 @@ export function WorkflowEditor({ workflowId, onClose, onNavigate }: {
 const nodeTypes = { agent: AgentNodeView };
 
 function AgentNodeView({ data, selected }: { data: AgentNodeData; selected: boolean }) {
-  return <Paper className="workflow-agent-node" data-selected={selected || undefined} withBorder shadow="sm">{data.modality === "image" && <><Handle id="image" type="target" position={Position.Left} style={{ top: "40%" }} /><Text className="workflow-input-label" style={{ top: "34%" }}>Image</Text><Handle id="mask" type="target" position={Position.Left} style={{ top: "68%" }} /><Text className="workflow-input-label" style={{ top: "62%" }}>Mask</Text><Handle type="source" position={Position.Right} /></>}<Group justify="space-between" gap="xs" wrap="nowrap"><Text size="xs" c="hiveSky.7" fw={700}>{agentModalityLabel(data.modality, data.parameters.modelId)}</Text>{data.agentId && <Badge size="xs" variant="light" color="hiveSky">Configured</Badge>}</Group><Text fw={650} mt={5} lineClamp={1}>{data.agentName}</Text><Text size="xs" c="dimmed" mt={3} lineClamp={3}>{data.prompt || "No prompt configured."}</Text></Paper>;
+  const connectionInputs = data.inputPorts.filter((port) => port.transport === "connection");
+  return <Paper className="workflow-agent-node" data-selected={selected || undefined} withBorder shadow="sm">
+    {connectionInputs.map((port, index) => { const top = `${32 + ((index + 1) * 36) / (connectionInputs.length + 1)}%`; return <Fragment key={`input-${port.portKey}`}><Handle id={port.portKey} type="target" position={Position.Left} style={{ top }} /><Text className="workflow-input-label" style={{ top: `calc(${top} - 8px)` }}>{port.label}</Text></Fragment>; })}
+    {data.outputPorts.map((port, index) => { const top = `${40 + ((index + 1) * 24) / (data.outputPorts.length + 1)}%`; return <Fragment key={`output-${port.portKey}`}><Handle id={port.portKey} type="source" position={Position.Right} style={{ top }} /><Text className="workflow-output-label" style={{ top: `calc(${top} - 8px)` }}>{port.dataTypeLabel}</Text></Fragment>; })}
+    <Group justify="space-between" gap="xs" wrap="nowrap"><Text size="xs" c="hiveSky.7" fw={700}>{agentModalityLabel(data.modality, data.parameters.modelId)}</Text>{data.agentId && <Badge size="xs" variant="light" color="hiveSky">Configured</Badge>}</Group><Text fw={650} mt={5} lineClamp={1}>{data.agentName}</Text><Text size="xs" c="dimmed" mt={3} lineClamp={3}>{data.prompt || "No prompt configured."}</Text>
+  </Paper>;
+}
+
+function ModelPortSummary({ inputs, outputs, groups }: { inputs: ModelIoPort[]; outputs: ModelIoPort[]; groups: AgentNodeData["inputGroups"] }) {
+  return <Paper className="workflow-agent-summary" withBorder><Text size="xs" fw={600}>Model data</Text>
+    <Text size="xs" c="dimmed" mt={4}>Inputs: {inputs.map((port) => `${port.label} (${port.dataTypeLabel}, ${formatModelPortCardinality(port.minCount, port.maxCount)})`).join(" · ") || "None"}</Text>
+    <Text size="xs" c="dimmed" mt={2}>Outputs: {outputs.map((port) => `${port.label} (${port.dataTypeLabel}, ${formatModelPortCardinality(port.minCount, port.maxCount)})`).join(" · ") || "None"}</Text>
+    {groups.map((group) => { const labels = group.portKeys.map((key) => inputs.find((port) => port.portKey === key)?.label ?? key); return <Text key={group.key} size="xs" c="dimmed" mt={2}>{group.label}: provide {group.minCount === 1 ? "at least one" : `at least ${group.minCount}`} of {labels.join(" or ")}{group.maxCount < labels.length ? ` (up to ${group.maxCount})` : ""}.</Text>; })}
+  </Paper>;
 }

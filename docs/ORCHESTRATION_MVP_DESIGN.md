@@ -84,10 +84,14 @@ Use UUID primary keys, `created_at`/`updated_at` timestamps, foreign keys, and i
 
 | Table | Important fields | Purpose |
 |---|---|---|
+| `models` | `id`, `name`, `modality`, `sort_order`, `enabled` | Stable allow-listed model catalog. Seeded with the model IDs supported by local runners. |
+| `data_types` | `id`, `label`, `description`, `media_type` | Canonical input/output media types currently used by the model catalog: text, image, and video. |
+| `model_data_types` | `model_id`, `direction`, `port_key`, `data_type_id`, `label`, `transport`, `min_count`, `max_count`, `sort_order` | One row per model input or output port. Minimum/maximum counts express required, optional, and repeated values; `prompt` transport is supplied by the node prompt, while `connection` transport uses workflow edges. |
+| `model_input_groups` / `model_input_group_ports` | `model_id`, `group_key`, `min_count`, `max_count`, member `port_key` values | Cross-port input constraints, including “at least one of image or text.” Port counts remain independently enforced. |
 | `agents` | `id`, `user_id`, `name`, `prompt`, `modality`, `parameters_json`, `created_at`, `updated_at` | Reusable, declarative agent configuration. Keep secrets out of JSON. Model IDs must refer to allow-listed locally installed/downloaded models. Image-agent parameters include resolution, seed/randomize-seed, and model-specific controls. Video agents support Wan2.1 T2V 1.3B and CogVideoX-2B with bounded clip length, seed, inference steps, and guidance. |
 | `workflows` | `id`, `user_id`, `name`, `description`, `created_at`, `updated_at`, `archived_at` | Stable workflow identity and ownership; one current definition per workflow. |
 | `workflow_nodes` | `workflow_id`, `node_id`, `user_id`, `agent_id`, `prompt`, `parameters_json`, `position_x`, `position_y` | Current workflow nodes. Node prompts and model parameters default to the selected agent's values and may be edited for that workflow. Composite owner references prevent cross-user agent use. Saving a workflow replaces its node rows. |
-| `workflow_edges` | `workflow_id`, `edge_id`, `user_id`, `source_node_id`, `target_node_id` | Current directed node connections. Foreign keys ensure both endpoints exist in the same workflow. |
+| `workflow_edges` | `workflow_id`, `edge_id`, `user_id`, `source_node_id`, `source_handle`, `target_node_id`, `target_handle` | Current typed node connections. Port keys are validated against the model I/O catalog; foreign keys ensure both endpoints exist in the same workflow. |
 | `runs` | `id`, `user_id`, `workflow_id`, `status`, `input_json`, `workflow_snapshot_json`, `error_summary`, queue lease fields, `started_at`, `finished_at`, `created_at`, `cancel_requested_at` | Durable queue item and execution instance tied to a snapshot of the workflow definition and agent settings captured when the run starts. |
 | `run_nodes` | `run_id`, `user_id`, `node_id`, `agent_id`, `status`, `agent_snapshot_json`, `parameters_json`, `resolved_input_json`, `output_json`, `attempt_count`, `error_code`, `error_summary`, `started_at`, `finished_at` | Per-agent execution state and typed references to outputs. Parameters are snapshotted at run creation; a randomized seed is resolved once per node and persisted in `resolved_input_json` so retries reproduce the same settings. Unique `(run_id, node_id)`. Avoid storing binary output data inline. |
 | `artifacts` | `id`, `user_id`, `run_id`, `run_node_id`, `storage_key`, `media_type`, `byte_size`, `checksum`, `display_name`, `created_at` | Metadata for generated PNG and MP4 files. Use opaque storage keys; validate media type and size. Add nullable run references for user-uploaded inputs. |
@@ -105,7 +109,7 @@ Use cascading deletes for user-owned definitions only where semantics are clear.
 - `GET /api/runs/:id/events` or status polling for progress
 - `GET /api/artifacts/:id` streams bytes after ownership authorization
 
-Validate request and persisted JSON with Zod schemas. Set request body and upload limits. For uploads, use multipart streaming or a separate upload endpoint rather than large base64 JSON payloads.
+Validate request and persisted JSON with Zod schemas, then validate workflow edges and input constraints against the seeded model I/O catalog. Capture the resolved model I/O contract in each queued run snapshot. Set request body and upload limits. For uploads, use multipart streaming or a separate upload endpoint rather than large base64 JSON payloads.
 
 ## Reliability, security, and operational scope
 
