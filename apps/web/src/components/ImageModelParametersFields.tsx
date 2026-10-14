@@ -64,6 +64,7 @@ export function ImageModelParametersFields({ value, onChange, showModelSelect = 
   showModelSelect?: boolean;
 }) {
   return <Stack gap="sm">
+    <Text size="xs" c="dimmed">Supply prompts and image data through the node’s connections.</Text>
     {showModelSelect && <Select label="Image model" data={imageModelOptions} value={value.modelId} onChange={(modelId) => {
       if (modelId && imageModelOptions.some((option) => option.value === modelId)) onChange({ ...value, modelId: modelId as ImageModelParameters["modelId"], steps: imageModelDefaultSteps(modelId as ImageModelParameters["modelId"]), trueCfgScale: 4, guidanceScale: modelId === "flux2-klein-4b" ? 1 : modelId === "sana-sprint-06b" || modelId === "sd35-medium" ? 4.5 : 7.5 });
     }} allowDeselect={false} />}

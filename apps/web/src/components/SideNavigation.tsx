@@ -3,7 +3,6 @@ import { NavigationButton } from "./NavigationButton";
 import type { AppView } from "../navigation/navigationState";
 import { useAuth } from "../auth";
 
-function GridIcon() { return <svg width="19" height="19" viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="4" y="4" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1.7"/><rect x="14" y="4" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1.7"/><rect x="4" y="14" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1.7"/><rect x="14" y="14" width="6" height="6" rx="1" stroke="currentColor" strokeWidth="1.7"/></svg>; }
 function WorkflowIcon() { return <svg width="19" height="19" viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="3.5" y="4" width="6" height="6" rx="1.5" stroke="currentColor" strokeWidth="1.7"/><rect x="14.5" y="14" width="6" height="6" rx="1.5" stroke="currentColor" strokeWidth="1.7"/><path d="M9.5 7h4a2 2 0 0 1 2 2v5M14.5 17h-4a2 2 0 0 1-2-2v-5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"/></svg>; }
 function RunsIcon() { return <svg width="19" height="19" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 5.5h14M5 12h14M5 18.5h14" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"/><circle cx="8" cy="5.5" r="2" fill="currentColor"/><circle cx="16" cy="12" r="2" fill="currentColor"/><circle cx="10" cy="18.5" r="2" fill="currentColor"/></svg>; }
 function ModelsIcon() { return <svg width="19" height="19" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3.5 19.5 7v10L12 20.5 4.5 17V7L12 3.5Z" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round"/><path d="m4.8 7.2 7.2 3.5 7.2-3.5M12 10.7v9.5" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round"/></svg>; }
@@ -82,7 +81,6 @@ export function SideNavigation({
             <Text className="nav-caption">Workspace</Text>
             <Stack gap={5} mt="sm">
             <NavigationButton label="Models" active={activeView === "models"} icon={<ModelsIcon />} compact={compact} onClick={() => { onViewChange("models"); onNavigate(); }} />
-            {!loading && user && <NavigationButton label="Agents" active={activeView === "agents"} icon={<GridIcon />} compact={compact} onClick={() => { onViewChange("agents"); onNavigate(); }} />}
             {!loading && user && <>
               <NavigationButton label="Workflows" active={activeView === "workflows"} icon={<WorkflowIcon />} compact={compact} onClick={() => { onViewChange("workflows"); onNavigate(); }} />
               <NavigationButton label="Runs" active={activeView === "runs"} icon={<RunsIcon />} compact={compact} onClick={() => { onViewChange("runs"); onNavigate(); }} />
@@ -93,7 +91,7 @@ export function SideNavigation({
       </Stack>
 
       <Stack gap="xs">
-        <Text className="sidebar-note">Build agents, connect workflows, and review their runs.</Text>
+        <Text className="sidebar-note">Connect models and inputs in workflows, and review their runs.</Text>
         <NavigationButton label="Licenses" active={activeView === "licenses"} icon={<LicenseIcon />} compact={compact} muted onClick={() => { onViewChange("licenses"); onNavigate(); }} />
       </Stack>
     </Stack>

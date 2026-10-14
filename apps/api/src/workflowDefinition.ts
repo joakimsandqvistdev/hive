@@ -1,15 +1,19 @@
 import { z } from "zod";
-import { imageModelIdSchema, imageModelParametersSchema } from "./modelParameters.js";
+import { imageModelParametersSchema } from "./modelParameters.js";
 import { videoModelParametersSchema } from "./videoModelParameters.js";
 import type { ModelIoContract } from "./modelContracts.js";
 
 const nodeSchema = z.object({
   id: z.string().min(1).max(100),
-  agentId: z.string().uuid(),
-  prompt: z.string().max(2000).optional(),
+  kind: z.enum(["input", "model"]),
+  label: z.string().trim().min(1).max(100),
+  modelId: z.string().max(100).nullable().optional(),
+  dataTypeId: z.enum(["text", "image", "audio"]).nullable().optional(),
+  inputText: z.string().max(8000).default(""),
+  artifactId: z.string().uuid().nullable().optional(),
   parameters: z.record(z.string(), z.unknown()).optional(),
   position: z.object({ x: z.number().finite().min(-1_000_000).max(1_000_000), y: z.number().finite().min(-1_000_000).max(1_000_000) }),
-});
+}).strict();
 const edgeSchema = z.object({
   id: z.string().min(1).max(120),
   source: z.string().min(1).max(100),
@@ -63,83 +67,66 @@ export const saveWorkflowSchema = metadataSchema.extend({ definition: workflowDe
 export const startRunSchema = z.object({});
 
 export type WorkflowDefinition = z.infer<typeof workflowDefinitionSchema>;
-export type WorkflowNodeRecord = WorkflowDefinition["nodes"][number] & { prompt: string; parameters: Record<string, unknown> };
+export type WorkflowNodeRecord = WorkflowDefinition["nodes"][number] & { parameters: Record<string, unknown> };
 export type WorkflowEdgeRecord = WorkflowDefinition["edges"][number] & { sourceHandle: string; targetHandle: string };
-export type WorkflowAgentRecord = { id: string; prompt: string; modality: string; parameters: Record<string, unknown> };
+type UploadedInput = { id: string; dataTypeId: string; runId: string | null };
+export type DefinitionValidation = { ok: true; nodes: WorkflowNodeRecord[]; edges: WorkflowEdgeRecord[] }
+  | { ok: false; error: "invalid_parameters" | "invalid_model_contract" | "invalid_input" | "incompatible_data_types" | "invalid_input_counts" };
 
-export type DefinitionValidation =
-  | { ok: true; nodes: WorkflowNodeRecord[]; edges: WorkflowEdgeRecord[] }
-  | { ok: false; error: "invalid_agents" | "invalid_parameters" | "invalid_model_contract" | "incompatible_data_types" | "invalid_input_counts" };
-
-/** Validate workflow edges against the current model I/O catalog and normalize single-port legacy edges. */
-export function validateWorkflowDefinition(definition: WorkflowDefinition, agentRows: WorkflowAgentRecord[], catalog: ModelIoContract[]): DefinitionValidation {
-  const referencedAgentIds = new Set(definition.nodes.map((node) => node.agentId));
-  const agentsById = new Map(agentRows.map((agent) => [agent.id, agent]));
-  const contractsById = new Map(catalog.map((model) => [model.modelId, model]));
-  if (agentsById.size !== referencedAgentIds.size) return { ok: false, error: "invalid_agents" };
-
-  const contractByNodeId = new Map<string, ModelIoContract>();
+export function validateWorkflowDefinition(definition: WorkflowDefinition, catalog: ModelIoContract[], uploads: UploadedInput[] = [], dataTypeIds = ["text", "image", "audio"]) : DefinitionValidation {
+  const catalogById = new Map(catalog.map((model) => [model.modelId, model]));
+  const uploadsById = new Map(uploads.map((input) => [input.id, input]));
+  const contracts = new Map<string, ModelIoContract>();
   const nodes: WorkflowNodeRecord[] = [];
   for (const node of definition.nodes) {
-    const agent = agentsById.get(node.agentId)!;
     let parameters: Record<string, unknown> = {};
-    if (agent.modality === "image") {
-      const agentModelId = agent.parameters.modelId;
-      const parsed = imageModelParametersSchema.safeParse({
-        ...agent.parameters,
-        ...node.parameters,
-        ...(imageModelIdSchema.safeParse(agentModelId).success ? { modelId: agentModelId } : {}),
-      });
+    if (node.kind === "input") {
+      const type = node.dataTypeId;
+      if (!type || !dataTypeIds.includes(type) || node.modelId) return { ok: false, error: "invalid_input" };
+      if (type === "text") {
+        if (!node.inputText.trim() || node.artifactId) return { ok: false, error: "invalid_input" };
+      } else {
+        const upload = uploadsById.get(node.artifactId ?? "");
+        if (!upload || upload.dataTypeId !== type || upload.runId !== null || node.inputText) return { ok: false, error: "invalid_input" };
+      }
+      contracts.set(node.id, { modelId: "", name: node.label, modality: "image", inputs: [], inputGroups: [],
+        outputs: [{ direction: "output", portKey: "output", dataTypeId: type, dataTypeLabel: type, mediaType: type === "text" ? "text/plain" : `${type}/*`, label: type, transport: null, minCount: 1, maxCount: 1, sortOrder: 0 }] });
+    } else {
+      const contract = catalogById.get(node.modelId ?? "");
+      if (!contract || node.dataTypeId || node.artifactId || node.inputText) return { ok: false, error: "invalid_model_contract" };
+      const parsed = (contract.modality === "video" ? videoModelParametersSchema : imageModelParametersSchema).safeParse({ ...node.parameters, modelId: node.modelId });
       if (!parsed.success) return { ok: false, error: "invalid_parameters" };
       parameters = parsed.data;
-    } else if (agent.modality === "video") {
-      const parsed = videoModelParametersSchema.safeParse({ ...agent.parameters, ...node.parameters });
-      if (!parsed.success) return { ok: false, error: "invalid_parameters" };
-      parameters = parsed.data;
+      contracts.set(node.id, contract);
     }
-    const modelId = typeof parameters.modelId === "string" ? parameters.modelId : "";
-    const contract = contractsById.get(modelId);
-    if (!contract || contract.modality !== agent.modality || contract.inputs.length === 0 || !contract.outputs.some((port) => port.minCount > 0)) {
-      return { ok: false, error: "invalid_model_contract" };
-    }
-    contractByNodeId.set(node.id, contract);
-    nodes.push({ ...node, prompt: node.prompt ?? agent.prompt ?? "", parameters });
+    nodes.push({ ...node, parameters });
   }
-
-  const incomingCounts = new Map<string, Map<string, number>>();
+  const counts = new Map<string, Map<string, number>>();
   const edges: WorkflowEdgeRecord[] = [];
   for (const edge of definition.edges) {
-    const sourceContract = contractByNodeId.get(edge.source)!;
-    const targetContract = contractByNodeId.get(edge.target)!;
-    const sourceCandidates = sourceContract.outputs.filter((port) => !edge.sourceHandle || port.portKey === edge.sourceHandle);
-    if (sourceCandidates.length !== 1) return { ok: false, error: "invalid_model_contract" };
-    const sourcePort = sourceCandidates[0]!;
-    const targetCandidates = targetContract.inputs.filter((port) => port.transport === "connection" && (!edge.targetHandle || port.portKey === edge.targetHandle));
-    const compatible = targetCandidates.filter((port) => port.dataTypeId === sourcePort.dataTypeId);
-    if (compatible.length === 0) return { ok: false, error: "incompatible_data_types" };
-    const targetCounts = incomingCounts.get(edge.target) ?? new Map<string, number>();
-    const targetPort = edge.targetHandle
-      ? compatible[0]
-      : compatible.find((port) => (targetCounts.get(port.portKey) ?? 0) < port.minCount && (targetCounts.get(port.portKey) ?? 0) < port.maxCount)
-        ?? compatible.find((port) => (targetCounts.get(port.portKey) ?? 0) < port.maxCount);
-    if (!targetPort) return { ok: false, error: "invalid_input_counts" };
-    const count = targetCounts.get(targetPort.portKey) ?? 0;
-    if (count >= targetPort.maxCount) return { ok: false, error: "invalid_input_counts" };
-    targetCounts.set(targetPort.portKey, count + 1);
-    incomingCounts.set(edge.target, targetCounts);
-    edges.push({ ...edge, sourceHandle: sourcePort.portKey, targetHandle: targetPort.portKey });
+    const source = contracts.get(edge.source);
+    const target = contracts.get(edge.target);
+    if (!source || !target) return { ok: false, error: "invalid_model_contract" };
+    const output = source.outputs.filter((port) => !edge.sourceHandle || port.portKey === edge.sourceHandle);
+    if (output.length !== 1) return { ok: false, error: "invalid_model_contract" };
+    const inputs = target.inputs.filter((port) => (!edge.targetHandle || port.portKey === edge.targetHandle) && port.dataTypeId === output[0]!.dataTypeId);
+    if (inputs.length !== 1) return { ok: false, error: "incompatible_data_types" };
+    const port = inputs[0]!;
+    const nodeCounts = counts.get(edge.target) ?? new Map<string, number>();
+    const count = (nodeCounts.get(port.portKey) ?? 0) + 1;
+    if (count > port.maxCount) return { ok: false, error: "invalid_input_counts" };
+    nodeCounts.set(port.portKey, count); counts.set(edge.target, nodeCounts);
+    edges.push({ ...edge, sourceHandle: output[0]!.portKey, targetHandle: port.portKey });
   }
-
   for (const node of nodes) {
-    const contract = contractByNodeId.get(node.id)!;
-    const counts = incomingCounts.get(node.id) ?? new Map<string, number>();
+    const contract = contracts.get(node.id)!;
+    const nodeCounts = counts.get(node.id) ?? new Map<string, number>();
     for (const port of contract.inputs) {
-      const count = port.transport === "prompt" ? Number(node.prompt.trim().length > 0) : counts.get(port.portKey) ?? 0;
+      const count = nodeCounts.get(port.portKey) ?? 0;
       if (count < port.minCount || count > port.maxCount) return { ok: false, error: "invalid_input_counts" };
-      counts.set(port.portKey, count);
     }
     for (const group of contract.inputGroups) {
-      const count = group.portKeys.reduce((total, portKey) => total + (counts.get(portKey) ?? 0), 0);
+      const count = group.portKeys.reduce((total, key) => total + (nodeCounts.get(key) ?? 0), 0);
       if (count < group.minCount || count > group.maxCount) return { ok: false, error: "invalid_input_counts" };
     }
   }

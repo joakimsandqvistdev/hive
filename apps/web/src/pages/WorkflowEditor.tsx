@@ -1,234 +1,149 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Alert, Badge, Button, FileInput, Group, Image, Loader, Modal, Paper, Select, Stack, Text, Textarea, TextInput, Title } from "@mantine/core";
 import { addEdge, Background, BackgroundVariant, Controls, Handle, MiniMap, Position, ReactFlow, useEdgesState, useNodesState, type Connection, type Edge } from "@xyflow/react";
-import { Alert, Badge, Button, Group, Loader, Modal, Paper, Select, Stack, Text, Textarea, TextInput, Title } from "@mantine/core";
 import { API_BASE } from "../auth";
-import { agentModalityLabel } from "../agentModality";
-import { defaultImageModelParameters, ImageModelParametersFields } from "../components/ImageModelParametersFields";
+import { useDownloadedModels } from "../hooks/useDownloadedModels";
+import { defaultImageModelParameters, imageModelDefaultSteps, ImageModelParametersFields, type ImageModelParameters } from "../components/ImageModelParametersFields";
 import { defaultVideoModelParameters, VideoModelParametersFields, type VideoModelParameters } from "../components/VideoModelParametersFields";
 import type { AppView } from "../navigation/navigationState";
-import { emptyWorkflowForm } from "./workflowTypes";
-import type { Agent, AgentNodeData, Definition, Workflow, WorkflowForm, WorkflowNode } from "./workflowTypes";
-import { formatModelPortCardinality, type ModelIoContract, type ModelIoPort } from "../modelIoTypes";
+import { formatModelPortCardinality, type ModelIoContract } from "../modelIoTypes";
+import type { DataType, Definition, Workflow, WorkflowNode, WorkflowNodeData } from "./workflowTypes";
 import "@xyflow/react/dist/style.css";
 
-export function WorkflowEditor({ workflowId, onClose, onNavigate }: {
-  workflowId: string;
-  onClose: () => void;
-  onNavigate: (view: AppView) => void;
-}) {
+export function WorkflowEditor({ workflowId, onClose, onNavigate }: { workflowId: string; onClose: () => void; onNavigate: (view: AppView) => void }) {
   const [workflow, setWorkflow] = useState<Workflow | null>(null);
-  const [draft, setDraft] = useState<WorkflowForm>(emptyWorkflowForm);
-  const [agents, setAgents] = useState<Agent[]>([]);
-  const [modelContracts, setModelContracts] = useState<ModelIoContract[]>([]);
-  const [detailLoading, setDetailLoading] = useState(false);
-  const [detailError, setDetailError] = useState<string | null>(null);
-  const [saveError, setSaveError] = useState<string | null>(null);
-  const [saving, setSaving] = useState(false);
-  const [runError, setRunError] = useState<string | null>(null);
-  const [startingRun, setStartingRun] = useState(false);
+  const [contracts, setContracts] = useState<ModelIoContract[]>([]);
+  const [types, setTypes] = useState<DataType[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
-  const [formOpened, setFormOpened] = useState(false);
-  const [form, setForm] = useState<WorkflowForm>(emptyWorkflowForm);
-  const [formError, setFormError] = useState<string | null>(null);
-  const [removeNodeOpened, setRemoveNodeOpened] = useState(false);
-  const nextNodeId = useRef(1);
+  const [saving, setSaving] = useState(false);
+  const [running, setRunning] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [choice, setChoice] = useState<string | null>(null);
+  const [removeOpen, setRemoveOpen] = useState(false);
+  const [detailsOpen, setDetailsOpen] = useState(false);
   const [nodes, setNodes, onNodesChange] = useNodesState<WorkflowNode>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
+  const downloaded = useDownloadedModels();
+  const createdUploads = useRef(new Set<string>());
+  useEffect(() => () => {
+    for (const id of createdUploads.current) void fetch(`${API_BASE}/api/artifacts/${id}`, { method: "DELETE", credentials: "include" }).catch(() => {});
+  }, []);
+  const selected = nodes.find((node) => node.selected);
+  const selectedEdge = edges.find((edge) => edge.selected);
 
+  const hydrate = useCallback((node: Definition["nodes"][number], models: ModelIoContract[], dataTypes: DataType[]): WorkflowNode => {
+    const contract = models.find((model) => model.modelId === node.modelId);
+    const type = dataTypes.find((item) => item.id === node.dataTypeId);
+    return { id: node.id, type: "workflow", position: node.position, data: { ...node,
+      inputPorts: contract?.inputs ?? [], contract,
+      outputPorts: node.kind === "model" ? contract?.outputs ?? [] : type ? [{ direction: "output", portKey: "output", dataTypeId: type.id, dataTypeLabel: type.label, mediaType: type.mediaType, label: type.label, transport: null, minCount: 1, maxCount: 1, sortOrder: 0 }] : [],
+    } };
+  }, []);
   useEffect(() => {
     let cancelled = false;
-    setDetailLoading(true); setDetailError(null); setSaveError(null); setDirty(false);
-    void Promise.all([
-      fetch(`${API_BASE}/api/workflows/${workflowId}`, { credentials: "include" }),
-      fetch(`${API_BASE}/api/agents?page=1&pageSize=50`, { credentials: "include" }),
-      fetch(`${API_BASE}/api/models/contracts`, { credentials: "include" }),
-    ]).then(async ([workflowResponse, agentsResponse, contractsResponse]) => {
-      const workflowBody = await workflowResponse.json() as { workflow?: Workflow; definition?: Definition };
-      const agentBody = await agentsResponse.json() as { items?: Agent[] };
-      const contractsBody = await contractsResponse.json() as { models?: ModelIoContract[] };
-      if (!workflowResponse.ok) throw new Error(workflowResponse.status === 404 ? "This workflow could not be found." : "Could not open this workflow.");
-      if (!agentsResponse.ok) throw new Error("Could not load the agent library.");
-      if (!contractsResponse.ok) throw new Error("Could not load model input and output definitions.");
-      if (cancelled || !workflowBody.workflow) return;
-      const definition = workflowBody.definition ?? { nodes: [], edges: [] };
-      const availableAgents = agentBody.items ?? [];
-      const availableContracts = contractsBody.models ?? [];
-      const contractsById = new Map(availableContracts.map((contract) => [contract.modelId, contract]));
-      setWorkflow(workflowBody.workflow);
-      setDraft({ name: workflowBody.workflow.name, description: workflowBody.workflow.description });
-      setAgents(availableAgents);
-      setModelContracts(availableContracts);
-      const byId = new Map(availableAgents.map((agent) => [agent.id, agent]));
-      const mappedNodes: WorkflowNode[] = definition.nodes.map((node) => {
-        const agent = byId.get(node.agentId);
-        const modelId = typeof agent?.parameters.modelId === "string" ? agent.parameters.modelId : "z-image-turbo";
-        const parameters = agent?.modality === "video"
-          ? { ...defaultVideoModelParameters((modelId === "cogvideox-2b" ? modelId : "wan2.1-t2v-1.3b") as VideoModelParameters["modelId"]), ...agent.parameters, ...node.parameters } as AgentNodeData["parameters"]
-          : { ...defaultImageModelParameters, ...agent?.parameters, ...node.parameters } as AgentNodeData["parameters"];
-        if (agent?.modality === "image" && contractsById.get(modelId)?.modality === "image") parameters.modelId = modelId as typeof parameters.modelId;
-        if (agent?.modality === "video" && ["wan2.1-t2v-1.3b", "cogvideox-2b"].includes(modelId)) parameters.modelId = modelId as typeof parameters.modelId;
-        return { id: node.id, type: "agent", position: node.position, data: {
-          agentId: node.agentId, agentName: agent?.name ?? "Unavailable agent", modality: agent?.modality ?? "unknown",
-          agentPrompt: agent?.prompt ?? "This agent is no longer available.", prompt: node.prompt ?? agent?.prompt ?? "",
-          parameters, inputPorts: contractsById.get(modelId)?.inputs ?? [], outputPorts: contractsById.get(modelId)?.outputs ?? [], inputGroups: contractsById.get(modelId)?.inputGroups ?? [],
-        } };
-      });
-      setNodes(mappedNodes); setEdges(definition.edges); nextNodeId.current = mappedNodes.length + 1;
-    }).catch((error: unknown) => { if (!cancelled) setDetailError(error instanceof Error ? error.message : "Could not open this workflow."); })
-      .finally(() => { if (!cancelled) setDetailLoading(false); });
+    void Promise.all([fetch(`${API_BASE}/api/workflows/${workflowId}`, { credentials: "include" }), fetch(`${API_BASE}/api/models/contracts`, { credentials: "include" })])
+      .then(async ([flowResponse, catalogResponse]) => {
+        if (!flowResponse.ok || !catalogResponse.ok) throw new Error("Could not load workflow and model definitions.");
+        const flow = await flowResponse.json() as { workflow: Workflow; definition: Definition };
+        const catalog = await catalogResponse.json() as { models: ModelIoContract[]; dataTypes: DataType[] };
+        if (cancelled) return;
+        setWorkflow(flow.workflow); setContracts(catalog.models); setTypes(catalog.dataTypes);
+        setNodes(flow.definition.nodes.map((node) => hydrate(node, catalog.models, catalog.dataTypes))); setEdges(flow.definition.edges);
+      }).catch((cause) => { if (!cancelled) setError(cause instanceof Error ? cause.message : "Could not open workflow."); })
+      .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
-  }, [workflowId, setEdges, setNodes]);
-
+  }, [workflowId, hydrate, setNodes, setEdges]);
+  const options = useMemo(() => [
+    { group: "Inputs", items: types.filter((type) => ["text", "image", "audio"].includes(type.id)).map((type) => ({ value: `input:${type.id}`, label: `${type.label} input` })) },
+    { group: "Downloaded models", items: contracts.filter((model) => downloaded.modelIds.has(model.modelId)).map((model) => ({ value: `model:${model.modelId}`, label: model.name })) },
+  ], [types, contracts, downloaded.modelIds]);
   const onConnect = useCallback((connection: Connection) => {
-    setEdges((current) => addEdge({ ...connection, animated: true }, current)); setDirty(true);
-  }, [setEdges]);
-  const selectedNode = nodes.find((node) => node.selected) ?? null;
-  const agentOptions = useMemo(() => agents.map((agent) => ({ value: agent.id, label: `${agent.name} · ${agentModalityLabel(agent.modality, agent.parameters.modelId)}` })), [agents]);
-
-  const addAgentNode = () => {
-    const id = `node-${crypto.randomUUID?.() ?? nextNodeId.current++}`;
-    const index = nodes.length;
-    setNodes((current) => [...current, { id, type: "agent", position: { x: 90 + (index % 3) * 260, y: 90 + Math.floor(index / 3) * 170 }, data: {
-      agentId: "", agentName: "Choose an agent", modality: "unconfigured", agentPrompt: "Select an existing agent in the configuration panel.", prompt: "", parameters: { ...defaultImageModelParameters }, inputPorts: [], outputPorts: [], inputGroups: [],
-    }, selected: true }]);
-    setDirty(true);
-  };
-
-  const updateSelectedNode = (patch: Partial<AgentNodeData>) => {
-    if (!selectedNode) return;
-    setNodes((current) => current.map((node) => node.id === selectedNode.id ? { ...node, data: { ...node.data, ...patch } } : node));
-    setDirty(true);
-  };
-  const selectAgent = (agentId: string | null) => {
-    const agent = agents.find((item) => item.id === agentId);
-    const modelId = agent?.parameters.modelId;
-    const modelContract = modelContracts.find((contract) => contract.modelId === modelId);
-    const parameters = agent?.modality === "video"
-      ? { ...defaultVideoModelParameters(modelId === "cogvideox-2b" ? "cogvideox-2b" : "wan2.1-t2v-1.3b"), ...agent.parameters } as AgentNodeData["parameters"]
-      : { ...defaultImageModelParameters, ...agent?.parameters } as AgentNodeData["parameters"];
-    updateSelectedNode({ agentId: agent?.id ?? "", agentName: agent?.name ?? "Choose an agent", modality: agent?.modality ?? "unconfigured", agentPrompt: agent?.prompt ?? "Select an existing agent in the configuration panel.", prompt: agent?.prompt ?? "", parameters, inputPorts: modelContract?.inputs ?? [], outputPorts: modelContract?.outputs ?? [], inputGroups: modelContract?.inputGroups ?? [] });
-  };
-
-  const saveWorkflow = async () => {
-    if (!workflow) return;
-    if (!draft.name.trim()) { setSaveError("Add a workflow name before saving."); return; }
-    if (nodes.some((node) => !node.data.agentId)) { setSaveError("Choose an agent for every node before saving."); return; }
-    setSaving(true); setSaveError(null);
-    const definition: Definition = {
-      nodes: nodes.map((node) => ({ id: node.id, agentId: node.data.agentId, prompt: node.data.prompt, parameters: node.data.parameters, position: node.position })),
-      edges: edges.map((edge) => ({ id: edge.id, source: edge.source, target: edge.target, targetHandle: edge.targetHandle })),
-    };
+    const source = nodes.find((node) => node.id === connection.source)?.data.outputPorts.find((port) => port.portKey === connection.sourceHandle);
+    const target = nodes.find((node) => node.id === connection.target)?.data.inputPorts.find((port) => port.portKey === connection.targetHandle);
+    if (!source || !target || source.dataTypeId !== target.dataTypeId) { setError("Connect ports with matching datatypes."); return; }
+    const count = edges.filter((edge) => edge.target === connection.target && edge.targetHandle === connection.targetHandle).length;
+    if (count >= target.maxCount) { setError("This input has reached its connection limit."); return; }
+    setEdges((current) => addEdge(connection, current)); setDirty(true); setError(null);
+  }, [nodes, edges, setEdges]);
+  function update(patch: Partial<WorkflowNodeData>) {
+    if (!selected) return;
+    setNodes((current) => current.map((node) => node.id === selected.id ? { ...node, data: { ...node.data, ...patch } } : node)); setDirty(true);
+  }
+  function addNode() {
+    if (!choice) return;
+    const [kind, id] = choice.split(":") as ["input" | "model", string];
+    const model = contracts.find((item) => item.modelId === id);
+    const dataType = types.find((item) => item.id === id);
+    let parameters: Record<string, unknown> = {};
+    if (model?.modality === "video") parameters = { ...defaultVideoModelParameters(id as VideoModelParameters["modelId"]) };
+    else if (model) parameters = { ...defaultImageModelParameters, modelId: id, steps: imageModelDefaultSteps(id as ImageModelParameters["modelId"]), guidanceScale: id === "flux2-klein-4b" ? 1 : ["sana-sprint-06b", "sd35-medium"].includes(id) ? 4.5 : 7.5 };
+    const node = hydrate({ id: `node-${crypto.randomUUID()}`, kind, label: model?.name ?? `${dataType?.label ?? id} input`, modelId: model?.modelId ?? null, dataTypeId: kind === "input" ? id : null, inputText: "", artifactId: null, parameters,
+      position: { x: 90 + (nodes.length % 3) * 280, y: 90 + Math.floor(nodes.length / 3) * 190 } }, contracts, types);
+    node.selected = true;
+    setNodes((current) => [...current.map((item) => ({ ...item, selected: false })), node]); setDirty(true); setPickerOpen(false); setChoice(null);
+  }
+  async function upload(file: File | null) {
+    if (!file || !selected) return;
+    const nodeId = selected.id;
+    const dataTypeId = selected.data.dataTypeId;
+    const limit = (dataTypeId === "image" ? 10 : 25) * 1024 * 1024;
+    if (file.size > limit) { setError(`This file exceeds the ${dataTypeId === "image" ? 10 : 25} MB limit.`); return; }
+    setUploading(true); setError(null);
     try {
-      const response = await fetch(`${API_BASE}/api/workflows/${workflow.id}`, { method: "PUT", credentials: "include", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...draft, definition }) });
-      const body = await response.json() as { workflow?: Workflow; error?: string };
-      if (!response.ok || !body.workflow) {
-        const message = body.error === "invalid_workflow_agents" ? "One or more selected agents are unavailable. Review the nodes."
-          : body.error === "invalid_model_contract" ? "A selected model has no valid input and output definition."
-          : body.error === "incompatible_data_types" ? "Connect outputs only to inputs with matching data types."
-          : body.error === "invalid_input_counts" ? "Check the required input connections and per-port limits shown on the nodes."
-              : "Could not save this workflow.";
-        throw new Error(message);
-      }
-      setWorkflow({ ...body.workflow, nodeCount: nodes.length }); setDirty(false);
-    } catch (error) { setSaveError(error instanceof Error ? error.message : "Could not save this workflow."); }
+      const response = await fetch(`${API_BASE}/api/artifacts/upload?dataTypeId=${encodeURIComponent(dataTypeId ?? "")}&name=${encodeURIComponent(file.name)}`, { method: "POST", credentials: "include", headers: { "content-type": "application/octet-stream" }, body: file });
+      const body = await response.json().catch(() => ({})) as { artifact?: { id: string }; message?: string };
+      if (!response.ok || !body.artifact) throw new Error(body.message ?? "Could not upload this file.");
+      const artifactId = body.artifact.id;
+      createdUploads.current.add(artifactId);
+      setNodes((current) => current.map((node) => node.id === nodeId ? { ...node, data: { ...node.data, artifactId } } : node)); setDirty(true);
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Upload failed."); }
+    finally { setUploading(false); }
+  }
+  async function save() {
+    if (!workflow) return;
+    setSaving(true); setError(null);
+    const definition: Definition = { nodes: nodes.map(({ id, data, position }) => ({ id, kind: data.kind, label: data.label, modelId: data.modelId, dataTypeId: data.dataTypeId, inputText: data.inputText, artifactId: data.artifactId, parameters: data.parameters, position })), edges: edges.map(({ id, source, sourceHandle, target, targetHandle }) => ({ id, source, sourceHandle, target, targetHandle })) };
+    try {
+      const response = await fetch(`${API_BASE}/api/workflows/${workflowId}`, { method: "PUT", credentials: "include", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: workflow.name, description: workflow.description, definition }) });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error === "invalid_input_counts" ? "Connect all required model inputs and check connection limits." : body.error === "invalid_input" ? "Fill every text input and upload a file for each media input." : "Could not save workflow. Check node settings and connections.");
+      setWorkflow(body.workflow); setDirty(false);
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not save workflow."); }
     finally { setSaving(false); }
-  };
-
-  const startRun = async () => {
-    if (!workflow) return;
-    setStartingRun(true); setRunError(null);
+  }
+  async function run() {
+    setRunning(true); setError(null);
     try {
-      const response = await fetch(`${API_BASE}/api/workflows/${workflow.id}/runs`, { method: "POST", credentials: "include", headers: { "content-type": "application/json" }, body: JSON.stringify({}) });
-      const body = await response.json() as { run?: { id: string }; error?: string };
-      if (!response.ok || !body.run) {
-        const message = body.error === "workflow_has_no_nodes" ? "Add and save at least one agent node before running this workflow." : "Could not start this run. Check the workflow and try again.";
-        throw new Error(message);
-      }
+      const response = await fetch(`${API_BASE}/api/workflows/${workflowId}/runs`, { method: "POST", credentials: "include", headers: { "content-type": "application/json" }, body: "{}" });
+      const body = await response.json();
+      if (!response.ok) throw new Error(body.error === "model_not_downloaded" ? "Download every model used by this workflow from Models before running." : "Could not start workflow.");
       onNavigate("runs");
-    } catch (error) { setRunError(error instanceof Error ? error.message : "Could not start this run."); }
-    finally { setStartingRun(false); }
-  };
-
-  const removeSelectedNode = () => {
-    if (!selectedNode) return;
-    setNodes((current) => current.filter((node) => node.id !== selectedNode.id));
-    setEdges((current) => current.filter((edge) => edge.source !== selectedNode.id && edge.target !== selectedNode.id));
-    setRemoveNodeOpened(false); setDirty(true);
-  };
-
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not start workflow."); }
+    finally { setRunning(false); }
+  }
   return <div className="workflow-editor-page">
-    <header className="workflow-editor-header">
-      <Group justify="space-between" wrap="nowrap">
-        <Group gap="sm" wrap="nowrap">
-          <Button variant="subtle" onClick={onClose}>← Workflows</Button>
-          <div className="workflow-editor-title"><Text fw={650} lineClamp={1}>{workflow?.name ?? "Workflow"}</Text><Text size="xs" c={dirty ? "hiveWarning.8" : "dimmed"}>{dirty ? "Unsaved changes" : "All changes saved"}</Text></div>
-          <Button variant="subtle" onClick={() => { setForm({ ...draft }); setFormError(null); setFormOpened(true); }}>Details</Button>
-        </Group>
-        <Group gap="xs" wrap="nowrap">
-          <Button variant="light" onClick={() => void startRun()} loading={startingRun} disabled={!workflow || dirty || saving || nodes.length === 0}>Run workflow</Button>
-          <Button onClick={() => void saveWorkflow()} loading={saving} disabled={!dirty}>Save workflow</Button>
-        </Group>
-      </Group>
-    </header>
-    {detailError && <Alert m="sm" color="hiveError" title="Could not open workflow">{detailError}</Alert>}
-    {saveError && <Alert m="sm" color="hiveError" title="Could not save workflow">{saveError}</Alert>}
-    {runError && <Alert m="sm" color="hiveError" title="Could not start run">{runError}</Alert>}
-    {detailLoading ? <Group justify="center" className="workflow-editor-loading"><Loader size="sm" /><Text c="dimmed">Loading workflow…</Text></Group> : workflow && <div className="workflow-editor-body">
-      <section className="workflow-editor-canvas" aria-label="Workflow canvas">
-        <ReactFlow<WorkflowNode, Edge> nodes={nodes} edges={edges} onNodesChange={(changes) => { onNodesChange(changes); if (changes.some((change) => change.type === "position")) setDirty(true); }} onEdgesChange={(changes) => { onEdgesChange(changes); if (changes.some((change) => change.type === "remove")) setDirty(true); }} onConnect={onConnect} nodeTypes={nodeTypes} fitView deleteKeyCode={null} proOptions={{ hideAttribution: false }}>
-          <Background variant={BackgroundVariant.Dots} gap={20} size={1} /><Controls /><MiniMap pannable zoomable />
-        </ReactFlow>
-        {nodes.length === 0 && <div className="workflow-canvas-empty"><Text fw={600}>Start building this workflow</Text><Text size="sm" c="dimmed">Add an agent node, then choose an agent in the configuration panel.</Text></div>}
-      </section>
-      <aside className="workflow-config-panel" aria-label="Workflow and node configuration">
-        <Group gap="xs" mb="lg" grow><Button variant="light" onClick={addAgentNode}>Add agent node</Button><Button variant="light" color="hiveError" disabled={!selectedNode} onClick={() => setRemoveNodeOpened(true)}>Remove selected</Button></Group>
-        {selectedNode ? <Stack gap="md">
-          <div><Text className="page-eyebrow">Node configuration</Text><Title order={2} size="h4" mt={5}>Agent node</Title></div>
-          <Select label="Agent" placeholder="Choose a premade agent" data={agentOptions} value={selectedNode.data.agentId || null} onChange={selectAgent} searchable nothingFoundMessage="No agents found" />
-          {selectedNode.data.agentId && <Paper className="workflow-agent-summary" withBorder><Group justify="space-between" gap="xs"><Text fw={600}>{selectedNode.data.agentName}</Text><Badge variant="light" color="hiveSky">{agentModalityLabel(selectedNode.data.modality, selectedNode.data.parameters.modelId)}</Badge></Group><Text size="xs" fw={600} mt="xs">Agent prompt</Text><Text size="xs" c="dimmed">{selectedNode.data.agentPrompt || "No agent prompt."}</Text></Paper>}
-          <Textarea label="Prompt" description="Defaults to the selected agent’s prompt. Edit it for this workflow node." placeholder="Enter the prompt for this workflow node…" value={selectedNode.data.prompt} onChange={(event) => updateSelectedNode({ prompt: event.currentTarget.value })} maxLength={2000} minRows={5} autosize />
-          <Text size="xs" c="dimmed">This node prompt is saved with the workflow and can differ from the reusable agent prompt.</Text>
-          <ModelPortSummary inputs={selectedNode.data.inputPorts} outputs={selectedNode.data.outputPorts} groups={selectedNode.data.inputGroups} />
-          {selectedNode.data.modality === "video" && "fps" in selectedNode.data.parameters
-            ? <VideoModelParametersFields value={selectedNode.data.parameters} onChange={(parameters) => updateSelectedNode({ parameters })} />
-            : selectedNode.data.modality === "image" ? <ImageModelParametersFields showModelSelect={false} value={selectedNode.data.parameters as import("../components/ImageModelParametersFields").ImageModelParameters} onChange={(parameters) => updateSelectedNode({ parameters })} />
-              : <Text size="xs" c="dimmed">Choose an agent to configure this node.</Text>}
-        </Stack> : <Stack gap="md">
-          <div><Text className="page-eyebrow">Workflow</Text><Title order={2} size="h4" mt={5}>Configuration</Title></div>
-          <Text size="sm" c="dimmed">Select a node to configure its agent and prompt. Connect nodes on the canvas to define the workflow order.</Text>
-          <Paper className="workflow-agent-summary" withBorder><Text size="sm" c="dimmed">{nodes.length} {nodes.length === 1 ? "node" : "nodes"} · {edges.length} {edges.length === 1 ? "connection" : "connections"}</Text></Paper>
-        </Stack>}
-      </aside>
-    </div>}
-    <Modal opened={formOpened} onClose={() => setFormOpened(false)} title="Workflow details" centered>
-      <Stack gap="md">
-        {formError && <Alert color="hiveError" title="Workflow details">{formError}</Alert>}
-        <TextInput label="Name" value={form.name} maxLength={100} onChange={(event) => { const name = event.currentTarget.value; setForm((current) => ({ ...current, name })); }} required />
-        <Textarea label="Description" value={form.description} maxLength={1000} onChange={(event) => { const description = event.currentTarget.value; setForm((current) => ({ ...current, description })); }} minRows={3} autosize />
-        <Group justify="flex-end"><Button variant="default" onClick={() => setFormOpened(false)}>Cancel</Button><Button onClick={() => { setDraft(form); setDirty(true); setFormOpened(false); }}>Apply details</Button></Group>
-      </Stack>
-    </Modal>
-    <Modal opened={removeNodeOpened} onClose={() => setRemoveNodeOpened(false)} title="Remove workflow node" centered>
-      <Stack gap="md"><Text>Remove <Text component="span" fw={600}>{selectedNode?.data.agentName ?? "this node"}</Text> from this workflow?</Text><Text size="sm" c="dimmed">Connections to this node will also be removed. Save the workflow to keep this change.</Text><Group justify="flex-end"><Button variant="default" onClick={() => setRemoveNodeOpened(false)}>Cancel</Button><Button color="hiveError" onClick={removeSelectedNode}>Remove node</Button></Group></Stack>
-    </Modal>
+    <header className="workflow-editor-header"><Group justify="space-between"><Group><Button variant="subtle" onClick={() => { if (!dirty || window.confirm("Discard unsaved workflow changes?")) onClose(); }}>Back</Button><div><Text className="page-eyebrow">Workflow editor</Text><Title order={2} size="h3">{workflow?.name ?? "Workflow"}</Title></div><Button variant="subtle" onClick={() => setDetailsOpen(true)}>Edit details</Button></Group><Group><Button variant="light" onClick={() => void run()} loading={running} disabled={dirty || !nodes.length || loading || saving || uploading}>Run workflow</Button><Button onClick={() => void save()} loading={saving} disabled={!dirty || uploading}>Save workflow</Button></Group></Group></header>
+    {error && <Alert m="sm" color="hiveError" title="Workflow">{error}</Alert>}
+    {loading ? <Group justify="center" className="workflow-editor-loading"><Loader /><Text>Loading workflow…</Text></Group> : workflow && <div className="workflow-editor-body">
+      <section className="workflow-editor-canvas" aria-label="Workflow canvas"><ReactFlow<WorkflowNode, Edge> nodes={nodes} edges={edges} onNodesChange={(changes) => { onNodesChange(changes); if (changes.some((change) => change.type === "position")) setDirty(true); }} onEdgesChange={(changes) => { onEdgesChange(changes); if (changes.some((change) => change.type === "remove")) setDirty(true); }} onConnect={onConnect} nodeTypes={nodeTypes} fitView deleteKeyCode={null}><Background variant={BackgroundVariant.Dots} gap={20} size={1} /><Controls /><MiniMap pannable zoomable /></ReactFlow>{!nodes.length && <div className="workflow-canvas-empty"><Text fw={600}>Start building this workflow</Text><Text size="sm" c="dimmed">Add input nodes and downloaded models, then connect matching ports.</Text></div>}</section>
+      <aside className="workflow-config-panel" aria-label="Node configuration"><Group grow mb="lg"><Button variant="light" onClick={() => { void downloaded.refresh(); setPickerOpen(true); }}>Add node</Button><Button variant="light" color="hiveError" disabled={(!selected && !selectedEdge) || uploading} onClick={() => { if (selected) setRemoveOpen(true); else if (selectedEdge) { setEdges((current) => current.filter((edge) => edge.id !== selectedEdge.id)); setDirty(true); } }}>Remove selected</Button></Group>
+        {selected ? <Stack><Title order={2} size="h4">{selected.data.kind === "input" ? "Input node" : "Model node"}</Title><TextInput label="Node name" value={selected.data.label} maxLength={100} onChange={(event) => update({ label: event.currentTarget.value })} />
+          {selected.data.kind === "input" ? <><Text size="sm">Datatype: {types.find((type) => type.id === selected.data.dataTypeId)?.label}</Text>{selected.data.dataTypeId === "text" ? <Textarea label="Text" value={selected.data.inputText} onChange={(event) => update({ inputText: event.currentTarget.value })} maxLength={8000} minRows={6} autosize /> : <><FileInput key={selected.id} label={selected.data.artifactId ? "Replace file" : "Upload file"} accept={selected.data.dataTypeId === "image" ? "image/png,image/jpeg,image/webp" : "audio/wav,audio/mpeg,audio/ogg,audio/flac"} onChange={(file) => void upload(file)} disabled={uploading} /><Text size="xs" c="dimmed">{selected.data.dataTypeId === "image" ? "PNG, JPEG, WebP · up to 10 MB" : "WAV, MP3, Ogg, FLAC · up to 25 MB"}</Text>{uploading && <Loader size="sm" />}{selected.data.artifactId && (selected.data.dataTypeId === "image" ? <Image src={`${API_BASE}/api/artifacts/${selected.data.artifactId}/preview`} alt={selected.data.label} fit="contain" mah={240} /> : <audio key={selected.data.artifactId} controls src={`${API_BASE}/api/artifacts/${selected.data.artifactId}/preview`} />)}</>}</> : <><Text fw={600}>{selected.data.contract?.name ?? selected.data.modelId}</Text>{!downloaded.modelIds.has(selected.data.modelId ?? "") && <Alert color="hiveWarning">This model is not downloaded. Download it from Models before running.</Alert>}<Text size="sm" c="dimmed">Connect input nodes or model outputs to each required port. Prompts are supplied through text connections.</Text>{selected.data.inputPorts.map((port) => <Text key={port.portKey} size="sm">{port.label}: {port.dataTypeLabel} · {formatModelPortCardinality(port.minCount, port.maxCount)}</Text>)}{selected.data.contract?.modality === "video" ? <VideoModelParametersFields value={selected.data.parameters as VideoModelParameters} onChange={(parameters) => update({ parameters: { ...parameters } })} /> : <ImageModelParametersFields showModelSelect={false} value={selected.data.parameters as ImageModelParameters} onChange={(parameters) => update({ parameters: { ...parameters } })} />}</>}
+        </Stack> : <Text size="sm" c="dimmed">Select a node to edit its data or model settings. Connect outputs to matching model input datatypes.</Text>}
+      </aside></div>}
+    <Modal opened={pickerOpen} onClose={() => setPickerOpen(false)} title="Add node" centered><Stack><Select label="Node" placeholder="Choose an input or downloaded model" data={options} value={choice} onChange={setChoice} searchable /><Text size="xs" c="dimmed">Only downloaded models are available here. Download additional models from Models.</Text>{downloaded.status === "unavailable" && <Alert color="hiveWarning">Could not check model downloads. Input nodes remain available.</Alert>}<Button onClick={addNode} disabled={!choice}>Add node</Button></Stack></Modal>
+    <Modal opened={removeOpen} onClose={() => setRemoveOpen(false)} title="Remove node" centered><Stack><Text>Remove {selected?.data.label} and its connections?</Text><Button color="hiveError" onClick={() => { if (!selected) return; setNodes((current) => current.filter((node) => node.id !== selected.id)); setEdges((current) => current.filter((edge) => edge.source !== selected.id && edge.target !== selected.id)); setDirty(true); setRemoveOpen(false); }}>Remove node</Button></Stack></Modal>
+    <Modal opened={detailsOpen} onClose={() => setDetailsOpen(false)} title="Workflow details" centered>{workflow && <Stack><TextInput label="Name" value={workflow.name} maxLength={100} onChange={(event) => { setWorkflow({ ...workflow, name: event.currentTarget.value }); setDirty(true); }} /><Textarea label="Description" value={workflow.description} maxLength={1000} onChange={(event) => { setWorkflow({ ...workflow, description: event.currentTarget.value }); setDirty(true); }} /><Button onClick={() => setDetailsOpen(false)}>Done</Button></Stack>}</Modal>
   </div>;
 }
-
-const nodeTypes = { agent: AgentNodeView };
-
-function AgentNodeView({ data, selected }: { data: AgentNodeData; selected: boolean }) {
-  const connectionInputs = data.inputPorts.filter((port) => port.transport === "connection");
-  return <Paper className="workflow-agent-node" data-selected={selected || undefined} withBorder shadow="sm">
-    {connectionInputs.map((port, index) => { const top = `${32 + ((index + 1) * 36) / (connectionInputs.length + 1)}%`; return <Fragment key={`input-${port.portKey}`}><Handle id={port.portKey} type="target" position={Position.Left} style={{ top }} /><Text className="workflow-input-label" style={{ top: `calc(${top} - 8px)` }}>{port.label}</Text></Fragment>; })}
-    {data.outputPorts.map((port, index) => { const top = `${40 + ((index + 1) * 24) / (data.outputPorts.length + 1)}%`; return <Fragment key={`output-${port.portKey}`}><Handle id={port.portKey} type="source" position={Position.Right} style={{ top }} /><Text className="workflow-output-label" style={{ top: `calc(${top} - 8px)` }}>{port.dataTypeLabel}</Text></Fragment>; })}
-    <Group justify="space-between" gap="xs" wrap="nowrap"><Text size="xs" c="hiveSky.7" fw={700}>{agentModalityLabel(data.modality, data.parameters.modelId)}</Text>{data.agentId && <Badge size="xs" variant="light" color="hiveSky">Configured</Badge>}</Group><Text fw={650} mt={5} lineClamp={1}>{data.agentName}</Text><Text size="xs" c="dimmed" mt={3} lineClamp={3}>{data.prompt || "No prompt configured."}</Text>
-  </Paper>;
-}
-
-function ModelPortSummary({ inputs, outputs, groups }: { inputs: ModelIoPort[]; outputs: ModelIoPort[]; groups: AgentNodeData["inputGroups"] }) {
-  return <Paper className="workflow-agent-summary" withBorder><Text size="xs" fw={600}>Model data</Text>
-    <Text size="xs" c="dimmed" mt={4}>Inputs: {inputs.map((port) => `${port.label} (${port.dataTypeLabel}, ${formatModelPortCardinality(port.minCount, port.maxCount)})`).join(" · ") || "None"}</Text>
-    <Text size="xs" c="dimmed" mt={2}>Outputs: {outputs.map((port) => `${port.label} (${port.dataTypeLabel}, ${formatModelPortCardinality(port.minCount, port.maxCount)})`).join(" · ") || "None"}</Text>
-    {groups.map((group) => { const labels = group.portKeys.map((key) => inputs.find((port) => port.portKey === key)?.label ?? key); return <Text key={group.key} size="xs" c="dimmed" mt={2}>{group.label}: provide {group.minCount === 1 ? "at least one" : `at least ${group.minCount}`} of {labels.join(" or ")}{group.maxCount < labels.length ? ` (up to ${group.maxCount})` : ""}.</Text>; })}
+const nodeTypes = { workflow: WorkflowNodeView };
+function WorkflowNodeView({ data, selected }: { data: WorkflowNodeData; selected: boolean }) {
+  return <Paper className="workflow-node" data-selected={selected || undefined} withBorder shadow="sm">
+    {data.inputPorts.map((port, index) => { const top = `${25 + (index + 1) * 50 / (data.inputPorts.length + 1)}%`; return <Fragment key={port.portKey}><Handle id={port.portKey} type="target" position={Position.Left} style={{ top }} /><Text className="workflow-input-label" style={{ top }}>{port.label}</Text></Fragment>; })}
+    {data.outputPorts.map((port, index) => { const top = `${35 + (index + 1) * 40 / (data.outputPorts.length + 1)}%`; return <Fragment key={port.portKey}><Handle id={port.portKey} type="source" position={Position.Right} style={{ top }} /><Text className="workflow-output-label" style={{ top }}>{port.dataTypeLabel}</Text></Fragment>; })}
+    <Badge variant="light" size="xs">{data.kind === "input" ? `${data.dataTypeId} input` : "Model"}</Badge><Text fw={650} mt={6} lineClamp={2}>{data.label}</Text><Text size="xs" c="dimmed" mt={4} lineClamp={2}>{data.kind === "input" ? data.inputText || (data.artifactId ? "File uploaded" : "Upload a file") : data.contract?.name}</Text>
   </Paper>;
 }

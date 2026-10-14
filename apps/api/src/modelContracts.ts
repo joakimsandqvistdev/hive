@@ -25,6 +25,8 @@ export type ModelIoContract = {
   inputGroups: ModelInputGroup[];
 };
 
+export async function loadDataTypes() { return db.select().from(dataTypes).orderBy(asc(dataTypes.label)); }
+
 export async function loadModelIoContracts(): Promise<ModelIoContract[]> {
   const [modelRows, portRows, groupRows, memberRows] = await Promise.all([
     db.select().from(models).where(eq(models.enabled, true)).orderBy(asc(models.sortOrder), asc(models.id)),

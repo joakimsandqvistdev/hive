@@ -3,7 +3,6 @@ import { AppLayout } from "./components/AppLayout";
 import { HomePage } from "./pages/HomePage";
 import { theme } from "./theme";
 import { AuthProvider, useAuth } from "./auth";
-import { AgentsPage } from "./pages/AgentsPage";
 import { WorkflowsPage } from "./pages/WorkflowsPage";
 import { RunsPage } from "./pages/RunsPage";
 import { SignInRequiredPage } from "./pages/SignInRequiredPage";
@@ -32,12 +31,11 @@ function AppContent({ view, onNavigate, sidebarCollapsed, workflowEditorActive, 
   onToggleNavigation: () => void;
 }) {
   const { user, loading } = useAuth();
-  const isProtectedView = view === "agents" || view === "workflows" || view === "runs" || view === "models";
+  const isProtectedView = view === "workflows" || view === "runs" || view === "models";
   return (
     <AppLayout view={view} onNavigate={onNavigate} workflowEditorActive={workflowEditorActive} sidebarCollapsed={sidebarCollapsed} onToggleNavigation={onToggleNavigation}>
       {isProtectedView && loading ? <SignInRequiredPage loading />
         : isProtectedView && !user ? <SignInRequiredPage />
-          : view === "agents" ? <AgentsPage onNavigate={onNavigate} />
             : view === "workflows" ? <WorkflowsPage onNavigate={onNavigate} />
               : view === "runs" ? <RunsPage onNavigate={onNavigate} />
                 : view === "models" ? <ModelsPage />

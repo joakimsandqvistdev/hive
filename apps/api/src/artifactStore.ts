@@ -27,10 +27,35 @@ export async function saveMp4(bytes: Buffer): Promise<{ id: string; storageKey: 
 }
 
 export async function readArtifact(storageKey: string): Promise<Buffer> {
-  if (!/^[0-9a-f-]{36}\.(?:png|mp4)$/.test(storageKey)) throw new Error("Invalid artifact key.");
+  if (!/^[0-9a-f-]{36}\.(?:png|mp4|jpg|webp|wav|mp3|ogg|flac)$/.test(storageKey)) throw new Error("Invalid artifact key.");
   return readFile(resolve(root, storageKey));
 }
 
 export async function removeArtifact(storageKey: string): Promise<void> {
-  if (/^[0-9a-f-]{36}\.(?:png|mp4)$/.test(storageKey)) await rm(resolve(root, storageKey), { force: true });
+  if (/^[0-9a-f-]{36}\.(?:png|mp4|jpg|webp|wav|mp3|ogg|flac)$/.test(storageKey)) await rm(resolve(root, storageKey), { force: true });
+}
+
+export function detectUpload(bytes: Buffer, dataTypeId: string) {
+  if (!bytes.length || bytes.length > (dataTypeId === "image" ? 10 : 25) * 1024 * 1024) throw new Error("Upload is empty or exceeds its size limit.");
+  const ascii = (start: number, end: number) => bytes.subarray(start, end).toString("ascii");
+  if (dataTypeId === "image") {
+    if (bytes.subarray(0, 8).toString("hex") === "89504e470d0a1a0a") return { mediaType: "image/png", extension: "png" };
+    if (bytes.subarray(0, 3).toString("hex") === "ffd8ff") return { mediaType: "image/jpeg", extension: "jpg" };
+    if (ascii(0, 4) === "RIFF" && ascii(8, 12) === "WEBP") return { mediaType: "image/webp", extension: "webp" };
+  } else if (dataTypeId === "audio") {
+    if (ascii(0, 4) === "RIFF" && ascii(8, 12) === "WAVE") return { mediaType: "audio/wav", extension: "wav" };
+    if (ascii(0, 3) === "ID3" || (bytes[0] === 255 && (bytes[1]! & 224) === 224)) return { mediaType: "audio/mpeg", extension: "mp3" };
+    if (ascii(0, 4) === "OggS") return { mediaType: "audio/ogg", extension: "ogg" };
+    if (ascii(0, 4) === "fLaC") return { mediaType: "audio/flac", extension: "flac" };
+  }
+  throw new Error("Unsupported file content. Use PNG, JPEG, WebP, WAV, MP3, Ogg, or FLAC.");
+}
+
+export async function saveUpload(bytes: Buffer, dataTypeId: string) {
+  const detected = detectUpload(bytes, dataTypeId);
+  const id = randomUUID();
+  const storageKey = `${id}.${detected.extension}`;
+  await mkdir(root, { recursive: true });
+  await writeFile(resolve(root, storageKey), bytes, { flag: "wx", mode: 0o600 });
+  return { id, storageKey, byteSize: bytes.length, checksum: createHash("sha256").update(bytes).digest("hex"), mediaType: detected.mediaType };
 }

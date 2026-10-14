@@ -1,10 +1,11 @@
 import { and, count, eq, inArray, sql, asc } from "drizzle-orm";
 import { Router } from "express";
 import { db } from "./db.js";
-import { agents, runNodes, runs, workflowEdges, workflowNodes, workflows } from "./schema.js";
+import { artifacts, runNodes, runs, workflowEdges, workflowNodes, workflows } from "./schema.js";
 import { createWorkflowSchema, saveWorkflowSchema, startRunSchema, validateWorkflowDefinition } from "./workflowDefinition.js";
 import { buildWorkflowRunSnapshot } from "./workflowRunSnapshot.js";
-import { loadModelIoContracts } from "./modelContracts.js";
+import { forwardRunnerRequest } from "./models.js";
+import { loadDataTypes, loadModelIoContracts } from "./modelContracts.js";
 
 const router = Router();
 function userId(res: import("express").Response) { return res.locals.userId as string; }
@@ -51,82 +52,23 @@ router.post("/", async (req, res, next) => {
   } catch (error) { next(error); }
 });
 
+
+function definitionFor(nodes: typeof workflowNodes.$inferSelect[], edges: typeof workflowEdges.$inferSelect[]) {
+  return { nodes: nodes.map(({ nodeId, kind, label, modelId, dataTypeId, inputText, artifactId, parameters, positionX, positionY }) => ({
+    id: nodeId, kind: kind as "input" | "model", label, modelId, dataTypeId: dataTypeId as "text" | "image" | "audio" | null,
+    inputText, artifactId, parameters, position: { x: positionX, y: positionY } })),
+    edges: edges.map((edge) => ({ id: edge.edgeId, source: edge.sourceNodeId, target: edge.targetNodeId, sourceHandle: edge.sourceHandle, targetHandle: edge.targetHandle })) };
+}
+
 router.get("/:id", async (req, res, next) => {
   try {
-    const [workflow] = await db.select().from(workflows)
-      .where(and(eq(workflows.id, req.params.id), eq(workflows.userId, userId(res)), sql`${workflows.archivedAt} is null`)).limit(1);
+    const [workflow] = await db.select().from(workflows).where(and(eq(workflows.id, req.params.id), eq(workflows.userId, userId(res)))).limit(1);
     if (!workflow) { res.status(404).json({ error: "workflow_not_found" }); return; }
     const [nodes, edges] = await Promise.all([
       db.select().from(workflowNodes).where(eq(workflowNodes.workflowId, workflow.id)),
       db.select().from(workflowEdges).where(eq(workflowEdges.workflowId, workflow.id)).orderBy(asc(workflowEdges.edgeId)),
     ]);
-    const nodeDefinition = nodes.map((node) => ({ id: node.nodeId, agentId: node.agentId, prompt: node.prompt, parameters: node.parameters, position: { x: node.positionX, y: node.positionY } }));
-    const edgeDefinition = edges.map((edge) => ({ id: edge.edgeId, source: edge.sourceNodeId, sourceHandle: edge.sourceHandle, target: edge.targetNodeId, targetHandle: edge.targetHandle }));
-    let normalizedEdges = edgeDefinition;
-    if (nodes.length) {
-      const nodeAgentIds = [...new Set(nodes.map((node) => node.agentId))];
-      const [agentRows, modelContracts] = await Promise.all([
-        db.select({ id: agents.id, prompt: agents.prompt, modality: agents.modality, parameters: agents.parameters }).from(agents)
-          .where(and(eq(agents.userId, userId(res)), inArray(agents.id, nodeAgentIds))),
-        loadModelIoContracts(),
-      ]);
-      const validation = validateWorkflowDefinition({ nodes: nodeDefinition, edges: edgeDefinition }, agentRows, modelContracts);
-      if (validation.ok) normalizedEdges = validation.edges;
-    }
-    res.json({ workflow, definition: { nodes: nodeDefinition, edges: normalizedEdges } });
-  } catch (error) { next(error); }
-});
-
-router.post("/:id/runs", async (req, res, next) => {
-  if (req.get("origin") !== (process.env.WEB_ORIGIN ?? "http://localhost:5173")) { res.status(403).json({ error: "invalid_origin" }); return; }
-  const parsed = startRunSchema.safeParse(req.body);
-  if (!parsed.success) { res.status(400).json({ error: "invalid_run_input", details: parsed.error.flatten() }); return; }
-  const ownerId = userId(res);
-  try {
-    const modelContracts = await loadModelIoContracts();
-    const result = await db.transaction(async (tx) => {
-      const [workflow] = await tx.select().from(workflows)
-        .where(and(eq(workflows.id, req.params.id), eq(workflows.userId, ownerId), sql`${workflows.archivedAt} is null`))
-        .limit(1).for("share");
-      if (!workflow) return null;
-
-      const rows = await tx.select({
-        nodeId: workflowNodes.nodeId,
-        agentId: agents.id,
-        agentName: agents.name,
-        modality: agents.modality,
-        agentPrompt: agents.prompt,
-        agentParameters: agents.parameters,
-        prompt: workflowNodes.prompt,
-        parameters: workflowNodes.parameters,
-        positionX: workflowNodes.positionX,
-        positionY: workflowNodes.positionY,
-      }).from(workflowNodes)
-        .innerJoin(agents, and(eq(agents.id, workflowNodes.agentId), eq(agents.userId, ownerId)))
-        .where(eq(workflowNodes.workflowId, workflow.id));
-      if (rows.length === 0) return "empty_workflow" as const;
-
-      const edges = await tx.select({ id: workflowEdges.edgeId, source: workflowEdges.sourceNodeId, sourceHandle: workflowEdges.sourceHandle, target: workflowEdges.targetNodeId, targetHandle: workflowEdges.targetHandle })
-        .from(workflowEdges).where(eq(workflowEdges.workflowId, workflow.id)).orderBy(asc(workflowEdges.edgeId));
-      const snapshot = buildWorkflowRunSnapshot(workflow, rows, edges, modelContracts);
-      const [run] = await tx.insert(runs).values({
-        userId: ownerId,
-        workflowId: workflow.id,
-        status: "queued",
-        inputJson: {},
-        workflowSnapshotJson: snapshot.workflowSnapshot,
-      }).returning();
-      await tx.insert(runNodes).values(snapshot.runNodes.map((node) => ({
-        ...node,
-        runId: run.id,
-        userId: ownerId,
-        status: "queued" as const,
-      })));
-      return run;
-    });
-    if (result === null) { res.status(404).json({ error: "workflow_not_found" }); return; }
-    if (result === "empty_workflow") { res.status(400).json({ error: "workflow_has_no_nodes" }); return; }
-    res.status(202).json({ run: result });
+    res.json({ workflow, definition: definitionFor(nodes, edges) });
   } catch (error) { next(error); }
 });
 
@@ -135,59 +77,64 @@ router.put("/:id", async (req, res, next) => {
   const parsed = saveWorkflowSchema.safeParse(req.body);
   if (!parsed.success) { res.status(400).json({ error: "invalid_workflow", details: parsed.error.flatten() }); return; }
   const ownerId = userId(res);
-  const referencedAgentIds = [...new Set(parsed.data.definition.nodes.map((node) => node.agentId))];
   try {
-    const modelContracts = await loadModelIoContracts();
+    const [contracts, types] = await Promise.all([loadModelIoContracts(), loadDataTypes()]);
     const result = await db.transaction(async (tx) => {
-      const [existing] = await tx.select().from(workflows)
-        .where(and(eq(workflows.id, req.params.id), eq(workflows.userId, ownerId), sql`${workflows.archivedAt} is null`)).limit(1).for("update");
+      const [existing] = await tx.select().from(workflows).where(and(eq(workflows.id, req.params.id), eq(workflows.userId, ownerId))).limit(1).for("update");
       if (!existing) return null;
-      const agentRows = referencedAgentIds.length
-        ? await tx.select({ id: agents.id, prompt: agents.prompt, modality: agents.modality, parameters: agents.parameters }).from(agents)
-          .where(and(eq(agents.userId, ownerId), inArray(agents.id, referencedAgentIds)))
-        : [];
-      const validation = validateWorkflowDefinition(parsed.data.definition, agentRows, modelContracts);
+      const ids = parsed.data.definition.nodes.flatMap((node) => node.artifactId ? [node.artifactId] : []);
+      const uploads = ids.length ? await tx.select().from(artifacts).where(and(eq(artifacts.userId, ownerId), inArray(artifacts.id, ids))) : [];
+      const validation = validateWorkflowDefinition(parsed.data.definition, contracts, uploads, types.map((type) => type.id));
       if (!validation.ok) return validation.error;
-      const [updated] = await tx.update(workflows).set({ name: parsed.data.name, description: parsed.data.description, updatedAt: new Date() })
-        .where(and(eq(workflows.id, existing.id), eq(workflows.userId, ownerId))).returning();
+      const [updated] = await tx.update(workflows).set({ name: parsed.data.name, description: parsed.data.description, updatedAt: new Date() }).where(eq(workflows.id, existing.id)).returning();
       await tx.delete(workflowEdges).where(eq(workflowEdges.workflowId, existing.id));
       await tx.delete(workflowNodes).where(eq(workflowNodes.workflowId, existing.id));
-      if (validation.nodes.length) {
-        await tx.insert(workflowNodes).values(validation.nodes.map((node) => ({
-          workflowId: existing.id,
-          nodeId: node.id,
-          userId: ownerId,
-          agentId: node.agentId,
-          prompt: node.prompt,
-          parameters: node.parameters,
-          positionX: node.position.x,
-          positionY: node.position.y,
-        })));
-      }
-      if (parsed.data.definition.edges.length) {
-        await tx.insert(workflowEdges).values(validation.edges.map((edge) => ({
-          workflowId: existing.id,
-          edgeId: edge.id,
-          userId: ownerId,
-          sourceNodeId: edge.source,
-          sourceHandle: edge.sourceHandle,
-          targetNodeId: edge.target,
-          targetHandle: edge.targetHandle,
-        })));
-      }
+      if (validation.nodes.length) await tx.insert(workflowNodes).values(validation.nodes.map((node) => ({
+        workflowId: existing.id, userId: ownerId, nodeId: node.id, kind: node.kind, label: node.label,
+        modelId: node.modelId ?? null, dataTypeId: node.dataTypeId ?? null, inputText: node.inputText, artifactId: node.artifactId ?? null,
+        parameters: node.parameters, positionX: node.position.x, positionY: node.position.y,
+      })));
+      if (validation.edges.length) await tx.insert(workflowEdges).values(validation.edges.map((edge) => ({
+        workflowId: existing.id, userId: ownerId, edgeId: edge.id, sourceNodeId: edge.source, targetNodeId: edge.target,
+        sourceHandle: edge.sourceHandle, targetHandle: edge.targetHandle,
+      })));
       return updated;
     });
-    if (result === null) { res.status(404).json({ error: "workflow_not_found" }); return; }
-    if (result === "invalid_agents") { res.status(400).json({ error: "invalid_workflow_agents" }); return; }
-    if (result === "invalid_parameters") { res.status(400).json({ error: "invalid_model_parameters" }); return; }
-    if (result === "invalid_model_contract") { res.status(400).json({ error: "invalid_model_contract" }); return; }
-    if (result === "incompatible_data_types") { res.status(400).json({ error: "incompatible_data_types" }); return; }
-    if (result === "invalid_input_counts") { res.status(400).json({ error: "invalid_input_counts" }); return; }
+    if (!result) { res.status(404).json({ error: "workflow_not_found" }); return; }
+    if (typeof result === "string") { res.status(400).json({ error: result }); return; }
     res.json({ workflow: result });
-  } catch (error) {
-    if (isUniqueViolation(error)) { res.status(409).json({ error: "duplicate_name" }); return; }
-    next(error);
-  }
+  } catch (error) { next(error); }
+});
+
+router.post("/:id/runs", async (req, res, next) => {
+  if (req.get("origin") !== (process.env.WEB_ORIGIN ?? "http://localhost:5173")) { res.status(403).json({ error: "invalid_origin" }); return; }
+  const ownerId = userId(res);
+  try {
+    const [contracts, types] = await Promise.all([loadModelIoContracts(), loadDataTypes()]);
+    const result = await db.transaction(async (tx) => {
+      const [workflow] = await tx.select().from(workflows).where(and(eq(workflows.id, req.params.id), eq(workflows.userId, ownerId))).limit(1).for("share");
+      if (!workflow) return null;
+      const nodes = await tx.select().from(workflowNodes).where(eq(workflowNodes.workflowId, workflow.id));
+      if (!nodes.length) return "workflow_has_no_nodes";
+      const edges = await tx.select().from(workflowEdges).where(eq(workflowEdges.workflowId, workflow.id)).orderBy(asc(workflowEdges.edgeId));
+      const ids = nodes.flatMap((node) => node.artifactId ? [node.artifactId] : []);
+      const uploads = ids.length ? await tx.select().from(artifacts).where(and(eq(artifacts.userId, ownerId), inArray(artifacts.id, ids))) : [];
+      const validation = validateWorkflowDefinition(definitionFor(nodes, edges), contracts, uploads, types.map((type) => type.id));
+      if (!validation.ok) return validation.error;
+      if (nodes.some((node) => node.kind === "model")) {
+        const { response, body } = await forwardRunnerRequest("/models");
+        const available = new Set(((body as { models?: Array<{ id: string; status: string }> }).models ?? []).filter((model) => model.status === "downloaded").map((model) => model.id));
+        if (!response.ok || nodes.some((node) => node.kind === "model" && !available.has(node.modelId ?? ""))) return "model_not_downloaded";
+      }
+      const snapshot = buildWorkflowRunSnapshot(workflow, { nodes: validation.nodes, edges: validation.edges }, contracts);
+      const [run] = await tx.insert(runs).values({ userId: ownerId, workflowId: workflow.id, status: "queued", inputJson: {}, workflowSnapshotJson: snapshot.workflowSnapshot }).returning();
+      await tx.insert(runNodes).values(snapshot.runNodes.map((node) => ({ ...node, runId: run.id, userId: ownerId, status: "queued" as const })));
+      return run;
+    });
+    if (!result) { res.status(404).json({ error: "workflow_not_found" }); return; }
+    if (typeof result === "string") { res.status(result === "model_not_downloaded" ? 409 : 400).json({ error: result }); return; }
+    res.status(202).json({ run: result });
+  } catch (error) { next(error); }
 });
 
 router.delete("/:id", async (req, res, next) => {

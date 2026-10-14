@@ -13,7 +13,6 @@
     "test:runner": "tsx --test tests/imageRunnerClient.test.ts tests/imageRunnerErrors.test.ts tests/modelParameters.test.ts tests/workflowDefinition.test.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
-    "db:seed:agents": "tsx src/seed-agents.ts",
     "db:push": "drizzle-kit push",
     "db:studio": "drizzle-kit studio"
   },

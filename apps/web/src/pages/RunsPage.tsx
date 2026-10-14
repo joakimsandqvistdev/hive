@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
 import { ActionIcon, Alert, Badge, Button, Group, Image, Loader, Modal, Pagination, Paper, SimpleGrid, Stack, Table, Text, Title, Tooltip } from "@mantine/core";
 import { API_BASE } from "../auth";
-import { agentModalityLabel } from "../agentModality";
+
 import type { AppView } from "../navigation/navigationState";
 
+function nodeTypeLabel(modality?: string, modelId?: unknown) { return typeof modelId === "string" ? modelId : modality ?? "Input"; }
 const PAGE_SIZE = 10;
 type RunStatus = "queued" | "running" | "succeeded" | "failed" | "cancel_requested" | "cancelled";
 type Run = { id: string; workflowId: string | null; status: RunStatus; workflowSnapshotJson: { name?: string }; errorSummary: string | null; createdAt: string; startedAt: string | null; finishedAt: string | null };
-type RunNode = { nodeId: string; status: string; startedAt: string | null; finishedAt: string | null; agentSnapshotJson: { name?: string; modality?: string; parameters?: { modelId?: string } }; parameters?: { modelId?: string }; errorSummary: string | null };
+type RunNode = { nodeId: string; status: string; startedAt: string | null; finishedAt: string | null; nodeSnapshotJson: { name?: string; modality?: string; kind?: string; dataTypeId?: string; parameters?: { modelId?: string } }; parameters?: { modelId?: string }; outputJson?: { dataTypeId?: string; text?: string; artifactId?: string }; errorSummary: string | null };
 type Artifact = { id: string; runNodeId: string; displayName: string; mediaType: string; byteSize: number; createdAt: string };
 type PageResult = { items: Run[]; page: number; pageSize: number; total: number; totalPages: number };
 type Detail = { run: Run; nodes: RunNode[]; artifacts: Artifact[] };
@@ -51,7 +52,8 @@ function ArtifactPreview({ artifactId, label, mediaType }: { artifactId: string;
   return <Paper withBorder p="xs" aria-label={`${label} preview`}>
     {src ? mediaType.startsWith("video/")
       ? <video src={src} controls preload="metadata" aria-label={`${label} generated video`} style={{ width: "100%", maxHeight: 240 }} />
-      : <Image src={src} alt={`${label} generated output`} h={240} fit="contain" radius="sm" />
+      : mediaType.startsWith("audio/") ? <audio src={src} controls aria-label={label} style={{ width: "100%" }} />
+      : <Image src={src} alt={`${label} output`} h={240} fit="contain" radius="sm" />
       : <Group h={240} justify="center">{failed ? <Text size="sm" c="dimmed">Preview unavailable</Text> : <Loader size="sm" />}</Group>}
   </Paper>;
 }
@@ -157,19 +159,19 @@ export function RunsPage({ onNavigate }: { onNavigate: (view: AppView) => void }
   return <Stack className="workspace-page" gap="lg">
     <Group justify="space-between" align="end"><Stack gap={3}><Text className="page-eyebrow">Workspace</Text><Title order={1} className="page-title">Runs</Title></Stack><Group><Button variant="light" onClick={() => void loadRuns(page)}>Refresh</Button><Button onClick={() => onNavigate("workflows")}>Browse workflows</Button></Group></Group>
     {error && <Alert color="hiveError" title="Run history unavailable">{error}</Alert>}
-    <Paper className="agents-table-panel" withBorder>
+    <Paper className="workspace-table-panel" withBorder>
       {loading ? <Group justify="center" p="xl"><Loader size="sm" /><Text size="sm" c="dimmed">Loading runs…</Text></Group>
-        : result?.total === 0 ? <Stack className="agents-empty" align="center" gap="sm"><Badge color="hiveSky" variant="light">Run history</Badge><Title order={2} size="h3">No runs yet</Title><Text c="dimmed" ta="center" maw={480}>Open a saved workflow and choose Run workflow to queue its current definition for execution.</Text><Button variant="light" onClick={() => onNavigate("workflows")}>Browse workflows</Button></Stack>
-          : <><Table.ScrollContainer minWidth={900}><Table verticalSpacing="sm" highlightOnHover><Table.Thead><Table.Tr><Table.Th>Workflow</Table.Th><Table.Th>Status</Table.Th><Table.Th>Duration</Table.Th><Table.Th>Result</Table.Th><Table.Th>Actions</Table.Th></Table.Tr></Table.Thead><Table.Tbody>{rows}</Table.Tbody></Table></Table.ScrollContainer><Group justify="space-between" px="md" py="sm" className="agents-table-footer"><Text size="sm" c="dimmed">{result?.total ?? 0} {result?.total === 1 ? "run" : "runs"}</Text><Pagination value={page} onChange={setPage} total={result?.totalPages ?? 0} size="sm" withEdges /></Group></>}
+        : result?.total === 0 ? <Stack className="workspace-empty" align="center" gap="sm"><Badge color="hiveSky" variant="light">Run history</Badge><Title order={2} size="h3">No runs yet</Title><Text c="dimmed" ta="center" maw={480}>Open a saved workflow and choose Run workflow to queue its current definition for execution.</Text><Button variant="light" onClick={() => onNavigate("workflows")}>Browse workflows</Button></Stack>
+          : <><Table.ScrollContainer minWidth={900}><Table verticalSpacing="sm" highlightOnHover><Table.Thead><Table.Tr><Table.Th>Workflow</Table.Th><Table.Th>Status</Table.Th><Table.Th>Duration</Table.Th><Table.Th>Result</Table.Th><Table.Th>Actions</Table.Th></Table.Tr></Table.Thead><Table.Tbody>{rows}</Table.Tbody></Table></Table.ScrollContainer><Group justify="space-between" px="md" py="sm" className="workspace-table-footer"><Text size="sm" c="dimmed">{result?.total ?? 0} {result?.total === 1 ? "run" : "runs"}</Text><Pagination value={page} onChange={setPage} total={result?.totalPages ?? 0} size="sm" withEdges /></Group></>}
     </Paper>
     <Modal opened={selectedId !== null} onClose={() => setSelectedId(null)} title="Run details" size="xl" centered>
       {!detail && !detailError ? <Group justify="center" p="xl"><Loader size="sm" /></Group> : detailError ? <Alert color="hiveError" title="Could not load run">{detailError}</Alert> : detail && <Stack gap="md">
         <Group justify="space-between"><div><Text fw={650}>{detail.run.workflowSnapshotJson?.name ?? "Workflow"}</Text><Text size="xs" c="dimmed">Created {date(detail.run.createdAt)}</Text><Text size="xs" c="dimmed" mt={3}>{timingLabel(detail.run.startedAt, detail.run.finishedAt, now)}</Text></div><Group><Badge variant="light" color={statusColor(detail.run.status)}>{detail.run.status.replaceAll("_", " ")}</Badge>{active(detail.run.status) && <Button color="hiveError" variant="light" loading={cancellingId === detail.run.id} disabled={detail.run.status === "cancel_requested"} onClick={() => void stopRun(detail.run.id)}>Stop run</Button>}</Group></Group>
         {detail.run.errorSummary && <Alert color={detail.run.status === "cancelled" ? "gray" : "hiveError"} title={detail.run.status === "cancelled" ? "Run stopped" : "Run failed"}>{detail.run.errorSummary}</Alert>}
-        <div><Text fw={600} mb="xs">Agent steps</Text>{detail.nodes.length ? <Stack gap="xs">{detail.nodes.map((node) => <Paper key={node.nodeId} withBorder p="sm"><Group justify="space-between"><div><Text size="sm" fw={600}>{node.agentSnapshotJson?.name ?? node.nodeId}</Text><Text size="xs" c="dimmed">{agentModalityLabel(node.agentSnapshotJson?.modality ?? "agent", node.parameters?.modelId ?? node.agentSnapshotJson?.parameters?.modelId)}</Text><Text size="xs" c="dimmed" mt={3}>{timingLabel(node.startedAt, node.finishedAt, now)}</Text></div><Badge variant="light" color={statusColor(node.status)}>{node.status}</Badge></Group>{node.errorSummary && <Text size="xs" c="hiveError.7" mt="xs">{node.errorSummary}</Text>}</Paper>)}</Stack> : <Text size="sm" c="dimmed">No agent steps recorded.</Text>}</div>
+        <div><Text fw={600} mb="xs">Node steps</Text>{detail.nodes.length ? <Stack gap="xs">{detail.nodes.map((node) => <Paper key={node.nodeId} withBorder p="sm"><Group justify="space-between"><div><Text size="sm" fw={600}>{node.nodeSnapshotJson?.name ?? node.nodeId}</Text><Text size="xs" c="dimmed">{nodeTypeLabel(node.nodeSnapshotJson?.modality ?? "input", node.parameters?.modelId ?? node.nodeSnapshotJson?.parameters?.modelId)}</Text><Text size="xs" c="dimmed" mt={3}>{timingLabel(node.startedAt, node.finishedAt, now)}</Text></div><Badge variant="light" color={statusColor(node.status)}>{node.status}</Badge></Group>{node.nodeSnapshotJson?.kind === "input" && node.outputJson?.text && <Text size="sm" mt="xs" style={{ whiteSpace: "pre-wrap" }}>{node.outputJson.text}</Text>}{node.nodeSnapshotJson?.kind === "input" && node.outputJson?.artifactId && <ArtifactPreview artifactId={node.outputJson.artifactId} label={node.nodeSnapshotJson.name ?? node.nodeId} mediaType={`${node.outputJson.dataTypeId}/unknown`} />}{node.errorSummary && <Text size="xs" c="hiveError.7" mt="xs">{node.errorSummary}</Text>}</Paper>)}</Stack> : <Text size="sm" c="dimmed">No node steps recorded.</Text>}</div>
         <div><Text fw={600} mb="xs">Generated outputs</Text>{downloadError && <Alert color="hiveError" mb="xs">{downloadError}</Alert>}{detail.artifacts.length ? <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="sm">{detail.artifacts.map((artifact) => {
           const node = detail.nodes.find((item) => item.nodeId === artifact.runNodeId);
-          const label = node?.agentSnapshotJson?.name ?? artifact.displayName;
+          const label = node?.nodeSnapshotJson?.name ?? artifact.displayName;
           return <Paper key={artifact.id} withBorder p="sm"><Stack gap="xs"><Group justify="space-between" align="start"><div><Text size="sm" fw={600}>{label}</Text><Text size="xs" c="dimmed">{Math.ceil(artifact.byteSize / 1024)} KB · {date(artifact.createdAt)}</Text></div><Button variant="subtle" size="compact-sm" loading={downloadingId === artifact.id} onClick={() => void downloadArtifact(artifact)}>Download</Button></Group><ArtifactPreview artifactId={artifact.id} label={label} mediaType={artifact.mediaType} /></Stack></Paper>;
         })}</SimpleGrid> : <Text size="sm" c="dimmed">Outputs will appear here when available.</Text>}</div>
       </Stack>}

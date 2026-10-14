@@ -8,7 +8,6 @@ const commonParameters = {
   randomizeSeed: z.boolean().default(true),
   steps: z.number().int().min(1).max(50).default(20),
   guidanceScale: z.number().min(0).max(20),
-  negativePrompt: z.string().max(1000).default(""),
 };
 
 export const wanVideoParametersSchema = z.object({
