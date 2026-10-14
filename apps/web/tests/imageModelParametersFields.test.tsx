@@ -6,7 +6,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { defaultImageModelParameters, imageModelDefaultSteps, imageResolutionOptions, ImageModelParametersFields } from "../src/components/ImageModelParametersFields.tsx";
 import { modelGroups } from "../src/modelGroups.ts";
 
-test("128 and 256 square are available in agent and node forms for both image models", () => {
+test("128 and 256 square are available in model node forms for both image models", () => {
   assert.ok(imageResolutionOptions.some((option) => option.value === "128x128"));
   assert.ok(imageResolutionOptions.some((option) => option.value === "256x256"));
   for (const modelId of ["z-image-turbo", "qwen-image-edit-2511", "instruct-pix2pix", "sd15-inpainting", "longcat-image-edit-turbo", "flux2-klein-4b", "sd15-base", "sdxl-base-1.0", "sd35-medium", "sdxl-turbo", "sana-sprint-06b"] as const) {
@@ -26,7 +26,7 @@ test("128 and 256 square are available in agent and node forms for both image mo
   }
 });
 
-test("Qwen agent and workflow node forms show the saved resolution", () => {
+test("Qwen model and workflow node forms show the saved resolution", () => {
   for (const showModelSelect of [false, true]) {
     const html = renderToStaticMarkup(
       <MantineProvider>
@@ -41,7 +41,7 @@ test("Qwen agent and workflow node forms show the saved resolution", () => {
     assert.match(html, /512 × 768/);
     assert.match(html, /value="512x768"/);
     assert.match(html, /True CFG scale/);
-    assert.match(html, /Connect 1–10 image nodes/);
+    assert.match(html, /Supply prompts and image data through the node’s connections/);
   }
 });
 
@@ -53,15 +53,15 @@ test("text-to-image models use model-specific defaults and no-reference guidance
   assert.equal(imageModelDefaultSteps("sana-sprint-06b"), 2);
   for (const modelId of ["sd15-base", "sdxl-base-1.0", "sd35-medium", "sdxl-turbo", "sana-sprint-06b"] as const) {
     const html = renderToStaticMarkup(<MantineProvider><ImageModelParametersFields value={{ ...defaultImageModelParameters, modelId }} onChange={() => {}} /></MantineProvider>);
-    assert.match(html, /Text prompt only\.(?: Generates in 1–4 steps\.)? Connect no image nodes\./);
+    assert.match(html, /Supply prompts and image data through the node’s connections/);
   }
 });
 
 test("Models page tab groups separate generation and editing without omitting models", () => {
-  assert.deepEqual(modelGroups.map((group) => group.title), ["Text-to-image models", "Image-to-image and editing models"]);
-  assert.deepEqual(modelGroups.map((group) => group.id), ["text-to-image", "image-to-image"]);
+  assert.deepEqual(modelGroups.map((group) => group.title), ["Text-to-image models", "Image-to-image and editing models", "Text-to-video models"]);
+  assert.deepEqual(modelGroups.map((group) => group.id), ["text-to-image", "image-to-image", "text-to-video"]);
   const allModelIds = modelGroups.flatMap((group) => group.modelIds);
-  assert.equal(allModelIds.length, 11);
+  assert.equal(allModelIds.length, 13);
   assert.equal(new Set(allModelIds).size, allModelIds.length);
   assert.ok(modelGroups[1].modelIds.includes("flux2-klein-4b"));
 });

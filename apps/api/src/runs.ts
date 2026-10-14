@@ -7,6 +7,7 @@ import { workflowExecutionOrder } from "./workflowExecutionOrder.js";
 const router = Router();
 
 router.post("/:id/cancel", async (req, res, next) => {
+  if (req.get("origin") !== (process.env.WEB_ORIGIN ?? "http://localhost:5173")) { res.status(403).json({ error: "invalid_origin" }); return; }
   const ownerId = res.locals.userId as string;
   const client = await pool.connect();
   try {
@@ -69,7 +70,7 @@ router.get("/:id", async (req, res, next) => {
     const nodes = (await db.select().from(runNodes).where(and(eq(runNodes.runId, run.id), eq(runNodes.userId, run.userId))))
       .sort((left, right) => rank(left.nodeId) - rank(right.nodeId));
     const outputs = (await db.select().from(artifacts).where(and(eq(artifacts.runId, run.id), eq(artifacts.userId, run.userId))))
-      .sort((left, right) => rank(left.runNodeId) - rank(right.runNodeId));
+      .sort((left, right) => rank(left.runNodeId ?? "") - rank(right.runNodeId ?? ""));
     res.json({ run, nodes, artifacts: outputs });
   } catch (error) { next(error); }
 });

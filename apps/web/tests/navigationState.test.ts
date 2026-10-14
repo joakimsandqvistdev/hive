@@ -9,7 +9,7 @@ import {
 } from "../src/navigation/navigationState.ts";
 
 test("hashes resolve the workspace view and distinguish workflow editor routes", () => {
-  assert.equal(appViewFromHash("#agents"), "agents");
+  assert.equal(appViewFromHash("#models"), "models");
   assert.equal(appViewFromHash("#workflows/workflow-123"), "workflows");
   assert.equal(appViewFromHash("#unknown"), "home");
   assert.equal(isWorkflowEditorHash("#workflows/workflow-123"), true);
@@ -28,7 +28,7 @@ test("entering an editor collapses the sidebar and leaving restores the previous
 });
 
 test("a sidebar change inside the editor overwrites the preference restored on exit", () => {
-  const initiallyCollapsed = createNavigationState("#agents", true);
+  const initiallyCollapsed = createNavigationState("#models", true);
   const editing = transitionNavigationHash(initiallyCollapsed, "#workflows/workflow-123");
   const expandedInEditor = toggleNavigationSidebar(editing);
   assert.equal(expandedInEditor.sidebarCollapsed, false);

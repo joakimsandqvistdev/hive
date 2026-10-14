@@ -1,7 +1,7 @@
-import { boolean, check, foreignKey, index, integer, jsonb, pgEnum, pgTable, primaryKey, real, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
+import { boolean, check, foreignKey, index, integer, jsonb, pgEnum, pgTable, primaryKey, real, text, timestamp, uniqueIndex, uuid, type PgTableExtraConfigValue } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
-export const agentModality = pgEnum("agent_modality", ["image", "video"]);
+export const modelModality = pgEnum("model_modality", ["image", "video"]);
 export const modelDataDirection = pgEnum("model_data_direction", ["input", "output"]);
 export const modelInputTransport = pgEnum("model_input_transport", ["prompt", "connection"]);
 export const runStatus = pgEnum("run_status", ["queued", "running", "succeeded", "failed", "cancel_requested", "cancelled"]);
@@ -16,14 +16,14 @@ export const users = pgTable("users", {
   avatarUrl: text("avatar_url"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-}, (table) => [index("users_email_idx").on(table.email)]);
+}, (table): PgTableExtraConfigValue[] => [index("users_email_idx").on(table.email)]);
 
 export const sessions = pgTable("sessions", {
   id: text("id").primaryKey(),
   userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-}, (table) => [
+}, (table): PgTableExtraConfigValue[] => [
   index("sessions_user_id_idx").on(table.userId),
   index("sessions_expires_at_idx").on(table.expiresAt),
 ]);
@@ -38,7 +38,7 @@ export const dataTypes = pgTable("data_types", {
 export const models = pgTable("models", {
   id: text("id").primaryKey(),
   name: text("name").notNull(),
-  modality: agentModality("modality").notNull(),
+  modality: modelModality("modality").notNull(),
   sortOrder: integer("sort_order").notNull().default(0),
   enabled: boolean("enabled").notNull().default(true),
 });
@@ -53,7 +53,7 @@ export const modelDataTypes = pgTable("model_data_types", {
   minCount: integer("min_count").notNull().default(1),
   maxCount: integer("max_count").notNull().default(1),
   sortOrder: integer("sort_order").notNull().default(0),
-}, (table) => [
+}, (table): PgTableExtraConfigValue[] => [
   primaryKey({ columns: [table.modelId, table.direction, table.portKey], name: "model_data_types_pk" }),
   check("model_data_types_count_check", sql`min_count >= 0 and max_count >= min_count`),
   check("model_data_types_transport_check", sql`(direction = 'input' and transport is not null) or (direction = 'output' and transport is null)`),
@@ -65,7 +65,7 @@ export const modelInputGroups = pgTable("model_input_groups", {
   label: text("label").notNull(),
   minCount: integer("min_count").notNull().default(1),
   maxCount: integer("max_count").notNull().default(1),
-}, (table) => [
+}, (table): PgTableExtraConfigValue[] => [
   primaryKey({ columns: [table.modelId, table.groupKey], name: "model_input_groups_pk" }),
   check("model_input_groups_count_check", sql`min_count >= 0 and max_count >= min_count`),
 ]);
@@ -75,26 +75,11 @@ export const modelInputGroupPorts = pgTable("model_input_group_ports", {
   groupKey: text("group_key").notNull(),
   direction: modelDataDirection("direction").notNull().default("input"),
   portKey: text("port_key").notNull(),
-}, (table) => [
+}, (table): PgTableExtraConfigValue[] => [
   primaryKey({ columns: [table.modelId, table.groupKey, table.portKey], name: "model_input_group_ports_pk" }),
   foreignKey({ columns: [table.modelId, table.groupKey], foreignColumns: [modelInputGroups.modelId, modelInputGroups.groupKey], name: "model_input_group_ports_group_fk" }).onDelete("cascade"),
   foreignKey({ columns: [table.modelId, table.direction, table.portKey], foreignColumns: [modelDataTypes.modelId, modelDataTypes.direction, modelDataTypes.portKey], name: "model_input_group_ports_port_fk" }).onDelete("cascade"),
   check("model_input_group_ports_input_only_check", sql`direction = 'input'`),
-]);
-
-export const agents = pgTable("agents", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
-  modality: agentModality("modality").notNull(),
-  name: text("name").notNull(),
-  prompt: text("prompt").notNull().default(""),
-  parameters: jsonb("parameters_json").$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-}, (table) => [
-  index("agents_user_created_idx").on(table.userId, table.createdAt),
-  uniqueIndex("agents_id_user_unique").on(table.id, table.userId),
-  uniqueIndex("agents_user_name_unique").on(table.userId, sql`lower(${table.name})`),
 ]);
 
 export const workflows = pgTable("workflows", {
@@ -105,7 +90,7 @@ export const workflows = pgTable("workflows", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   archivedAt: timestamp("archived_at", { withTimezone: true }),
-}, (table) => [
+}, (table): PgTableExtraConfigValue[] => [
   index("workflows_user_id_idx").on(table.userId),
   uniqueIndex("workflows_id_user_unique").on(table.id, table.userId),
 ]);
@@ -114,16 +99,20 @@ export const workflowNodes = pgTable("workflow_nodes", {
   workflowId: uuid("workflow_id").notNull(),
   nodeId: text("node_id").notNull(),
   userId: uuid("user_id").notNull(),
-  agentId: uuid("agent_id").notNull(),
-  prompt: text("prompt").notNull().default(""),
+  kind: text("kind").notNull(),
+  label: text("label").notNull(),
+  modelId: text("model_id").references(() => models.id, { onDelete: "restrict" }),
+  dataTypeId: text("data_type_id").references(() => dataTypes.id, { onDelete: "restrict" }),
+  inputText: text("input_text").notNull().default(""),
+  artifactId: uuid("artifact_id"),
   parameters: jsonb("parameters_json").$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
   positionX: real("position_x").notNull().default(0),
   positionY: real("position_y").notNull().default(0),
-}, (table) => [
+}, (table): PgTableExtraConfigValue[] => [
   primaryKey({ columns: [table.workflowId, table.nodeId], name: "workflow_nodes_pk" }),
-  index("workflow_nodes_agent_id_idx").on(table.agentId),
+  check("workflow_nodes_kind_check", sql`kind in ('input', 'model')`),
   foreignKey({ columns: [table.workflowId, table.userId], foreignColumns: [workflows.id, workflows.userId], name: "workflow_nodes_workflow_owner_fk" }).onDelete("cascade"),
-  foreignKey({ columns: [table.agentId, table.userId], foreignColumns: [agents.id, agents.userId], name: "workflow_nodes_agent_owner_fk" }).onDelete("restrict"),
+  foreignKey({ columns: [table.artifactId, table.userId], foreignColumns: [artifacts.id, artifacts.userId], name: "workflow_nodes_artifact_owner_fk" }).onDelete("restrict"),
 ]);
 
 export const workflowEdges = pgTable("workflow_edges", {
@@ -134,7 +123,7 @@ export const workflowEdges = pgTable("workflow_edges", {
   sourceHandle: text("source_handle"),
   targetNodeId: text("target_node_id").notNull(),
   targetHandle: text("target_handle"),
-}, (table) => [
+}, (table): PgTableExtraConfigValue[] => [
   primaryKey({ columns: [table.workflowId, table.edgeId], name: "workflow_edges_pk" }),
   foreignKey({ columns: [table.workflowId, table.userId], foreignColumns: [workflows.id, workflows.userId], name: "workflow_edges_workflow_owner_fk" }).onDelete("cascade"),
   foreignKey({ columns: [table.workflowId, table.sourceNodeId], foreignColumns: [workflowNodes.workflowId, workflowNodes.nodeId], name: "workflow_edges_source_node_fk" }).onDelete("cascade"),
@@ -157,7 +146,7 @@ export const runs = pgTable("runs", {
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   startedAt: timestamp("started_at", { withTimezone: true }),
   finishedAt: timestamp("finished_at", { withTimezone: true }),
-}, (table) => [
+}, (table): PgTableExtraConfigValue[] => [
   index("runs_user_created_idx").on(table.userId, table.createdAt),
   index("runs_queue_idx").on(table.status, table.createdAt, table.leaseExpiresAt),
   uniqueIndex("runs_id_user_unique").on(table.id, table.userId),
@@ -167,10 +156,9 @@ export const runNodes = pgTable("run_nodes", {
   runId: uuid("run_id").notNull(),
   userId: uuid("user_id").notNull(),
   nodeId: text("node_id").notNull(),
-  agentId: uuid("agent_id").notNull(),
   status: runNodeStatus("status").notNull().default("queued"),
-  agentSnapshotJson: jsonb("agent_snapshot_json").$type<Record<string, unknown>>().notNull(),
-  prompt: text("prompt").notNull().default(""),
+  nodeSnapshotJson: jsonb("node_snapshot_json").$type<Record<string, unknown>>().notNull(),
+  inputArtifactId: uuid("input_artifact_id"),
   parameters: jsonb("parameters_json").$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
   resolvedInputJson: jsonb("resolved_input_json").$type<Record<string, unknown>>(),
   outputJson: jsonb("output_json").$type<Record<string, unknown>>(),
@@ -179,25 +167,29 @@ export const runNodes = pgTable("run_nodes", {
   attemptCount: integer("attempt_count").notNull().default(0),
   startedAt: timestamp("started_at", { withTimezone: true }),
   finishedAt: timestamp("finished_at", { withTimezone: true }),
-}, (table) => [
+}, (table): PgTableExtraConfigValue[] => [
   primaryKey({ columns: [table.runId, table.nodeId], name: "run_nodes_pk" }),
   index("run_nodes_user_run_idx").on(table.userId, table.runId),
+  foreignKey({ columns: [table.inputArtifactId, table.userId], foreignColumns: [artifacts.id, artifacts.userId], name: "run_nodes_input_artifact_owner_fk" }).onDelete("restrict"),
   foreignKey({ columns: [table.runId, table.userId], foreignColumns: [runs.id, runs.userId], name: "run_nodes_run_owner_fk" }).onDelete("cascade"),
 ]);
 
 export const artifacts = pgTable("artifacts", {
   id: uuid("id").defaultRandom().primaryKey(),
   userId: uuid("user_id").notNull(),
-  runId: uuid("run_id").notNull(),
-  runNodeId: text("run_node_id").notNull(),
+  runId: uuid("run_id"),
+  runNodeId: text("run_node_id"),
+  dataTypeId: text("data_type_id").notNull().references(() => dataTypes.id, { onDelete: "restrict" }),
   storageKey: text("storage_key").notNull().unique(),
   mediaType: text("media_type").notNull(),
   byteSize: integer("byte_size").notNull(),
   checksum: text("checksum").notNull(),
   displayName: text("display_name").notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-}, (table) => [
+}, (table): PgTableExtraConfigValue[] => [
   index("artifacts_user_created_idx").on(table.userId, table.createdAt),
+  uniqueIndex("artifacts_id_user_unique").on(table.id, table.userId),
+  foreignKey({ columns: [table.userId], foreignColumns: [users.id], name: "artifacts_user_fk" }).onDelete("cascade"),
   foreignKey({ columns: [table.runId, table.userId], foreignColumns: [runs.id, runs.userId], name: "artifacts_run_owner_fk" }).onDelete("cascade"),
   foreignKey({ columns: [table.runId, table.runNodeId], foreignColumns: [runNodes.runId, runNodes.nodeId], name: "artifacts_run_node_fk" }).onDelete("cascade"),
 ]);

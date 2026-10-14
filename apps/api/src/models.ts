@@ -2,7 +2,7 @@ import { Router } from "express";
 import { and, eq } from "drizzle-orm";
 import { db } from "./db.js";
 import { models } from "./schema.js";
-import { loadModelIoContracts } from "./modelContracts.js";
+import { loadDataTypes, loadModelIoContracts } from "./modelContracts.js";
 
 const router = Router();
 const runnerUrl = (process.env.IMAGE_RUNNER_URL ?? "http://127.0.0.1:8188").replace(/\/$/, "");
@@ -28,7 +28,7 @@ router.get("/", async (_req, res) => {
 });
 
 router.get("/contracts", async (_req, res, next) => {
-  try { res.json({ models: await loadModelIoContracts() }); }
+  try { res.json({ models: await loadModelIoContracts(), dataTypes: await loadDataTypes() }); }
   catch (error) { next(error); }
 });
 

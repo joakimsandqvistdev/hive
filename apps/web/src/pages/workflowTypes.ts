@@ -1,17 +1,10 @@
 import type { Node } from "@xyflow/react";
-import type { AgentModality } from "../agentModality";
-import type { ImageModelParameters } from "../components/ImageModelParametersFields";
-import type { VideoModelParameters } from "../components/VideoModelParametersFields";
-import type { ModelInputGroup, ModelIoPort } from "../modelIoTypes";
-
+import type { ModelIoContract, ModelIoPort } from "../modelIoTypes";
 export type Workflow = { id: string; name: string; description: string; nodeCount: number; activeRunCount?: number; createdAt: string; updatedAt: string };
-export type Agent = { id: string; name: string; modality: AgentModality; prompt: string; parameters: Record<string, unknown> };
-export type AgentModelParameters = ImageModelParameters | VideoModelParameters;
-export type AgentNodeData = { agentId: string; agentName: string; modality: string; agentPrompt: string; prompt: string; parameters: AgentModelParameters; inputPorts: ModelIoPort[]; outputPorts: ModelIoPort[]; inputGroups: ModelInputGroup[] };
-export type WorkflowNode = Node<AgentNodeData, "agent">;
-export type Definition = {
-  nodes: Array<{ id: string; agentId: string; prompt: string; parameters?: AgentModelParameters; position: { x: number; y: number } }>;
-  edges: Array<{ id: string; source: string; sourceHandle?: string | null; target: string; targetHandle?: string | null }>;
-};
+export type DataType = { id: string; label: string; mediaType: string };
+export type NodeDefinition = { id: string; kind: "input" | "model"; label: string; modelId?: string | null; dataTypeId?: string | null; inputText: string; artifactId?: string | null; parameters: Record<string, unknown>; position: { x: number; y: number } };
+export type WorkflowNodeData = Omit<NodeDefinition, "id" | "position"> & { inputPorts: ModelIoPort[]; outputPorts: ModelIoPort[]; contract?: ModelIoContract };
+export type WorkflowNode = Node<WorkflowNodeData, "workflow">;
+export type Definition = { nodes: NodeDefinition[]; edges: Array<{ id: string; source: string; sourceHandle?: string | null; target: string; targetHandle?: string | null }> };
 export type WorkflowForm = { name: string; description: string };
 export const emptyWorkflowForm: WorkflowForm = { name: "", description: "" };

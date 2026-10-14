@@ -1,50 +1,12 @@
 import type { ModelIoContract } from "./modelContracts.js";
+import type { WorkflowDefinition } from "./workflowDefinition.js";
 
-type WorkflowIdentity = { id: string; name: string; description: string };
-
-export type WorkflowRunNodeSource = {
-  nodeId: string;
-  agentId: string;
-  agentName: string;
-  modality: string;
-  agentPrompt: string;
-  agentParameters: Record<string, unknown>;
-  prompt: string;
-  parameters: Record<string, unknown>;
-  positionX: number;
-  positionY: number;
-};
-
-export type WorkflowSnapshotEdge = { id: string; source: string; sourceHandle?: string | null; target: string; targetHandle?: string | null };
-
-/** Build the immutable graph snapshot and per-node run rows from the transaction's owner-scoped query results. */
-export function buildWorkflowRunSnapshot(workflow: WorkflowIdentity, nodes: WorkflowRunNodeSource[], edges: WorkflowSnapshotEdge[], modelContracts: ModelIoContract[] = []) {
-  const contractsById = new Map(modelContracts.map((contract) => [contract.modelId, contract]));
-  const snapshotNodes = nodes.map((node) => ({
-    id: node.nodeId,
-    agentId: node.agentId,
-    agent: { id: node.agentId, name: node.agentName, modality: node.modality, prompt: node.agentPrompt, parameters: node.agentParameters },
-    prompt: node.prompt,
-    parameters: effectiveNodeParameters(node),
-    modelIoContract: contractsById.get(String(effectiveNodeParameters(node).modelId ?? "")) ?? null,
-    position: { x: node.positionX, y: node.positionY },
-  }));
-
+export function buildWorkflowRunSnapshot(workflow: { id: string; name: string; description: string }, definition: WorkflowDefinition, contracts: ModelIoContract[]) {
+  const byId = new Map(contracts.map((model) => [model.modelId, model]));
+  const nodes = definition.nodes.map((node) => ({ ...node, modelIoContract: node.kind === "model" ? byId.get(node.modelId ?? "") : null }));
   return {
-    workflowSnapshot: { id: workflow.id, name: workflow.name, description: workflow.description, nodes: snapshotNodes, edges },
-    runNodes: nodes.map((node) => ({
-      nodeId: node.nodeId,
-      agentId: node.agentId,
-      agentSnapshotJson: { id: node.agentId, name: node.agentName, modality: node.modality, prompt: node.agentPrompt, parameters: node.agentParameters,
-        modelIoContract: contractsById.get(String(effectiveNodeParameters(node).modelId ?? "")) ?? null },
-      prompt: node.prompt,
-      parameters: effectiveNodeParameters(node),
-    })),
+    workflowSnapshot: { ...workflow, nodes, edges: definition.edges },
+    runNodes: nodes.map((node) => ({ nodeId: node.id, nodeSnapshotJson: { ...node, name: node.label, modality: node.modelIoContract?.modality ?? node.dataTypeId },
+      inputArtifactId: node.artifactId ?? null, parameters: node.parameters ?? {} })),
   };
-}
-
-function effectiveNodeParameters(node: WorkflowRunNodeSource) {
-  if (node.modality !== "image") return node.parameters;
-  const modelId = node.agentParameters.modelId ?? node.parameters.modelId;
-  return { ...node.agentParameters, ...node.parameters, modelId };
 }

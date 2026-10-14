@@ -1,17 +1,17 @@
 import { hostname } from "node:os";
-import { FormData, type Response } from "undici";
+import { FormData } from "undici";
 import { randomInt } from "node:crypto";
 import { and, eq } from "drizzle-orm";
 import { setTimeout as delay } from "node:timers/promises";
 import { db, pool } from "./db.js";
 import { readArtifact, removeArtifact, saveMp4, savePng } from "./artifactStore.js";
 import { artifacts } from "./schema.js";
-import { defaultImageModelParameters, dimensionsForResolution, imageModelParametersSchema } from "./modelParameters.js";
+import { imageModelParametersSchema } from "./modelParameters.js";
 import { claimNextRun, failRun, finishCancelledRun, finishRun, finishRunNode, heartbeatRun, runCancellationRequested, setRunNodeRunning, type ClaimedRun } from "./runQueue.js";
 import { workflowExecutionOrder } from "./workflowExecutionOrder.js";
 import { imageRunnerRejection, imageRunnerTransportFailure } from "./imageRunnerErrors.js";
 import { createImageRunnerClient } from "./imageRunnerClient.js";
-import { defaultVideoModelParameters, videoModelParametersSchema } from "./videoModelParameters.js";
+import { videoModelParametersSchema } from "./videoModelParameters.js";
 
 const workerId = `${hostname()}:${process.pid}`;
 const runnerUrl = (process.env.IMAGE_RUNNER_URL ?? "http://127.0.0.1:8188").replace(/\/$/, "");
@@ -20,199 +20,103 @@ const MAX_OUTPUT_BYTES = 25 * 1024 * 1024;
 const MAX_VIDEO_BYTES = 50 * 1024 * 1024;
 
 type SnapshotNode = {
-  id: string;
-  prompt?: string;
-  instructions?: string;
-  parameters?: Record<string, unknown>;
+  id: string; kind: "input" | "model"; label: string; modelId?: string; dataTypeId?: string;
+  inputText?: string; artifactId?: string; parameters?: Record<string, unknown>;
   position?: { x?: number; y?: number };
-  agent?: { name?: string; modality?: string; prompt?: string; description?: string; parameters?: Record<string, unknown> };
+  modelIoContract?: { modality: string; inputs: Array<{ portKey: string; dataTypeId: string; sortOrder: number }>; outputs: Array<{ portKey: string; dataTypeId: string }> };
 };
-type SnapshotEdge = { source: string; sourceHandle?: string | null; target: string; targetHandle?: string | null };
-
-function object(value: unknown): Record<string, unknown> {
-  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
-}
-
-async function videoRunnerRejection(response: Response): Promise<string> {
-  const message = await imageRunnerRejection(response);
-  if (message.includes("ran out of GPU or system memory")) return "Video runner ran out of GPU or system memory. Try a shorter clip or a host with more memory.";
-  return message.replaceAll("Image runner", "Video runner").replaceAll("image runner", "video runner").replaceAll("Image generation", "Video generation");
-}
-
-async function executeVideoNode(run: ClaimedRun, node: SnapshotNode, signal: AbortSignal, prompt: string): Promise<string> {
-  const rawParameters = { ...object(node.agent?.parameters), ...object(node.parameters) };
-  const parsed = videoModelParametersSchema.safeParse(rawParameters);
-  if (!parsed.success) throw new Error("Video agent settings are invalid. Edit the agent and save the workflow again.");
-  const configured = parsed.data;
-  const candidate = {
-    ...configured,
-    seed: configured.randomizeSeed ? randomInt(0, 2_147_483_648) : configured.seed,
-  };
-  const resolvedInput = await setRunNodeRunning(run.id, node.id, workerId, { modelParameters: candidate });
-  if (!resolvedInput) throw new Error("Worker lease was lost before node execution.");
-  const saved = object(resolvedInput.modelParameters);
-  const settings = Object.keys(saved).length ? saved : candidate;
-  const form = new FormData();
-  form.set("model_id", String(settings.modelId ?? configured.modelId));
-  form.set("prompt", prompt);
-  form.set("negative_prompt", String(settings.negativePrompt ?? ""));
-  form.set("frames", String(settings.frames ?? configured.frames));
-  form.set("seed", String(settings.seed ?? configured.seed));
-  form.set("num_inference_steps", String(settings.steps ?? configured.steps));
-  form.set("guidance_scale", String(settings.guidanceScale ?? configured.guidanceScale));
-
-  const response = await imageRunner.generateVideo(form, signal);
-  if (!response.ok) throw new Error(await videoRunnerRejection(response));
-  if (!response.headers.get("content-type")?.toLowerCase().startsWith("video/mp4")) throw new Error("Video runner did not return an MP4 video.");
-  const declaredLength = Number(response.headers.get("content-length") ?? 0);
-  if (declaredLength > MAX_VIDEO_BYTES) throw new Error("Video output exceeds the 50 MB limit.");
-  const bytes = Buffer.from(await response.arrayBuffer());
-  const stored = await saveMp4(bytes);
-  let metadataInserted = false;
-  try {
-    await db.insert(artifacts).values({
-      id: stored.id, userId: run.user_id, runId: run.id, runNodeId: node.id,
-      storageKey: stored.storageKey, mediaType: "video/mp4", byteSize: stored.byteSize,
-      checksum: stored.checksum, displayName: `${node.agent?.name ?? "generated-video"}.mp4`,
-    });
-    metadataInserted = true;
-    const finished = await finishRunNode(run.id, node.id, workerId, {
-      artifactId: stored.id, mediaType: "video/mp4", byteSize: stored.byteSize, checksum: stored.checksum, modelParameters: settings,
-    });
-    if (!finished) throw new Error("Worker lease was lost while saving node output.");
-  } catch (error) {
-    if (metadataInserted) await db.delete(artifacts).where(eq(artifacts.id, stored.id));
-    await removeArtifact(stored.storageKey);
-    throw error;
-  }
-  return stored.id;
-}
+type SnapshotEdge = { source: string; sourceHandle: string; target: string; targetHandle: string };
+type NodeOutput = { dataTypeId: string; text?: string; artifactId?: string };
+function object(value: unknown): Record<string, unknown> { return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {}; }
 
 async function execute(run: ClaimedRun, signal: AbortSignal): Promise<void> {
   const snapshot = object(run.workflow_snapshot_json);
   const nodes = Array.isArray(snapshot.nodes) ? snapshot.nodes as SnapshotNode[] : [];
   const edges = Array.isArray(snapshot.edges) ? snapshot.edges as SnapshotEdge[] : [];
   if (!nodes.length) throw new Error("Workflow snapshot contains no executable nodes.");
-
   const nodeById = new Map(nodes.map((node) => [node.id, node]));
-  const incoming = new Map(nodes.map((node) => [node.id, [] as Array<{ source: string; role: string }>]));
-  for (const edge of edges) {
-    if (!nodeById.has(edge.source) || !nodeById.has(edge.target)) throw new Error("Workflow contains a connection to a missing node.");
-    incoming.get(edge.target)!.push({ source: edge.source, role: edge.targetHandle ?? "image" });
-  }
-  const orderedNodes = workflowExecutionOrder(nodes, edges);
-  const artifactIdByNode = new Map<string, string>();
-  const priorNodeRows = await pool.query<{ node_id: string; status: string; output_json: Record<string, unknown> | null }>(
-    "SELECT node_id,status,output_json FROM run_nodes WHERE run_id=$1", [run.id],
-  );
-  for (const prior of priorNodeRows.rows) {
-    const artifactId = object(prior.output_json).artifactId;
-    if (prior.status === "succeeded" && typeof artifactId === "string") artifactIdByNode.set(prior.node_id, artifactId);
-  }
-
-  for (const node of orderedNodes) {
+  const outputs = new Map<string, NodeOutput>();
+  const prior = await pool.query<{ node_id: string; status: string; output_json: NodeOutput }>("SELECT node_id,status,output_json FROM run_nodes WHERE run_id=$1", [run.id]);
+  for (const row of prior.rows) if (row.status === "succeeded") outputs.set(row.node_id, row.output_json);
+  for (const node of workflowExecutionOrder(nodes, edges)) {
     if (signal.aborted) throw new Error("Run cancellation was requested.");
-    const existing = await pool.query<{ status: string }>("SELECT status FROM run_nodes WHERE run_id=$1 AND node_id=$2", [run.id, node.id]);
-    if (existing.rows[0]?.status === "succeeded") continue;
-    const modality = node.agent?.modality;
-    const prompt = (node.prompt ?? node.instructions ?? "").trim();
-    if (!prompt) throw new Error("The workflow-node prompt is empty.");
-    if (modality === "video") {
-      artifactIdByNode.set(node.id, await executeVideoNode(run, node, signal, prompt));
-      continue;
-    }
-    if (modality !== "image") throw new Error(`Node “${node.agent?.name ?? node.id}” uses an unsupported modality.`);
-    const rawParameters = { ...object(node.agent?.parameters), ...object(node.parameters) };
-    const parsedParameters = imageModelParametersSchema.safeParse(rawParameters);
-    const configuredParameters = parsedParameters.success ? parsedParameters.data : defaultImageModelParameters;
-    const dimensions = dimensionsForResolution(configuredParameters.resolution);
-    const candidateSettings = {
-      modelId: configuredParameters.modelId,
-      ...dimensions,
-      resolution: configuredParameters.resolution,
-      seed: configuredParameters.randomizeSeed ? randomInt(0, 2_147_483_648) : configuredParameters.seed,
-      randomizeSeed: configuredParameters.randomizeSeed,
-      steps: configuredParameters.steps,
-      trueCfgScale: configuredParameters.trueCfgScale,
-      imageGuidanceScale: configuredParameters.imageGuidanceScale,
-      strength: configuredParameters.strength,
-      guidanceScale: configuredParameters.guidanceScale,
-    };
-    const resolvedInput = await setRunNodeRunning(run.id, node.id, workerId, { modelParameters: candidateSettings });
-    if (!resolvedInput) throw new Error("Worker lease was lost before node execution.");
-    const modelParameters = object(resolvedInput.modelParameters);
-    const settings = Object.keys(modelParameters).length ? modelParameters : candidateSettings;
-    const sourceInputs = [...(incoming.get(node.id) ?? [])].sort((leftInput, rightInput) => {
-      const left = nodeById.get(leftInput.source)?.position ?? {};
-      const right = nodeById.get(rightInput.source)?.position ?? {};
-      return leftInput.role.localeCompare(rightInput.role) || (left.y ?? 0) - (right.y ?? 0) || (left.x ?? 0) - (right.x ?? 0) || leftInput.source.localeCompare(rightInput.source);
-    });
-    const modelId = String(settings.modelId ?? configuredParameters.modelId);
-    const trueCfgScale = Number(settings.trueCfgScale ?? configuredParameters.trueCfgScale);
-    const form = new FormData();
-    form.set("model_id", modelId);
-    form.set("prompt", prompt);
-    form.set("width", String(settings.width));
-    form.set("height", String(settings.height));
-    form.set("seed", String(settings.seed));
-    form.set("num_inference_steps", String(settings.steps));
-    form.set("true_cfg_scale", String(trueCfgScale));
-    form.set("image_guidance_scale", String(settings.imageGuidanceScale ?? configuredParameters.imageGuidanceScale));
-    form.set("strength", String(settings.strength ?? configuredParameters.strength));
-    form.set("guidance_scale", String(settings.guidanceScale ?? configuredParameters.guidanceScale));
-    if (configuredParameters.modelId === "sd15-inpainting") {
-      for (const requiredRole of ["image", "mask"]) if (!sourceInputs.some((input) => input.role === requiredRole)) throw new Error("Stable Diffusion Inpainting needs a source image and a mask connection.");
-      if (sourceInputs.some((input) => !["image", "mask"].includes(input.role))) throw new Error("Stable Diffusion Inpainting accepts only Image and Mask connections.");
-    }
-    let referenceTotalBytes = 0;
-    for (const { source: sourceNodeId } of sourceInputs) {
-      if (signal.aborted) throw new Error("Run cancellation was requested.");
-      const artifactId = artifactIdByNode.get(sourceNodeId);
-      if (!artifactId) throw new Error("A connected reference node did not produce an image.");
-      const [artifact] = await db.select({ storageKey: artifacts.storageKey, byteSize: artifacts.byteSize }).from(artifacts)
-        .where(and(eq(artifacts.id, artifactId), eq(artifacts.runId, run.id), eq(artifacts.userId, run.user_id))).limit(1);
-      if (!artifact) throw new Error("A connected reference image is unavailable.");
-      referenceTotalBytes += artifact.byteSize;
-      if (artifact.byteSize > 10 * 1024 * 1024 || referenceTotalBytes > 25 * 1024 * 1024) {
-        throw new Error("Connected reference images exceed the 25 MB total limit (10 MB each).");
+    if (outputs.has(node.id)) continue;
+    if (node.kind === "input") {
+      const input = await setRunNodeRunning(run.id, node.id, workerId, {});
+      if (!input) throw new Error("Worker lease was lost before input execution.");
+      const output: NodeOutput = node.dataTypeId === "text" ? { dataTypeId: "text", text: node.inputText ?? "" } : { dataTypeId: node.dataTypeId ?? "", artifactId: node.artifactId };
+      if (output.artifactId) {
+        const [artifact] = await db.select().from(artifacts).where(and(eq(artifacts.id, output.artifactId), eq(artifacts.userId, run.user_id))).limit(1);
+        if (!artifact || artifact.dataTypeId !== output.dataTypeId || artifact.runId !== null) throw new Error("Uploaded input is unavailable.");
+        await readArtifact(artifact.storageKey);
       }
+      if (!await finishRunNode(run.id, node.id, workerId, output)) throw new Error("Worker lease was lost after input execution.");
+      outputs.set(node.id, output); continue;
+    }
+    const contract = node.modelIoContract;
+    if (!contract) throw new Error("Model input/output contract is missing.");
+    const incoming = edges.filter((edge) => edge.target === node.id).sort((a, b) => {
+      const order = (key: string) => contract.inputs.find((port) => port.portKey === key)?.sortOrder ?? 0;
+      const left = nodeById.get(a.source)?.position ?? {}, right = nodeById.get(b.source)?.position ?? {};
+      return order(a.targetHandle)-order(b.targetHandle) || (left.y ?? 0)-(right.y ?? 0) || (left.x ?? 0)-(right.x ?? 0) || a.source.localeCompare(b.source);
+    });
+    const bound = incoming.map((edge) => {
+      const output = outputs.get(edge.source);
+      const port = contract.inputs.find((input) => input.portKey === edge.targetHandle);
+      if (!output || !port || output.dataTypeId !== port.dataTypeId) throw new Error("Connected node output does not match the model input datatype.");
+      return { port, output };
+    });
+    const prompt = bound.find((input) => input.port.portKey === "prompt")?.output.text?.trim();
+    if (!prompt) throw new Error("Connect a nonempty text input to the model prompt port.");
+    const video = contract.modality === "video";
+    const parsed = (video ? videoModelParametersSchema : imageModelParametersSchema).safeParse({ ...node.parameters, modelId: node.modelId });
+    if (!parsed.success) throw new Error("Model settings are invalid. Edit and save the workflow again.");
+    const configured = parsed.data;
+    const [width, height] = configured.resolution.split("x").map(Number);
+    const candidate = { ...configured, width, height, seed: configured.randomizeSeed ? randomInt(0, 2_147_483_648) : configured.seed };
+    const resolved = await setRunNodeRunning(run.id, node.id, workerId, { modelParameters: candidate });
+    if (!resolved) throw new Error("Worker lease was lost before model execution.");
+    const settings = object(resolved.modelParameters);
+    const form = new FormData();
+    form.set("model_id", String(settings.modelId)); form.set("prompt", prompt);
+    form.set("seed", String(settings.seed)); form.set("num_inference_steps", String(settings.steps));
+    form.set("width", String(settings.width)); form.set("height", String(settings.height));
+    if (video) {
+      form.set("frames", String(settings.frames)); form.set("fps", String(settings.fps));
+      form.set("guidance_scale", String(settings.guidanceScale)); form.set("negative_prompt", bound.find((input) => input.port.portKey === "negative_prompt")?.output.text ?? "");
+    } else {
+      for (const [key, field] of [["trueCfgScale", "true_cfg_scale"], ["imageGuidanceScale", "image_guidance_scale"], ["guidanceScale", "guidance_scale"], ["strength", "strength"]]) form.set(field!, String(settings[key!]));
+    }
+    let referenceBytes = 0;
+    for (const input of bound.filter((input) => input.output.dataTypeId !== "text")) {
+      if (signal.aborted) throw new Error("Run cancellation was requested.");
+      const artifactId = input.output.artifactId;
+      if (!artifactId) throw new Error("Connected input did not produce a file.");
+      const [artifact] = await db.select().from(artifacts).where(and(eq(artifacts.id, artifactId), eq(artifacts.userId, run.user_id))).limit(1);
+      if (!artifact || artifact.dataTypeId !== input.output.dataTypeId || (artifact.runId !== null && artifact.runId !== run.id)) throw new Error("Connected file is unavailable.");
+      referenceBytes += artifact.byteSize;
+      if (artifact.byteSize > 10*1024*1024 || referenceBytes > 25*1024*1024) throw new Error("Image references exceed their size limits.");
       const bytes = await readArtifact(artifact.storageKey);
-      const imageBuffer = new ArrayBuffer(bytes.byteLength);
-      new Uint8Array(imageBuffer).set(bytes);
-      form.append("images", new Blob([imageBuffer], { type: "image/png" }), `${sourceNodeId}.png`);
+      const buffer = new ArrayBuffer(bytes.length); new Uint8Array(buffer).set(bytes);
+      form.append("images", new Blob([buffer], { type: artifact.mediaType }), artifact.displayName);
     }
-
-    const response = await imageRunner.generate(form, signal);
+    const response = video ? await imageRunner.generateVideo(form, signal) : await imageRunner.generate(form, signal);
     if (!response.ok) throw new Error(await imageRunnerRejection(response));
-    if (!response.headers.get("content-type")?.toLowerCase().startsWith("image/png")) throw new Error("Image runner did not return a PNG image.");
-    const declaredLength = Number(response.headers.get("content-length") ?? 0);
-    if (declaredLength > MAX_OUTPUT_BYTES) throw new Error("Image runner output exceeds the 25 MB limit.");
-    const bytes = Buffer.from(await response.arrayBuffer().catch((error) => {
-      throw new Error(imageRunnerTransportFailure(error), { cause: error });
-    }));
-    const stored = await savePng(bytes);
-    let metadataInserted = false;
+    const mediaType = video ? "video/mp4" : "image/png";
+    if (!response.headers.get("content-type")?.toLowerCase().startsWith(mediaType)) throw new Error("Model returned an unsupported output format.");
+    if (Number(response.headers.get("content-length") ?? 0) > (video ? MAX_VIDEO_BYTES : MAX_OUTPUT_BYTES)) throw new Error("Model output exceeds the size limit.");
+    const bytes = Buffer.from(await response.arrayBuffer().catch((error) => { throw new Error(imageRunnerTransportFailure(error)); }));
+    const stored = video ? await saveMp4(bytes) : await savePng(bytes);
+    let inserted = false;
     try {
-      await db.insert(artifacts).values({
-        id: stored.id, userId: run.user_id, runId: run.id, runNodeId: node.id,
-        storageKey: stored.storageKey, mediaType: "image/png", byteSize: stored.byteSize,
-        checksum: stored.checksum, displayName: `${node.agent?.name ?? "generated-image"}.png`,
-      });
-      metadataInserted = true;
-      const saved = await finishRunNode(run.id, node.id, workerId, {
-        artifactId: stored.id, mediaType: "image/png", byteSize: stored.byteSize, checksum: stored.checksum, modelParameters: settings,
-      });
-      if (!saved) throw new Error("Worker lease was lost while saving node output.");
-      artifactIdByNode.set(node.id, stored.id);
-    } catch (error) {
-      if (metadataInserted) await db.delete(artifacts).where(eq(artifacts.id, stored.id));
-      await removeArtifact(stored.storageKey);
-      throw error;
-    }
+      const dataTypeId = video ? "video" : "image";
+      await db.insert(artifacts).values({ ...stored, userId: run.user_id, runId: run.id, runNodeId: node.id, dataTypeId, mediaType, displayName: `${node.label}.${video ? "mp4" : "png"}` }); inserted = true;
+      const output = { dataTypeId, artifactId: stored.id };
+      if (!await finishRunNode(run.id, node.id, workerId, output)) throw new Error("Worker lease was lost after model execution.");
+      outputs.set(node.id, output);
+    } catch (error) { if (inserted) await db.delete(artifacts).where(eq(artifacts.id, stored.id)); await removeArtifact(stored.storageKey); throw error; }
   }
-  if (!await finishRun(run.id, workerId) && await runCancellationRequested(run.id, workerId)) {
-    throw new Error("Run cancellation was requested.");
-  }
+  await finishRun(run.id, workerId);
 }
 
 async function processRun(run: ClaimedRun): Promise<void> {

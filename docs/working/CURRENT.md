@@ -1,3 +1,14 @@
+# Current work
+
+## 2026-10-14 — Replace reusable definitions with direct model/input workflows
+
+- Implemented Input (Text/Image/Audio) and downloaded Model nodes with the Add node picker. All model data, including prompts and optional video negative prompts, comes from typed connections; model panes contain only inference controls. Input and model outputs use the same canonical datatype catalog.
+- Removed the reusable-definition page, navigation, routes, seed command, source types, live table, and reference/snapshot columns. Added owner-scoped immutable uploads, image/audio preview, input-output display in run details, reference-safe deletion of abandoned uploads, and direct typed execution for input/image/video nodes. Queue leases, cancellation, explicit downloads, and runner memory cleanup are retained.
+- Applied the pending catalog migration and reviewed reset migration 0016_model_input_workflows. As explicitly authorized, removed 5 reusable definitions, 7 workflows, and 20 runs plus their old artifact metadata. Users (3), sessions (1), model catalog, and downloaded Z-Image/Qwen/FLUX weights remain. Historical migration/decision files remain; orphan files from old run metadata were not purged from disk.
+- Recorded decision 0019 and rewrote current architecture/data-model/MVP docs. Historical inline-prompt/reusable-definition decisions are superseded. The catalog now includes Audio and optional video negative-prompt text ports. No audio-consuming model is currently supplied.
+- API unit tests (14), web tests (8), and database/worker integration tests (8) pass, including ownership, upload validation, required/mistyped connections, missing downloads, uploaded plus generated image references, audio inputs, video frame/negative-prompt bindings, cross-origin mutations, and cancellation. Inference responses are mocked; no live model inference or downloads were requested. Typechecks/builds and Drizzle schema comparison passed. Early checks caught circular schema typing, a video frame field mismatch, stale UI test expectations, and trailing whitespace; all corrected.
+- Applied generic API error responses to avoid exposing submitted text/SQL failures; upload/cancel mutations retain origin checks. The initial migration generator required approved subprocess access. Docker installation completed with existing lockfile metadata/audit warnings; web builds retain the >500 kB bundle advisory. Browser inspection confirmed the simplified public navigation and sign-in gate; signed-in editor visual QA was unavailable in the browser session.
+- Rebuilt and refreshed API/web/worker; API/database health and web HTTP checks passed, and all local services are up. Runner/cache were left untouched. Next: sign in, create a Text input and downloaded model node, connect Text output to Prompt, save, and run. Actual model suitability remains dependent on available hardware.
 ## 2026-10-14 — Add relational model I/O contracts
 
 - Added a seeded catalog of the 13 current models and the `text`, `image`, and `video` data types. Model ports record input/output direction, transport, required minimum, maximum cardinality, and display order. Added normalized input groups for cross-port alternatives; no current model needs an alternative group. Mask is an image port role.
@@ -17,7 +28,6 @@
 - Added queued video execution and MP4 artifacts/previews, a Text-to-video group on the Models page, Apache 2.0 license entries, an additive `video` agent-modality migration, and architecture/runner documentation plus decision 0017.
 - API and web typechecks, Python syntax compilation, and `git diff --check` passed. App Docker image build completed. Runner Docker image build stalled while downloading `imageio-ffmpeg` and was canceled due to constrained network bandwidth. FLUX.2 Klein was actively downloading, so no running containers or database migrations were touched. No model weights were downloaded and no inference was attempted.
 - Next: after the active model download finishes, safely refresh services so the additive migration and new runner/API images are applied. Then test video generation on this machine; the host's 8 GB VRAM may require CPU offload and substantial system memory.
-# Current work
 
 ## 2026-10-14 — Browse model groups with tabs
 
