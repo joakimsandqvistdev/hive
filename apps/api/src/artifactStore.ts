@@ -26,6 +26,16 @@ export async function saveMp4(bytes: Buffer): Promise<{ id: string; storageKey: 
   return { id, storageKey, byteSize: bytes.length, checksum: createHash("sha256").update(bytes).digest("hex") };
 }
 
+export async function saveWav(bytes: Buffer): Promise<{ id: string; storageKey: string; byteSize: number; checksum: string }> {
+  if (bytes.length < 44 || bytes.length > MAX_ARTIFACT_BYTES) throw new Error("Audio output is empty or exceeds the 25 MB limit.");
+  if (bytes.subarray(0, 4).toString("ascii") !== "RIFF" || bytes.subarray(8, 12).toString("ascii") !== "WAVE") throw new Error("Audio runner returned an invalid WAV.");
+  const id = randomUUID();
+  const storageKey = `${id}.wav`;
+  await mkdir(root, { recursive: true });
+  await writeFile(resolve(root, storageKey), bytes, { flag: "wx", mode: 0o600 });
+  return { id, storageKey, byteSize: bytes.length, checksum: createHash("sha256").update(bytes).digest("hex") };
+}
+
 export async function readArtifact(storageKey: string): Promise<Buffer> {
   if (!/^[0-9a-f-]{36}\.(?:png|mp4|jpg|webp|wav|mp3|ogg|flac)$/.test(storageKey)) throw new Error("Invalid artifact key.");
   return readFile(resolve(root, storageKey));

@@ -31,6 +31,16 @@ export function createImageRunnerClient(runnerUrl: string, timeoutMs = IMAGE_RUN
         throw new Error(imageRunnerTransportFailure(error).replaceAll("Image runner", "Video runner").replaceAll("image runner", "video runner"), { cause: error });
       }
     },
+    async generateAudio(form: FormData, signal: AbortSignal) {
+      try {
+        return await fetch(`${runnerUrl.replace(/\/$/, "")}/generate-audio`, {
+          method: "POST", body: form, dispatcher,
+          signal: AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]),
+        });
+      } catch (error) {
+        throw new Error(imageRunnerTransportFailure(error, "Audio"), { cause: error });
+      }
+    },
     close: () => dispatcher.close(),
   };
 }

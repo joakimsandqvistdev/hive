@@ -4,7 +4,7 @@ import { randomInt } from "node:crypto";
 import { and, eq } from "drizzle-orm";
 import { setTimeout as delay } from "node:timers/promises";
 import { db, pool } from "./db.js";
-import { readArtifact, removeArtifact, saveMp4, savePng } from "./artifactStore.js";
+import { readArtifact, removeArtifact, saveMp4, savePng, saveWav } from "./artifactStore.js";
 import { artifacts } from "./schema.js";
 import { imageModelParametersSchema } from "./modelParameters.js";
 import { claimNextRun, failRun, finishCancelledRun, finishRun, finishRunNode, heartbeatRun, runCancellationRequested, setRunNodeRunning, type ClaimedRun } from "./runQueue.js";
@@ -12,12 +12,14 @@ import { workflowExecutionOrder } from "./workflowExecutionOrder.js";
 import { imageRunnerRejection, imageRunnerTransportFailure } from "./imageRunnerErrors.js";
 import { createImageRunnerClient } from "./imageRunnerClient.js";
 import { videoModelParametersSchema } from "./videoModelParameters.js";
+import { audioModelParametersSchema } from "./audioModelParameters.js";
 
 const workerId = `${hostname()}:${process.pid}`;
 const runnerUrl = (process.env.IMAGE_RUNNER_URL ?? "http://127.0.0.1:8188").replace(/\/$/, "");
 const imageRunner = createImageRunnerClient(runnerUrl);
 const MAX_OUTPUT_BYTES = 25 * 1024 * 1024;
 const MAX_VIDEO_BYTES = 50 * 1024 * 1024;
+const MAX_AUDIO_BYTES = 25 * 1024 * 1024;
 
 type SnapshotNode = {
   id: string; kind: "input" | "model"; label: string; modelId?: string; dataTypeId?: string;
@@ -69,22 +71,33 @@ async function execute(run: ClaimedRun, signal: AbortSignal): Promise<void> {
     const prompt = bound.find((input) => input.port.portKey === "prompt")?.output.text?.trim();
     if (!prompt) throw new Error("Connect a nonempty text input to the model prompt port.");
     const video = contract.modality === "video";
-    const parsed = (video ? videoModelParametersSchema : imageModelParametersSchema).safeParse({ ...node.parameters, modelId: node.modelId });
+    const audio = contract.modality === "audio";
+    const parameterSchema = video ? videoModelParametersSchema : audio ? audioModelParametersSchema : imageModelParametersSchema;
+    const parsed = parameterSchema.safeParse({ ...node.parameters, modelId: node.modelId });
     if (!parsed.success) throw new Error("Model settings are invalid. Edit and save the workflow again.");
     const configured = parsed.data;
-    const [width, height] = configured.resolution.split("x").map(Number);
-    const candidate = { ...configured, width, height, seed: configured.randomizeSeed ? randomInt(0, 2_147_483_648) : configured.seed };
+    let candidate: Record<string, unknown>;
+    if (audio) candidate = configured;
+    else {
+      if (!("resolution" in configured) || !("seed" in configured) || !("randomizeSeed" in configured)) throw new Error("Model settings are invalid. Edit and save the workflow again.");
+      const [width, height] = configured.resolution.split("x").map(Number);
+      candidate = { ...configured, width, height, seed: configured.randomizeSeed ? randomInt(0, 2_147_483_648) : configured.seed };
+    }
     const resolved = await setRunNodeRunning(run.id, node.id, workerId, { modelParameters: candidate });
     if (!resolved) throw new Error("Worker lease was lost before model execution.");
     const settings = object(resolved.modelParameters);
     const form = new FormData();
     form.set("model_id", String(settings.modelId)); form.set("prompt", prompt);
-    form.set("seed", String(settings.seed)); form.set("num_inference_steps", String(settings.steps));
-    form.set("width", String(settings.width)); form.set("height", String(settings.height));
+    if (audio) {
+      form.set("voice", String(settings.voice)); form.set("speed", String(settings.speed));
+    } else {
+      form.set("seed", String(settings.seed)); form.set("num_inference_steps", String(settings.steps));
+      form.set("width", String(settings.width)); form.set("height", String(settings.height));
+    }
     if (video) {
       form.set("frames", String(settings.frames)); form.set("fps", String(settings.fps));
       form.set("guidance_scale", String(settings.guidanceScale)); form.set("negative_prompt", bound.find((input) => input.port.portKey === "negative_prompt")?.output.text ?? "");
-    } else {
+    } else if (!audio) {
       for (const [key, field] of [["trueCfgScale", "true_cfg_scale"], ["imageGuidanceScale", "image_guidance_scale"], ["guidanceScale", "guidance_scale"], ["strength", "strength"]]) form.set(field!, String(settings[key!]));
     }
     let referenceBytes = 0;
@@ -100,17 +113,17 @@ async function execute(run: ClaimedRun, signal: AbortSignal): Promise<void> {
       const buffer = new ArrayBuffer(bytes.length); new Uint8Array(buffer).set(bytes);
       form.append("images", new Blob([buffer], { type: artifact.mediaType }), artifact.displayName);
     }
-    const response = video ? await imageRunner.generateVideo(form, signal) : await imageRunner.generate(form, signal);
-    if (!response.ok) throw new Error(await imageRunnerRejection(response));
-    const mediaType = video ? "video/mp4" : "image/png";
+    const response = video ? await imageRunner.generateVideo(form, signal) : audio ? await imageRunner.generateAudio(form, signal) : await imageRunner.generate(form, signal);
+    if (!response.ok) throw new Error(await imageRunnerRejection(response, audio ? "Audio" : video ? "Video" : "Image"));
+    const mediaType = video ? "video/mp4" : audio ? "audio/wav" : "image/png";
     if (!response.headers.get("content-type")?.toLowerCase().startsWith(mediaType)) throw new Error("Model returned an unsupported output format.");
-    if (Number(response.headers.get("content-length") ?? 0) > (video ? MAX_VIDEO_BYTES : MAX_OUTPUT_BYTES)) throw new Error("Model output exceeds the size limit.");
-    const bytes = Buffer.from(await response.arrayBuffer().catch((error) => { throw new Error(imageRunnerTransportFailure(error)); }));
-    const stored = video ? await saveMp4(bytes) : await savePng(bytes);
+    if (Number(response.headers.get("content-length") ?? 0) > (video ? MAX_VIDEO_BYTES : audio ? MAX_AUDIO_BYTES : MAX_OUTPUT_BYTES)) throw new Error("Model output exceeds the size limit.");
+    const bytes = Buffer.from(await response.arrayBuffer().catch((error) => { throw new Error(imageRunnerTransportFailure(error, audio ? "Audio" : video ? "Video" : "Image")); }));
+    const stored = video ? await saveMp4(bytes) : audio ? await saveWav(bytes) : await savePng(bytes);
     let inserted = false;
     try {
-      const dataTypeId = video ? "video" : "image";
-      await db.insert(artifacts).values({ ...stored, userId: run.user_id, runId: run.id, runNodeId: node.id, dataTypeId, mediaType, displayName: `${node.label}.${video ? "mp4" : "png"}` }); inserted = true;
+      const dataTypeId = video ? "video" : audio ? "audio" : "image";
+      await db.insert(artifacts).values({ ...stored, userId: run.user_id, runId: run.id, runNodeId: node.id, dataTypeId, mediaType, displayName: `${node.label}.${video ? "mp4" : audio ? "wav" : "png"}` }); inserted = true;
       const output = { dataTypeId, artifactId: stored.id };
       if (!await finishRunNode(run.id, node.id, workerId, output)) throw new Error("Worker lease was lost after model execution.");
       outputs.set(node.id, output);

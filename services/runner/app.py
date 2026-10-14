@@ -38,6 +38,7 @@ MODEL_REPOSITORIES = {
     "sana-sprint-06b": "Efficient-Large-Model/Sana_Sprint_0.6B_1024px_diffusers",
     "wan2.1-t2v-1.3b": "Wan-AI/Wan2.1-T2V-1.3B",
     "cogvideox-2b": "zai-org/CogVideoX-2b",
+    "kokoro-82m": "hexgrad/Kokoro-82M",
 }
 PIPELINE = None
 CURRENT_MODEL_KEY = os.getenv("STARTUP_MODEL_KEY", "z-image-turbo")
@@ -457,6 +458,73 @@ async def generate_video(
         finally:
             release_pipeline()
     return StreamingResponse(io.BytesIO(encoded), media_type="video/mp4")
+
+
+@app.post("/generate-audio")
+async def generate_audio(
+    request: Request,
+    prompt: str = Form(min_length=1, max_length=8000),
+    model_id: Literal["kokoro-82m"] = Form(default="kokoro-82m"),
+    voice: Literal["af_heart", "af_bella", "af_nicole", "af_sarah", "am_adam", "am_michael", "bf_emma", "bf_isabella", "bm_george", "bm_lewis"] = Form(default="af_heart"),
+    speed: float = Form(default=1, ge=0.5, le=2),
+) -> StreamingResponse:
+    global CURRENT_MODEL_KEY
+    if not await asyncio.to_thread(model_is_downloaded, model_id):
+        raise HTTPException(status_code=409, detail={"code": "model_not_downloaded"})
+
+    async with GENERATION_LOCK:
+        try:
+            CURRENT_MODEL_KEY = model_id
+            encoded = await run_generation_process(audio_generation_worker, (model_id, prompt, voice, speed), request.is_disconnected, environment={"HF_HUB_OFFLINE": "1"})
+        except GenerationProcessError as error:
+            status_code = 499 if error.code == "request_cancelled" else 504 if error.code == "generation_timeout" else 500
+            raise HTTPException(status_code=status_code, detail={"code": error.code}) from None
+        except Exception as error:
+            code = report_generation_failure(error, model_id)
+            error.__traceback__ = None
+            raise HTTPException(status_code=500, detail={"code": code}) from None
+        finally:
+            release_pipeline()
+    return StreamingResponse(io.BytesIO(encoded), media_type="audio/wav")
+
+
+def audio_generation_worker(sender, model_key, prompt, voice, speed):
+    output_path = None
+    try:
+        import numpy as np
+        import wave
+        from kokoro import KPipeline
+
+        language_code = voice[0]
+        pipeline = KPipeline(lang_code=language_code, repo_id=MODEL_REPOSITORIES[model_key])
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as output_file:
+            output_path = output_file.name
+        total_bytes = 44
+        with wave.open(output_path, "wb") as wav:
+            wav.setnchannels(1)
+            wav.setsampwidth(2)
+            wav.setframerate(24000)
+            for _, _, audio in pipeline(prompt, voice=voice, speed=speed):
+                if audio is None:
+                    continue
+                samples = audio.detach().cpu().numpy() if isinstance(audio, torch.Tensor) else np.asarray(audio)
+                pcm = (np.clip(samples, -1, 1) * 32767).astype("<i2").tobytes()
+                total_bytes += len(pcm)
+                if total_bytes > 25 * 1024 * 1024:
+                    raise ValueError("Audio output exceeds the 25 MB limit")
+                wav.writeframes(pcm)
+        encoded = Path(output_path).read_bytes()
+        if len(encoded) <= 44:
+            raise ValueError("Audio output is empty")
+        sender.send(("result", encoded))
+    except Exception as error:
+        code = report_generation_failure(error, model_key)
+        sender.send(("error", code))
+    finally:
+        if output_path:
+            Path(output_path).unlink(missing_ok=True)
+        release_pipeline()
+        sender.close()
 
 
 def video_generation_worker(sender, model_key, prompt, negative_prompt, frames, seed, steps, guidance_scale):

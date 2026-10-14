@@ -7,6 +7,7 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 WORKDIR /app
 
 COPY requirements.txt ./requirements.txt
+RUN apt-get update && apt-get install -y --no-install-recommends espeak-ng && rm -rf /var/lib/apt/lists/*
 # The upstream PyTorch image marks its system Python as externally managed;
 # installing into this disposable app container uses the documented override.
 RUN pip install --no-cache-dir --break-system-packages -r requirements.txt

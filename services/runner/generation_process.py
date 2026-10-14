@@ -1,5 +1,6 @@
 import asyncio
 import multiprocessing
+import os
 import time
 
 
@@ -9,7 +10,7 @@ class GenerationProcessError(Exception):
         super().__init__(code)
 
 
-async def run_generation_process(target, arguments, disconnected, timeout_seconds=3600):
+async def run_generation_process(target, arguments, disconnected, timeout_seconds=3600, environment=None):
     # Spawn rather than fork: CUDA contexts must not be inherited by children.
     context = multiprocessing.get_context("spawn")
     receiver, sender = context.Pipe(duplex=False)
@@ -17,7 +18,16 @@ async def run_generation_process(target, arguments, disconnected, timeout_second
     started = False
     deadline = time.monotonic() + timeout_seconds
     try:
-        process.start()
+        previous_environment = {key: os.environ.get(key) for key in (environment or {})}
+        try:
+            os.environ.update(environment or {})
+            process.start()
+        finally:
+            for key, value in previous_environment.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
         started = True
         sender.close()
         while True:

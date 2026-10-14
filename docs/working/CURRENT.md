@@ -1,5 +1,13 @@
 # Current work
 
+## 2026-10-14 — Add Kokoro-82M text-to-speech
+
+- Added Kokoro-82M to the local runner download catalog and as a typed text-to-audio model. Its required text prompt produces a WAV artifact; voice and speed are configurable on workflow nodes and outputs use existing audio previews.
+- Added audio modality support, separated enum and catalog migrations, Models page grouping/card, Apache-2.0 notices for weights/package, GPL-3.0-or-later notice for eSpeak NG, and updated architecture/data-model docs plus decision 0020.
+- Fixed local migration failure: PostgreSQL rejects use of a just-added enum value in Drizzle's transaction. Migration 0017 now recreates the enum with `audio` and casts the existing model column.
+- API/web typechecks, Python syntax compilation, Drizzle schema comparison, and `git diff --check` passed. No tests, migration application, model download, Docker rebuild, or container refresh has been performed.
+- Next: complete the checks, then rebuild the runner and apply migrations during a planned service refresh; download Kokoro and run a workflow to verify speech generation.
+
 ## 2026-10-14 — Consolidate repeated API and workflow UI patterns
 
 - Added a shared frontend API URL/request helper with cookie credentials, shared paginated-table footer and confirmation modal components, common random-seed controls, and a focused workflow node configuration component. Replaced duplicate frontend fetch setup in model, run, workflow, and model-download-hook requests.
