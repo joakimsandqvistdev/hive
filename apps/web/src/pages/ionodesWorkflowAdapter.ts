@@ -21,6 +21,21 @@ type WorkflowMetadata = {
   parameters: Record<string, unknown>;
 };
 
+const datatypeColors: Record<string, string> = {
+  text: "#63d5b0",
+  image: "#b18cff",
+  video: "#78a9ff",
+  audio: "#f2bd63",
+};
+
+function colorForDatatype(dataTypeId: string) {
+  const known = datatypeColors[dataTypeId];
+  if (known) return known;
+  let hash = 0;
+  for (const character of dataTypeId) hash = (hash * 31 + character.charCodeAt(0)) >>> 0;
+  return `hsl(${hash % 360} 82% 68%)`;
+}
+
 function portsForNode(node: NodeDefinition, contracts: ModelIoContract[], types: DataType[]) {
   const contract = contracts.find((item) => item.modelId === node.modelId);
   const dataType = types.find((item) => item.id === node.dataTypeId);
@@ -51,10 +66,11 @@ function toIonodesNode(node: NodeDefinition, contracts: ModelIoContract[], types
     description,
     position: node.position,
     connectors: [...inputs, ...outputs].map((port) => ({
-      id: `${node.id}:${port.portKey}`,
+      id: `${node.id}:${port.direction}:${port.portKey}`,
       direction: port.direction,
       label: port.label,
       type: port.dataTypeId,
+      color: colorForDatatype(port.dataTypeId),
       cardinality: port.direction === "input" && port.maxCount === 1 ? "one" as const : "many" as const,
       metadata: {
         portKey: port.portKey,
