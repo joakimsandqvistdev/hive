@@ -38,6 +38,17 @@ export async function ensureEnvironment(root, action) {
   }
 }
 
+export async function ensureIonodesCheckout(root) {
+  try {
+    await readFile(resolve(root, 'packages/ionodes/package.json'), 'utf8');
+  } catch (error) {
+    if (error.code === 'ENOENT') {
+      throw new Error('The ionodes submodule is not initialized. Run git submodule update --init --recursive.');
+    }
+    throw error;
+  }
+}
+
 export function composeArguments(action, gpu) {
   // Stop doesn't need the app overlay: Compose down stops all services in this project,
   // including the app containers, without deleting volumes or host artifacts.
@@ -71,6 +82,7 @@ export async function runLocal(args, {
 } = {}) {
   const { action, device } = parseArguments(args);
   if (Number(process.versions.node.split('.')[0]) < 22) throw new Error('Hive local commands require Node.js 22 or newer.');
+  if (action === 'start') await ensureIonodesCheckout(root);
   if (await run('docker', ['compose', 'version'], { root, env: environment, quiet: true }) !== 0) {
     throw new Error('Install Docker with Docker Compose 2.24.4 or newer.');
   }

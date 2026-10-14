@@ -31,11 +31,11 @@ export function LicensesPage() {
       <Text c="dimmed" maw={760}>This page lists third-party software and model weights used by Hive, with links to their sources and license terms.</Text>
       <Paper className="license-card" withBorder>
         <Stack gap="sm">
-          <div><Badge variant="light" color="hiveSky">MIT</Badge></div>
-          <Title order={2} size="h4">Chatbot Flow Builder Starter Kit</Title>
-          <Text size="sm" c="dimmed">By Denish Sharma. Listed as the upstream starter-kit reference for this editor; Hive currently uses the separately licensed @xyflow/react package for its canvas.</Text>
-          <Text size="sm">Source: <Anchor href="https://github.com/denishsharma/chatbot-flow-builder-starter-kit" target="_blank" rel="noreferrer">denishsharma/chatbot-flow-builder-starter-kit</Anchor></Text>
-          <LicenseNotice copyright="2025 Denish Sharma" />
+          <div><Badge variant="light" color="hiveSky">Apache 2.0</Badge></div>
+          <Title order={2} size="h4">ionodes</Title>
+          <Text size="sm" c="dimmed">Reusable React node graph editor used to build and edit Hive workflows.</Text>
+          <Text size="sm">Source: <Anchor href="https://github.com/joakimsandqvistdev/ionodes" target="_blank" rel="noreferrer">joakimsandqvistdev/ionodes</Anchor></Text>
+          <Text size="sm">License: <Anchor href="https://github.com/joakimsandqvistdev/ionodes/blob/v0.1.0/LICENSE" target="_blank" rel="noreferrer">Apache License, Version 2.0</Anchor></Text>
         </Stack>
       </Paper>
       <ModelLicense title="InstructPix2Pix model weights" license="CreativeML Open RAIL-M" source="https://huggingface.co/timbrooks/instruct-pix2pix" licenseUrl="https://huggingface.co/spaces/timbrooks/instruct-pix2pix/blob/main/LICENSE" description="Instruction-based image editing. The repository carries MIT metadata for some material, but its license file notes that model checkpoints derive from Stable Diffusion and may be subject to additional restrictions; review the checkpoint license before use." />

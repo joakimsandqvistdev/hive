@@ -2,7 +2,11 @@
   "name": "hive",
   "private": true,
   "version": "0.1.0",
-  "workspaces": ["apps/api", "apps/web"],
+  "workspaces": [
+    "apps/api",
+    "apps/web",
+    "packages/ionodes"
+  ],
   "scripts": {
     "local": "node scripts/local.mjs start",
     "local:stop": "node scripts/local.mjs stop",
@@ -15,5 +19,12 @@
     "typecheck": "npm run typecheck -w @hive/api && npm run typecheck -w @hive/web",
     "test": "npm run test -w @hive/web && npm run test:integration -w @hive/api"
   },
-  "devDependencies": { "concurrently": "^9.2.1" }
+  "devDependencies": {
+    "concurrently": "^9.2.1"
+  },
+  "dependencies": {
+    "@xyflow/react": "^12.12.0",
+    "ionodes": "^0.1.0",
+    "react-dom": "^19.3.1"
+  }
 }

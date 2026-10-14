@@ -15,6 +15,8 @@ The GitHub Actions workflow runs the local-launcher tests, TypeScript checks, an
 
 With Node.js 22+, Docker Compose 2.24.4+ (included in recent Docker Desktop versions), and Docker running in Linux-container mode, run these commands from the repository root:
 
+Hive includes `ionodes` as a Git submodule and npm workspace. Clone Hive with `git clone --recurse-submodules https://github.com/joakimsandqvistdev/hive.git`, or initialize the submodule in an existing checkout with `git submodule update --init --recursive`. The submodule uses SSH, so GitHub access to `ionodes` is required when cloning or updating it. Docker builds use the checked-out local source and do not need GitHub credentials.
+
 ```powershell
 npm run local
 ```
@@ -36,6 +38,8 @@ Stopping preserves the database volume, downloaded model cache, and generated pi
 - Model weights must be downloaded explicitly from the Models view and require substantial disk/RAM. CPU inference can be very slow; service readiness does not verify model inference. See [the runner guide](services/runner/README.md).
 - A fresh computer has a fresh database, artifact folder, and model cache; Git does not transfer these. If reusing an existing database volume, keep its original database password.
 - The launcher applies migrations only to the Compose PostgreSQL service, even if `.env` contains a different `DATABASE_URL`. It does not migrate an external database. A failed startup may leave partial services running; use `npm run local:stop` before retrying if needed.
+
+To develop `ionodes` alongside Hive, edit files under `packages/ionodes`. Commit library changes in the submodule first, then commit the updated submodule pointer in Hive.
 
 Inspect service logs in Docker Desktop. All published ports in the local launcher are bound to localhost.
 
