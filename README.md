@@ -2,7 +2,7 @@
 
 A full-stack starter using React, TypeScript, Node.js, Express, PostgreSQL, Drizzle ORM, and Docker Compose.
 
-The GitHub Actions workflow runs the local-launcher tests, TypeScript checks, and production build on pushes and pull requests to `main`.
+The GitHub Actions workflow runs local-launcher tests and checks/builds the API on pushes and pull requests to `main`. Web typechecking and building are temporarily skipped in CI because Hive currently consumes `ionodes` as a private submodule; restore those checks when the project moves to the published npm package.
 
 ## Requirements
 
@@ -15,7 +15,7 @@ The GitHub Actions workflow runs the local-launcher tests, TypeScript checks, an
 
 With Node.js 22+, Docker Compose 2.24.4+ (included in recent Docker Desktop versions), and Docker running in Linux-container mode, run these commands from the repository root:
 
-Hive includes `ionodes` as a Git submodule and npm workspace. Clone Hive with `git clone --recurse-submodules https://github.com/joakimsandqvistdev/hive.git`, or initialize the submodule in an existing checkout with `git submodule update --init --recursive`. The submodule uses SSH, so GitHub access to `ionodes` is required when cloning or updating it. Docker builds use the checked-out local source and do not need GitHub credentials.
+Hive includes `ionodes` as a Git submodule and npm workspace. Clone Hive with `git clone --recurse-submodules https://github.com/joakimsandqvistdev/hive.git`, or initialize the submodule in an existing checkout with `git submodule update --init --recursive`. GitHub access to `ionodes` is required when cloning or updating it. Docker builds use the checked-out local source and do not need GitHub credentials.
 
 ```powershell
 npm run local
