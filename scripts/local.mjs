@@ -102,7 +102,7 @@ export async function runLocal(args, {
     if (!env.GOOGLE_CLIENT_ID || !env.GOOGLE_CLIENT_SECRET) {
       log('Google sign-in is not configured. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in .env and rerun npm run local.');
     }
-    log('Models download on first generation; runner readiness does not guarantee enough memory for inference.');
+    log('Download models from the Models view before use; runner readiness does not guarantee enough memory for inference.');
   } else log('Hive stopped. Database, generated pictures, and model cache were preserved.');
 }
 

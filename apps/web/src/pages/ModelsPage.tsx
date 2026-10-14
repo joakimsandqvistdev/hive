@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
-import { Alert, Badge, Button, Card, Group, Progress, SimpleGrid, Stack, Text, Title } from "@mantine/core";
+import { Alert, Badge, Button, Card, Group, Progress, SimpleGrid, Stack, Tabs, Text, Title } from "@mantine/core";
 import { API_BASE } from "../auth";
+import { modelGroups, type ModelId } from "../modelGroups";
 
 type ModelStatus = "not_downloaded" | "queued" | "downloading" | "cancelling" | "downloaded" | "failed" | "unavailable";
-type ModelId = "z-image-turbo" | "qwen-image-edit-2511";
 type ModelState = { id: ModelId; status: ModelStatus; downloadedBytes?: number; totalBytes?: number; error?: string };
 
 const modelDetails: Array<{
@@ -33,6 +33,15 @@ const modelDetails: Array<{
     requirements: ["GPU: 48 GB VRAM recommended; lower-memory offload is unverified", "System RAM: 64 GB recommended", "Disk: 70 GB free for model files"],
     source: "https://huggingface.co/Qwen/Qwen-Image-Edit-2511",
   },
+  { id: "instruct-pix2pix", name: "InstructPix2Pix", summary: "Applies text instructions to one connected source image.", size: "About 5 GB", sizeBytes: 5_000_000_000, requirements: ["GPU: 8 GB VRAM recommended", "System RAM: 16 GB recommended", "Disk: 8 GB free"], source: "https://huggingface.co/timbrooks/instruct-pix2pix" },
+  { id: "sd15-inpainting", name: "Stable Diffusion 1.5 Inpainting", summary: "Replaces masked regions of a connected source image using a black/white mask and prompt.", size: "About 5 GB", sizeBytes: 5_000_000_000, requirements: ["GPU: 8 GB VRAM recommended", "System RAM: 16 GB recommended", "Disk: 8 GB free"], source: "https://huggingface.co/stable-diffusion-v1-5/stable-diffusion-inpainting" },
+  { id: "longcat-image-edit-turbo", name: "LongCat-Image-Edit-Turbo", summary: "Instruction-based editing of one source image, distilled for faster inference.", size: "About 24 GB", sizeBytes: 24_000_000_000, requirements: ["GPU: 18 GB VRAM class; CPU offload available", "System RAM: 32 GB or more recommended", "Disk: 30 GB free"], source: "https://huggingface.co/meituan-longcat/LongCat-Image-Edit-Turbo" },
+  { id: "flux2-klein-4b", name: "FLUX.2 Klein 4B", summary: "Text-to-image generation and editing with up to four reference images.", size: "About 8 GB", sizeBytes: 8_000_000_000, requirements: ["GPU: about 13 GB VRAM recommended", "System RAM: 32 GB recommended", "Disk: 12 GB free"], source: "https://huggingface.co/black-forest-labs/FLUX.2-klein-4B" },
+  { id: "sd15-base", name: "Stable Diffusion 1.5", summary: "Lightweight text-to-image generation at standard resolutions, with broad ecosystem support.", size: "About 5 GB", sizeBytes: 5_000_000_000, requirements: ["GPU: 4 GB VRAM recommended", "System RAM: 8 GB recommended", "Disk: 7 GB free"], source: "https://huggingface.co/stable-diffusion-v1-5/stable-diffusion-v1-5" },
+  { id: "sdxl-base-1.0", name: "SDXL Base 1.0", summary: "Higher-resolution text-to-image generation with improved image composition and detail.", size: "About 7 GB", sizeBytes: 7_000_000_000, requirements: ["GPU: 8 GB VRAM recommended", "System RAM: 16 GB recommended", "Disk: 9 GB free"], source: "https://huggingface.co/stabilityai/stable-diffusion-xl-base-1.0" },
+  { id: "sd35-medium", name: "Stable Diffusion 3.5 Medium", summary: "Text-to-image model tuned for prompt understanding, typography, and image quality; uses three text encoders.", size: "About 16 GB", sizeBytes: 16_000_000_000, requirements: ["GPU: 12 GB VRAM class; quantization or offload may be needed", "System RAM: 32 GB recommended", "Disk: 20 GB free; accept Hugging Face access terms and configure HF_TOKEN in .env"], source: "https://huggingface.co/stabilityai/stable-diffusion-3.5-medium" },
+  { id: "sdxl-turbo", name: "SDXL-Turbo", summary: "Fast SDXL-derived text-to-image generation in 1–4 steps. Licensed for research and non-commercial use; commercial use needs separate terms.", size: "About 7 GB", sizeBytes: 7_000_000_000, requirements: ["GPU: 8 GB VRAM recommended", "System RAM: 16 GB recommended", "Disk: 9 GB free"], source: "https://huggingface.co/stabilityai/sdxl-turbo" },
+  { id: "sana-sprint-06b", name: "Sana Sprint 0.6B", summary: "Very fast text-to-image generation in 1–4 steps, using the Gemma 2 text encoder.", size: "About 5 GB", sizeBytes: 5_000_000_000, requirements: ["GPU: 9 GB VRAM for the published BF16 path; quantized under 8 GB is not yet enabled", "System RAM: 16 GB recommended", "Disk: 7 GB free; Gemma terms also apply"], source: "https://huggingface.co/Efficient-Large-Model/Sana_Sprint_0.6B_1024px_diffusers" },
 ];
 
 const statusLabels: Record<ModelStatus, string> = {
@@ -121,8 +130,15 @@ export function ModelsPage() {
       Hive does not bundle model weights. Downloads are fetched from the model publisher and stored in the local Docker runner’s persistent cache. A model can be used after its download completes.
     </Alert>
     {pageError && <Alert color="hiveError" title="Model status unavailable" onClose={() => setPageError(null)} withCloseButton>{pageError}</Alert>}
-    <SimpleGrid cols={{ base: 1, lg: 2 }}>
-      {modelDetails.map((detail) => {
+    <Tabs defaultValue={modelGroups[0].id} keepMounted={false}>
+      <Tabs.List aria-label="Model categories">
+        {modelGroups.map((group) => <Tabs.Tab key={group.id} value={group.id}>{group.title}</Tabs.Tab>)}
+      </Tabs.List>
+      {modelGroups.map((group) => <Tabs.Panel key={group.id} value={group.id} pt="md">
+        <Stack gap="md">
+          <Text size="sm" c="dimmed">{group.description}</Text>
+          <SimpleGrid cols={{ base: 1, lg: 2 }}>
+      {modelDetails.filter((detail) => group.modelIds.includes(detail.id)).map((detail) => {
         const state = models.find((model) => model.id === detail.id);
         const status = state?.status ?? "unavailable";
         const busy = status === "queued" || status === "downloading" || status === "cancelling";
@@ -131,7 +147,7 @@ export function ModelsPage() {
         return <Card key={detail.id} withBorder radius="md" padding="lg">
           <Stack gap="md">
             <Group justify="space-between" align="start">
-              <Stack gap={3}><Title order={2} size="h3">{detail.name}</Title><Text size="sm" c="dimmed">Estimated download: {detail.size}</Text></Stack>
+              <Stack gap={3}><Title order={3} size="h3">{detail.name}</Title><Text size="sm" c="dimmed">Estimated download: {detail.size}</Text></Stack>
               <Badge color={status === "downloaded" ? "hiveSuccess" : status === "failed" || status === "unavailable" ? "hiveError" : "hiveSky"} variant="light">{loading ? "Checking…" : statusLabels[status]}</Badge>
             </Group>
             <Text size="sm">{detail.summary}</Text>
@@ -155,7 +171,10 @@ export function ModelsPage() {
           </Stack>
         </Card>;
       })}
-    </SimpleGrid>
+          </SimpleGrid>
+        </Stack>
+      </Tabs.Panel>)}
+    </Tabs>
     {!loading && models.length === 0 && <Text size="sm" c="dimmed">Model status is not available from the runner right now.</Text>}
   </Stack>;
 }

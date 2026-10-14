@@ -25,7 +25,7 @@ type SnapshotNode = {
   position?: { x?: number; y?: number };
   agent?: { name?: string; modality?: string; prompt?: string; description?: string; parameters?: Record<string, unknown> };
 };
-type SnapshotEdge = { source: string; target: string };
+type SnapshotEdge = { source: string; target: string; targetHandle?: string | null };
 
 function object(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
@@ -38,10 +38,10 @@ async function execute(run: ClaimedRun, signal: AbortSignal): Promise<void> {
   if (!nodes.length) throw new Error("Workflow snapshot contains no executable nodes.");
 
   const nodeById = new Map(nodes.map((node) => [node.id, node]));
-  const incoming = new Map(nodes.map((node) => [node.id, [] as string[]]));
+  const incoming = new Map(nodes.map((node) => [node.id, [] as Array<{ source: string; role: string }>]));
   for (const edge of edges) {
     if (!nodeById.has(edge.source) || !nodeById.has(edge.target)) throw new Error("Workflow contains a connection to a missing node.");
-    incoming.get(edge.target)!.push(edge.source);
+    incoming.get(edge.target)!.push({ source: edge.source, role: edge.targetHandle ?? "image" });
   }
   const orderedNodes = workflowExecutionOrder(nodes, edges);
   const artifactIdByNode = new Map<string, string>();
@@ -71,6 +71,9 @@ async function execute(run: ClaimedRun, signal: AbortSignal): Promise<void> {
       randomizeSeed: configuredParameters.randomizeSeed,
       steps: configuredParameters.steps,
       trueCfgScale: configuredParameters.trueCfgScale,
+      imageGuidanceScale: configuredParameters.imageGuidanceScale,
+      strength: configuredParameters.strength,
+      guidanceScale: configuredParameters.guidanceScale,
     };
     const resolvedInput = await setRunNodeRunning(run.id, node.id, workerId, { modelParameters: candidateSettings });
     if (!resolvedInput) throw new Error("Worker lease was lost before node execution.");
@@ -78,18 +81,11 @@ async function execute(run: ClaimedRun, signal: AbortSignal): Promise<void> {
     const settings = Object.keys(modelParameters).length ? modelParameters : candidateSettings;
     const prompt = (node.prompt ?? node.instructions ?? "").trim();
     if (!prompt) throw new Error("The workflow-node prompt is empty.");
-    const sourceNodeIds = [...new Set(incoming.get(node.id) ?? [])].sort((leftId, rightId) => {
-      const left = nodeById.get(leftId)?.position ?? {};
-      const right = nodeById.get(rightId)?.position ?? {};
-      return (left.y ?? 0) - (right.y ?? 0) || (left.x ?? 0) - (right.x ?? 0) || leftId.localeCompare(rightId);
+    const sourceInputs = [...(incoming.get(node.id) ?? [])].sort((leftInput, rightInput) => {
+      const left = nodeById.get(leftInput.source)?.position ?? {};
+      const right = nodeById.get(rightInput.source)?.position ?? {};
+      return leftInput.role.localeCompare(rightInput.role) || (left.y ?? 0) - (right.y ?? 0) || (left.x ?? 0) - (right.x ?? 0) || leftInput.source.localeCompare(rightInput.source);
     });
-    if (configuredParameters.modelId === "qwen-image-edit-2511" && (sourceNodeIds.length === 0 || sourceNodeIds.length > 10)) {
-      throw new Error("Qwen-Image-Edit-2511 needs 1–10 connected image-node references.");
-    }
-    if (configuredParameters.modelId === "z-image-turbo" && sourceNodeIds.length > 0) {
-      throw new Error("Connected image references currently require Qwen-Image-Edit-2511 on the receiving node.");
-    }
-
     const modelId = String(settings.modelId ?? configuredParameters.modelId);
     const trueCfgScale = Number(settings.trueCfgScale ?? configuredParameters.trueCfgScale);
     const form = new FormData();
@@ -100,8 +96,15 @@ async function execute(run: ClaimedRun, signal: AbortSignal): Promise<void> {
     form.set("seed", String(settings.seed));
     form.set("num_inference_steps", String(settings.steps));
     form.set("true_cfg_scale", String(trueCfgScale));
+    form.set("image_guidance_scale", String(settings.imageGuidanceScale ?? configuredParameters.imageGuidanceScale));
+    form.set("strength", String(settings.strength ?? configuredParameters.strength));
+    form.set("guidance_scale", String(settings.guidanceScale ?? configuredParameters.guidanceScale));
+    if (configuredParameters.modelId === "sd15-inpainting") {
+      for (const requiredRole of ["image", "mask"]) if (!sourceInputs.some((input) => input.role === requiredRole)) throw new Error("Stable Diffusion Inpainting needs a source image and a mask connection.");
+      if (sourceInputs.some((input) => !["image", "mask"].includes(input.role))) throw new Error("Stable Diffusion Inpainting accepts only Image and Mask connections.");
+    }
     let referenceTotalBytes = 0;
-    for (const sourceNodeId of sourceNodeIds) {
+    for (const { source: sourceNodeId } of sourceInputs) {
       if (signal.aborted) throw new Error("Run cancellation was requested.");
       const artifactId = artifactIdByNode.get(sourceNodeId);
       if (!artifactId) throw new Error("A connected reference node did not produce an image.");

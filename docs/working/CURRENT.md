@@ -1,5 +1,30 @@
 # Current work
 
+## 2026-10-14 — Browse model groups with tabs
+
+- Replaced the stacked model groups with accessible Mantine tabs; each tab keeps its model cards, download status, and actions. Text-to-image is selected by default, and FLUX.2 Klein remains under image-to-image/editing.
+- Updated the grouping regression test. Web typecheck, all 8 web tests, production build, `git diff --check`, and local web refresh passed. Build retains the existing Vite bundle-size advisory.
+
+## 2026-10-14 — Group Models view by generation input
+
+- Split the Models catalog into **Text-to-image models** and **Image-to-image and editing models**, keeping every model card and its existing download/progress actions. FLUX.2 Klein is in the image-to-image group because it accepts reference images while retaining text-to-image capability.
+- Added a grouping regression test. Web typecheck, tests, production build, `git diff --check`, and local web service refresh passed.
+
+## 2026-10-14 — Add the previously shortlisted text-to-image models
+
+- Added Stable Diffusion 1.5, SDXL Base 1.0, Stable Diffusion 3.5 Medium, SDXL-Turbo, and Sana Sprint 0.6B (Diffusers-format repo) to explicit downloads, runner pipeline dispatch, image-agent choices, and the Models page. Added model-specific step/guidance controls, text-only workflow input validation, and model/license/access guidance.
+- Added optional `HF_TOKEN` pass-through from local `.env` for gated Hugging Face models. SD 3.5 requires accepted access; Sana Sprint's Gemma encoder terms also apply. No models were downloaded; existing `hive_model_cache` remained mounted.
+- API/web typechecks, API runner tests (11), web tests (7), API/web production build, Docker runner unit tests (11), candidate Diffusers imports, Compose validation, and `git diff --check` passed. Rebuilt/refreshed local services; health is ready with CUDA, all five new models report not downloaded, and the original Z-Image model still reports downloaded. The runner remains attached to `hive_model_cache`. Build retains the existing Vite bundle-size advisory.
+- Recorded decision 0016. For the current host, SD 1.5 and SDXL-Turbo are the more memory-practical additions; Sana's published BF16 path lists 9 GiB VRAM, SDXL may need CPU offload, and SD 3.5 may exceed the configured Docker memory. No live inference was attempted.
+
+## 2026-10-14 — Add image editing and unified image models
+
+- Added downloadable catalog entries for InstructPix2Pix (one source image), Stable Diffusion 1.5 Inpainting (source plus mask), LongCat-Image-Edit-Turbo (one source image), and FLUX.2 Klein 4B (text-to-image or up to four reference images). Existing Z-Image-Turbo and Qwen Image Edit remain available.
+- Added model-specific parameters and editor guidance. Workflow edges retain Image/Mask target ports; workflow validation enforces each model's allowed input counts, and the worker sends references in port order. Added source and license entries for all new weights.
+- Pinned Diffusers 0.38.0, which includes the LongCat and FLUX Klein pipelines. The runner and app rebuilt successfully; local services are healthy with CUDA enabled. Existing Z-Image-Turbo remains downloaded in the same model cache. No additional models were downloaded.
+- API/web typechecks and builds, API runner tests (11), web tests (6), Docker runner tests (11), pipeline imports, and `git diff --check` passed. Runner pytest/unittest could not run on host Python without PyTorch, but the same suite passed in Docker. No live inference of the new weights was attempted.
+- Hardware guidance warns that FLUX.2 Klein lists ~13 GiB VRAM and LongCat uses substantial CPU offload; the latter may exceed this machine's 16 GiB system RAM and Docker memory budget. The smaller SD-based options are more practical for this host.
+
 ## 2026-10-14 — Remove the unused legacy tasks table
 
 - Removed the unused `tasks` table from the Drizzle schema and generated migration `0013_free_charles_xavier` to drop it. The local table had zero rows; the migration uses a strict drop without cascading to unrelated database objects.
