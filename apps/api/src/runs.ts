@@ -3,6 +3,7 @@ import { Router } from "express";
 import { db, pool } from "./db.js";
 import { artifacts, runNodes, runs } from "./schema.js";
 import { workflowExecutionOrder } from "./workflowExecutionOrder.js";
+import { parsePagination, totalPages } from "./pagination.js";
 
 const router = Router();
 
@@ -35,12 +36,6 @@ router.post("/:id/cancel", async (req, res, next) => {
   } finally { client.release(); }
 });
 
-function parsePagination(req: import("express").Request) {
-  const page = Math.min(1_000_000, Math.max(1, Number.parseInt(String(req.query.page ?? "1"), 10) || 1));
-  const pageSize = Math.min(50, Math.max(1, Number.parseInt(String(req.query.pageSize ?? "10"), 10) || 10));
-  return { page, pageSize, offset: (page - 1) * pageSize };
-}
-
 router.get("/", async (req, res, next) => {
   const ownerId = res.locals.userId as string;
   const { page, pageSize, offset } = parsePagination(req);
@@ -51,7 +46,7 @@ router.get("/", async (req, res, next) => {
       db.select({ total: count() }).from(runs).where(eq(runs.userId, ownerId)),
     ]);
     const total = totals[0]?.total ?? 0;
-    res.json({ items, page, pageSize, total, totalPages: Math.ceil(total / pageSize) });
+    res.json({ items, page, pageSize, total, totalPages: totalPages(total, pageSize) });
   } catch (error) { next(error); }
 });
 

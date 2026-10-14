@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState } from "react";
 import type { FormEvent } from "react";
-import { ActionIcon, Alert, Badge, Button, Group, Loader, Modal, Pagination, Paper, Stack, Table, Text, Textarea, TextInput, Title, Tooltip } from "@mantine/core";
-import { API_BASE } from "../auth";
+import { ActionIcon, Alert, Badge, Button, Group, Loader, Modal, Paper, Stack, Table, Text, Textarea, TextInput, Title, Tooltip } from "@mantine/core";
+import { apiFetch } from "../apiClient";
+import { ConfirmActionModal } from "../components/ConfirmActionModal";
+import { PaginatedTableFooter } from "../components/PaginatedTableFooter";
 import type { AppView } from "../navigation/navigationState";
 import { emptyWorkflowForm, type Workflow, type WorkflowForm } from "./workflowTypes";
 
@@ -26,7 +28,7 @@ export function WorkflowLibrary({ onNavigate }: { onNavigate: (view: AppView) =>
   const loadWorkflows = useCallback(async (requestedPage: number) => {
     setLoading(true); setLoadError(null);
     try {
-      const response = await fetch(`${API_BASE}/api/workflows?page=${requestedPage}&pageSize=${PAGE_SIZE}`, { credentials: "include" });
+      const response = await apiFetch(`/api/workflows?page=${requestedPage}&pageSize=${PAGE_SIZE}`);
       const body = await response.json() as WorkflowPageResult;
       if (!response.ok) throw new Error(response.status === 401 ? "Sign in to view your workflows." : "Could not load workflows. Please try again.");
       setResult(body);
@@ -44,7 +46,7 @@ export function WorkflowLibrary({ onNavigate }: { onNavigate: (view: AppView) =>
     event.preventDefault();
     setSavingForm(true); setFormError(null);
     try {
-      const response = await fetch(`${API_BASE}/api/workflows`, { method: "POST", credentials: "include", headers: { "content-type": "application/json" }, body: JSON.stringify(form) });
+      const response = await apiFetch("/api/workflows", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(form) });
       const body = await response.json() as { workflow?: Workflow };
       if (!response.ok || !body.workflow) throw new Error(response.status === 401 ? "Sign in to create workflows." : "Could not create this workflow.");
       setFormOpened(false); setPage(1); await loadWorkflows(1); openEdit(body.workflow);
@@ -56,7 +58,7 @@ export function WorkflowLibrary({ onNavigate }: { onNavigate: (view: AppView) =>
     if (!deleteTarget || (deleteTarget.activeRunCount ?? 0) > 0) return;
     setDeleting(true); setDeleteError(null);
     try {
-      const response = await fetch(`${API_BASE}/api/workflows/${deleteTarget.id}`, { method: "DELETE", credentials: "include" });
+      const response = await apiFetch(`/api/workflows/${deleteTarget.id}`, { method: "DELETE" });
       if (response.status === 409) {
         const body = await response.json() as { activeRunCount?: number };
         const updatedTarget = { ...deleteTarget, activeRunCount: body.activeRunCount ?? 1 };
@@ -84,14 +86,14 @@ export function WorkflowLibrary({ onNavigate }: { onNavigate: (view: AppView) =>
     <Paper className="workspace-table-panel" withBorder>
       {loading ? <Group justify="center" p="xl"><Loader size="sm" /><Text size="sm" c="dimmed">Loading workflows…</Text></Group>
         : result?.total === 0 ? <Stack className="workspace-empty" align="center" gap="sm"><Badge color="hiveSky" variant="light">Workflow library</Badge><Title order={2} size="h3">No workflows yet</Title><Text c="dimmed" ta="center" maw={480}>Create a named workflow, add inputs and downloaded models, and arrange them as a connected flow.</Text><Button variant="light" onClick={openCreate}>Create your first workflow</Button></Stack>
-          : <><Table.ScrollContainer minWidth={760}><Table verticalSpacing="sm" highlightOnHover><Table.Thead><Table.Tr><Table.Th>Name</Table.Th><Table.Th>Description</Table.Th><Table.Th>Nodes</Table.Th><Table.Th>Updated</Table.Th><Table.Th><span className="sr-only">Actions</span></Table.Th></Table.Tr></Table.Thead><Table.Tbody>{rows}</Table.Tbody></Table></Table.ScrollContainer><Group justify="space-between" px="md" py="sm" className="workspace-table-footer"><Text size="sm" c="dimmed">{result?.total ?? 0} {result?.total === 1 ? "workflow" : "workflows"}</Text><Pagination value={page} onChange={setPage} total={result?.totalPages ?? 0} size="sm" withEdges /></Group></>}
+          : <><Table.ScrollContainer minWidth={760}><Table verticalSpacing="sm" highlightOnHover><Table.Thead><Table.Tr><Table.Th>Name</Table.Th><Table.Th>Description</Table.Th><Table.Th>Nodes</Table.Th><Table.Th>Updated</Table.Th><Table.Th><span className="sr-only">Actions</span></Table.Th></Table.Tr></Table.Thead><Table.Tbody>{rows}</Table.Tbody></Table></Table.ScrollContainer><PaginatedTableFooter total={result?.total ?? 0} itemName="workflow" page={page} totalPages={result?.totalPages ?? 0} onPageChange={setPage} /></>}
     </Paper>
     <Modal opened={formOpened} onClose={() => setFormOpened(false)} title="Create workflow" centered>
       <form onSubmit={(event) => void createWorkflow(event)}><Stack gap="md">{formError && <Alert color="hiveError" title="Could not create workflow">{formError}</Alert>}<><TextInput label="Name" placeholder="e.g. Create a video from a script" value={form.name} maxLength={100} onChange={(event) => { const name = event.currentTarget.value; setForm((current) => ({ ...current, name })); }} required autoFocus /><Textarea label="Description" placeholder="What should this workflow do?" value={form.description} maxLength={1000} onChange={(event) => { const description = event.currentTarget.value; setForm((current) => ({ ...current, description })); }} minRows={3} autosize /><Group justify="flex-end"><Button variant="default" type="button" onClick={() => setFormOpened(false)}>Cancel</Button><Button type="submit" loading={savingForm}>Create workflow</Button></Group></></Stack></form>
     </Modal>
-    <Modal opened={deleteTarget !== null} onClose={() => setDeleteTarget(null)} title="Confirm workflow removal" centered>
-          {deleteTarget && <Stack gap="md">{deleteError && <Alert color="hiveError" title="Could not remove workflow">{deleteError}</Alert>}<Text>Are you sure you want to remove <Text component="span" fw={600}>{deleteTarget.name}</Text>?</Text><Text size="sm" c="dimmed">Its nodes and connections will be deleted. This cannot be undone.</Text>{(deleteTarget.activeRunCount ?? 0) > 0 && <Alert color="hiveWarning" title="Workflow is in use">This workflow has {deleteTarget.activeRunCount} queued or running {deleteTarget.activeRunCount === 1 ? "run" : "runs"} and can’t be removed.</Alert>}<Group justify="flex-end"><Button variant="default" onClick={() => setDeleteTarget(null)}>Cancel</Button><Button color="hiveError" loading={deleting} disabled={(deleteTarget.activeRunCount ?? 0) > 0} onClick={() => void removeWorkflow()}>Remove workflow</Button></Group></Stack>}
-    </Modal>
+    <ConfirmActionModal opened={deleteTarget !== null} onClose={() => setDeleteTarget(null)} title="Confirm workflow removal" confirmLabel="Remove workflow" onConfirm={() => void removeWorkflow()} loading={deleting} disabled={(deleteTarget?.activeRunCount ?? 0) > 0}>
+      {deleteTarget && <>{deleteError && <Alert color="hiveError" title="Could not remove workflow">{deleteError}</Alert>}<Text>Are you sure you want to remove <Text component="span" fw={600}>{deleteTarget.name}</Text>?</Text><Text size="sm" c="dimmed">Its nodes and connections will be deleted. This cannot be undone.</Text>{(deleteTarget.activeRunCount ?? 0) > 0 && <Alert color="hiveWarning" title="Workflow is in use">This workflow has {deleteTarget.activeRunCount} queued or running {deleteTarget.activeRunCount === 1 ? "run" : "runs"} and can’t be removed.</Alert>}</>}
+    </ConfirmActionModal>
   </Stack>;
 }
 

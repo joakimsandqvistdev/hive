@@ -1,5 +1,12 @@
 # Current work
 
+## 2026-10-14 — Consolidate repeated API and workflow UI patterns
+
+- Added a shared frontend API URL/request helper with cookie credentials, shared paginated-table footer and confirmation modal components, common random-seed controls, and a focused workflow node configuration component. Replaced duplicate frontend fetch setup in model, run, workflow, and model-download-hook requests.
+- Moved duplicate API pagination parsing and total-page calculation into `pagination.ts` for workflow and run routes. Existing domain logic already lives in focused modules (`workflowDefinition`, `workflowRunSnapshot`, `runQueue`, `modelContracts`), so no generic service/base-class layer was added.
+- API/web typechecks passed. API build passed; web production build was blocked when Vite/esbuild attempted to spawn a child process (`spawn EPERM`). `git diff --check` passed. Automated tests were not run.
+- Next: run the web build in an environment that permits esbuild process launch and exercise workflow editing, uploading, and confirmations in the browser.
+
 ## 2026-10-14 — Replace reusable definitions with direct model/input workflows
 
 - Implemented Input (Text/Image/Audio) and downloaded Model nodes with the Add node picker. All model data, including prompts and optional video negative prompts, comes from typed connections; model panes contain only inference controls. Input and model outputs use the same canonical datatype catalog.

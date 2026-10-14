@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Alert, Badge, Button, Card, Group, Progress, SimpleGrid, Stack, Tabs, Text, Title } from "@mantine/core";
-import { API_BASE } from "../auth";
+import { apiFetch } from "../apiClient";
 import { modelGroups, type ModelId } from "../modelGroups";
 
 type ModelStatus = "not_downloaded" | "queued" | "downloading" | "cancelling" | "downloaded" | "failed" | "unavailable";
@@ -65,7 +65,7 @@ export function ModelsPage() {
 
   const refresh = useCallback(async () => {
     try {
-      const response = await fetch(`${API_BASE}/api/models`, { credentials: "include" });
+      const response = await apiFetch("/api/models");
       const body = await response.json() as { models?: ModelState[]; error?: string };
       if (!response.ok) throw new Error(response.status === 401 ? "Sign in to manage local models." : "The local model runner is unavailable. Start the runner and try again.");
       setModels(body.models ?? []);
@@ -89,9 +89,8 @@ export function ModelsPage() {
     setRequesting(id);
     setPageError(null);
     try {
-      const response = await fetch(`${API_BASE}/api/models/${id}/download`, {
+      const response = await apiFetch(`/api/models/${id}/download`, {
         method: "POST",
-        credentials: "include",
         headers: { "content-type": "application/json" },
         body: "{}",
       });
@@ -112,7 +111,7 @@ export function ModelsPage() {
     setCancelling(id);
     setPageError(null);
     try {
-      const response = await fetch(`${API_BASE}/api/models/${id}/download`, { method: "DELETE", credentials: "include" });
+      const response = await apiFetch(`/api/models/${id}/download`, { method: "DELETE" });
       const body = await response.json().catch(() => ({})) as { detail?: string };
       if (!response.ok) throw new Error(typeof body.detail === "string" ? body.detail : "Could not cancel the model download. Try again.");
       await refresh();

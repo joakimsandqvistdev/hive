@@ -1,12 +1,14 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Alert, Badge, Button, FileInput, Group, Image, Loader, Modal, Paper, Select, Stack, Text, Textarea, TextInput, Title } from "@mantine/core";
+import { Alert, Badge, Button, Group, Loader, Modal, Paper, Select, Stack, Text, Textarea, TextInput, Title } from "@mantine/core";
 import { addEdge, Background, BackgroundVariant, Controls, Handle, MiniMap, Position, ReactFlow, useEdgesState, useNodesState, type Connection, type Edge } from "@xyflow/react";
-import { API_BASE } from "../auth";
+import { apiFetch } from "../apiClient";
 import { useDownloadedModels } from "../hooks/useDownloadedModels";
-import { defaultImageModelParameters, imageModelDefaultSteps, ImageModelParametersFields, type ImageModelParameters } from "../components/ImageModelParametersFields";
-import { defaultVideoModelParameters, VideoModelParametersFields, type VideoModelParameters } from "../components/VideoModelParametersFields";
+import { defaultImageModelParameters, imageModelDefaultSteps, type ImageModelParameters } from "../components/ImageModelParametersFields";
+import { defaultVideoModelParameters, type VideoModelParameters } from "../components/VideoModelParametersFields";
+import { WorkflowNodeConfiguration } from "./WorkflowNodeConfiguration";
+import { ConfirmActionModal } from "../components/ConfirmActionModal";
 import type { AppView } from "../navigation/navigationState";
-import { formatModelPortCardinality, type ModelIoContract } from "../modelIoTypes";
+import type { ModelIoContract } from "../modelIoTypes";
 import type { DataType, Definition, Workflow, WorkflowNode, WorkflowNodeData } from "./workflowTypes";
 import "@xyflow/react/dist/style.css";
 
@@ -29,7 +31,7 @@ export function WorkflowEditor({ workflowId, onClose, onNavigate }: { workflowId
   const downloaded = useDownloadedModels();
   const createdUploads = useRef(new Set<string>());
   useEffect(() => () => {
-    for (const id of createdUploads.current) void fetch(`${API_BASE}/api/artifacts/${id}`, { method: "DELETE", credentials: "include" }).catch(() => {});
+    for (const id of createdUploads.current) void apiFetch(`/api/artifacts/${id}`, { method: "DELETE" }).catch(() => {});
   }, []);
   const selected = nodes.find((node) => node.selected);
   const selectedEdge = edges.find((edge) => edge.selected);
@@ -44,7 +46,7 @@ export function WorkflowEditor({ workflowId, onClose, onNavigate }: { workflowId
   }, []);
   useEffect(() => {
     let cancelled = false;
-    void Promise.all([fetch(`${API_BASE}/api/workflows/${workflowId}`, { credentials: "include" }), fetch(`${API_BASE}/api/models/contracts`, { credentials: "include" })])
+    void Promise.all([apiFetch(`/api/workflows/${workflowId}`), apiFetch("/api/models/contracts")])
       .then(async ([flowResponse, catalogResponse]) => {
         if (!flowResponse.ok || !catalogResponse.ok) throw new Error("Could not load workflow and model definitions.");
         const flow = await flowResponse.json() as { workflow: Workflow; definition: Definition };
@@ -93,7 +95,7 @@ export function WorkflowEditor({ workflowId, onClose, onNavigate }: { workflowId
     if (file.size > limit) { setError(`This file exceeds the ${dataTypeId === "image" ? 10 : 25} MB limit.`); return; }
     setUploading(true); setError(null);
     try {
-      const response = await fetch(`${API_BASE}/api/artifacts/upload?dataTypeId=${encodeURIComponent(dataTypeId ?? "")}&name=${encodeURIComponent(file.name)}`, { method: "POST", credentials: "include", headers: { "content-type": "application/octet-stream" }, body: file });
+      const response = await apiFetch(`/api/artifacts/upload?dataTypeId=${encodeURIComponent(dataTypeId ?? "")}&name=${encodeURIComponent(file.name)}`, { method: "POST", headers: { "content-type": "application/octet-stream" }, body: file });
       const body = await response.json().catch(() => ({})) as { artifact?: { id: string }; message?: string };
       if (!response.ok || !body.artifact) throw new Error(body.message ?? "Could not upload this file.");
       const artifactId = body.artifact.id;
@@ -107,7 +109,7 @@ export function WorkflowEditor({ workflowId, onClose, onNavigate }: { workflowId
     setSaving(true); setError(null);
     const definition: Definition = { nodes: nodes.map(({ id, data, position }) => ({ id, kind: data.kind, label: data.label, modelId: data.modelId, dataTypeId: data.dataTypeId, inputText: data.inputText, artifactId: data.artifactId, parameters: data.parameters, position })), edges: edges.map(({ id, source, sourceHandle, target, targetHandle }) => ({ id, source, sourceHandle, target, targetHandle })) };
     try {
-      const response = await fetch(`${API_BASE}/api/workflows/${workflowId}`, { method: "PUT", credentials: "include", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: workflow.name, description: workflow.description, definition }) });
+      const response = await apiFetch(`/api/workflows/${workflowId}`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: workflow.name, description: workflow.description, definition }) });
       const body = await response.json();
       if (!response.ok) throw new Error(body.error === "invalid_input_counts" ? "Connect all required model inputs and check connection limits." : body.error === "invalid_input" ? "Fill every text input and upload a file for each media input." : "Could not save workflow. Check node settings and connections.");
       setWorkflow(body.workflow); setDirty(false);
@@ -117,7 +119,7 @@ export function WorkflowEditor({ workflowId, onClose, onNavigate }: { workflowId
   async function run() {
     setRunning(true); setError(null);
     try {
-      const response = await fetch(`${API_BASE}/api/workflows/${workflowId}/runs`, { method: "POST", credentials: "include", headers: { "content-type": "application/json" }, body: "{}" });
+      const response = await apiFetch(`/api/workflows/${workflowId}/runs`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
       const body = await response.json();
       if (!response.ok) throw new Error(body.error === "model_not_downloaded" ? "Download every model used by this workflow from Models before running." : "Could not start workflow.");
       onNavigate("runs");
@@ -130,12 +132,12 @@ export function WorkflowEditor({ workflowId, onClose, onNavigate }: { workflowId
     {loading ? <Group justify="center" className="workflow-editor-loading"><Loader /><Text>Loading workflow…</Text></Group> : workflow && <div className="workflow-editor-body">
       <section className="workflow-editor-canvas" aria-label="Workflow canvas"><ReactFlow<WorkflowNode, Edge> nodes={nodes} edges={edges} onNodesChange={(changes) => { onNodesChange(changes); if (changes.some((change) => change.type === "position")) setDirty(true); }} onEdgesChange={(changes) => { onEdgesChange(changes); if (changes.some((change) => change.type === "remove")) setDirty(true); }} onConnect={onConnect} nodeTypes={nodeTypes} fitView deleteKeyCode={null}><Background variant={BackgroundVariant.Dots} gap={20} size={1} /><Controls /><MiniMap pannable zoomable /></ReactFlow>{!nodes.length && <div className="workflow-canvas-empty"><Text fw={600}>Start building this workflow</Text><Text size="sm" c="dimmed">Add input nodes and downloaded models, then connect matching ports.</Text></div>}</section>
       <aside className="workflow-config-panel" aria-label="Node configuration"><Group grow mb="lg"><Button variant="light" onClick={() => { void downloaded.refresh(); setPickerOpen(true); }}>Add node</Button><Button variant="light" color="hiveError" disabled={(!selected && !selectedEdge) || uploading} onClick={() => { if (selected) setRemoveOpen(true); else if (selectedEdge) { setEdges((current) => current.filter((edge) => edge.id !== selectedEdge.id)); setDirty(true); } }}>Remove selected</Button></Group>
-        {selected ? <Stack><Title order={2} size="h4">{selected.data.kind === "input" ? "Input node" : "Model node"}</Title><TextInput label="Node name" value={selected.data.label} maxLength={100} onChange={(event) => update({ label: event.currentTarget.value })} />
-          {selected.data.kind === "input" ? <><Text size="sm">Datatype: {types.find((type) => type.id === selected.data.dataTypeId)?.label}</Text>{selected.data.dataTypeId === "text" ? <Textarea label="Text" value={selected.data.inputText} onChange={(event) => update({ inputText: event.currentTarget.value })} maxLength={8000} minRows={6} autosize /> : <><FileInput key={selected.id} label={selected.data.artifactId ? "Replace file" : "Upload file"} accept={selected.data.dataTypeId === "image" ? "image/png,image/jpeg,image/webp" : "audio/wav,audio/mpeg,audio/ogg,audio/flac"} onChange={(file) => void upload(file)} disabled={uploading} /><Text size="xs" c="dimmed">{selected.data.dataTypeId === "image" ? "PNG, JPEG, WebP · up to 10 MB" : "WAV, MP3, Ogg, FLAC · up to 25 MB"}</Text>{uploading && <Loader size="sm" />}{selected.data.artifactId && (selected.data.dataTypeId === "image" ? <Image src={`${API_BASE}/api/artifacts/${selected.data.artifactId}/preview`} alt={selected.data.label} fit="contain" mah={240} /> : <audio key={selected.data.artifactId} controls src={`${API_BASE}/api/artifacts/${selected.data.artifactId}/preview`} />)}</>}</> : <><Text fw={600}>{selected.data.contract?.name ?? selected.data.modelId}</Text>{!downloaded.modelIds.has(selected.data.modelId ?? "") && <Alert color="hiveWarning">This model is not downloaded. Download it from Models before running.</Alert>}<Text size="sm" c="dimmed">Connect input nodes or model outputs to each required port. Prompts are supplied through text connections.</Text>{selected.data.inputPorts.map((port) => <Text key={port.portKey} size="sm">{port.label}: {port.dataTypeLabel} · {formatModelPortCardinality(port.minCount, port.maxCount)}</Text>)}{selected.data.contract?.modality === "video" ? <VideoModelParametersFields value={selected.data.parameters as VideoModelParameters} onChange={(parameters) => update({ parameters: { ...parameters } })} /> : <ImageModelParametersFields showModelSelect={false} value={selected.data.parameters as ImageModelParameters} onChange={(parameters) => update({ parameters: { ...parameters } })} />}</>}
-        </Stack> : <Text size="sm" c="dimmed">Select a node to edit its data or model settings. Connect outputs to matching model input datatypes.</Text>}
+        <WorkflowNodeConfiguration selected={selected} types={types} downloadedModelIds={downloaded.modelIds} uploading={uploading} onUpdate={update} onUpload={(file) => void upload(file)} />
       </aside></div>}
     <Modal opened={pickerOpen} onClose={() => setPickerOpen(false)} title="Add node" centered><Stack><Select label="Node" placeholder="Choose an input or downloaded model" data={options} value={choice} onChange={setChoice} searchable /><Text size="xs" c="dimmed">Only downloaded models are available here. Download additional models from Models.</Text>{downloaded.status === "unavailable" && <Alert color="hiveWarning">Could not check model downloads. Input nodes remain available.</Alert>}<Button onClick={addNode} disabled={!choice}>Add node</Button></Stack></Modal>
-    <Modal opened={removeOpen} onClose={() => setRemoveOpen(false)} title="Remove node" centered><Stack><Text>Remove {selected?.data.label} and its connections?</Text><Button color="hiveError" onClick={() => { if (!selected) return; setNodes((current) => current.filter((node) => node.id !== selected.id)); setEdges((current) => current.filter((edge) => edge.source !== selected.id && edge.target !== selected.id)); setDirty(true); setRemoveOpen(false); }}>Remove node</Button></Stack></Modal>
+    <ConfirmActionModal opened={removeOpen} onClose={() => setRemoveOpen(false)} title="Remove node" confirmLabel="Remove node" onConfirm={() => { if (!selected) return; setNodes((current) => current.filter((node) => node.id !== selected.id)); setEdges((current) => current.filter((edge) => edge.source !== selected.id && edge.target !== selected.id)); setDirty(true); setRemoveOpen(false); }}>
+      <Text>Remove {selected?.data.label} and its connections?</Text>
+    </ConfirmActionModal>
     <Modal opened={detailsOpen} onClose={() => setDetailsOpen(false)} title="Workflow details" centered>{workflow && <Stack><TextInput label="Name" value={workflow.name} maxLength={100} onChange={(event) => { setWorkflow({ ...workflow, name: event.currentTarget.value }); setDirty(true); }} /><Textarea label="Description" value={workflow.description} maxLength={1000} onChange={(event) => { setWorkflow({ ...workflow, description: event.currentTarget.value }); setDirty(true); }} /><Button onClick={() => setDetailsOpen(false)}>Done</Button></Stack>}</Modal>
   </div>;
 }
