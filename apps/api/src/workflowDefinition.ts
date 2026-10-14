@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { imageModelParametersSchema } from "./modelParameters.js";
 import { videoModelParametersSchema } from "./videoModelParameters.js";
+import { audioModelParametersSchema } from "./audioModelParameters.js";
 import type { ModelIoContract } from "./modelContracts.js";
 
 const nodeSchema = z.object({
@@ -94,7 +95,8 @@ export function validateWorkflowDefinition(definition: WorkflowDefinition, catal
     } else {
       const contract = catalogById.get(node.modelId ?? "");
       if (!contract || node.dataTypeId || node.artifactId || node.inputText) return { ok: false, error: "invalid_model_contract" };
-      const parsed = (contract.modality === "video" ? videoModelParametersSchema : imageModelParametersSchema).safeParse({ ...node.parameters, modelId: node.modelId });
+      const parameterSchema = contract.modality === "video" ? videoModelParametersSchema : contract.modality === "audio" ? audioModelParametersSchema : imageModelParametersSchema;
+      const parsed = parameterSchema.safeParse({ ...node.parameters, modelId: node.modelId });
       if (!parsed.success) return { ok: false, error: "invalid_parameters" };
       parameters = parsed.data;
       contracts.set(node.id, contract);

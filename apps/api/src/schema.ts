@@ -1,7 +1,7 @@
 import { boolean, check, foreignKey, index, integer, jsonb, pgEnum, pgTable, primaryKey, real, text, timestamp, uniqueIndex, uuid, type PgTableExtraConfigValue } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
-export const modelModality = pgEnum("model_modality", ["image", "video"]);
+export const modelModality = pgEnum("model_modality", ["image", "video", "audio"]);
 export const modelDataDirection = pgEnum("model_data_direction", ["input", "output"]);
 export const modelInputTransport = pgEnum("model_input_transport", ["prompt", "connection"]);
 export const runStatus = pgEnum("run_status", ["queued", "running", "succeeded", "failed", "cancel_requested", "cancelled"]);

@@ -21,6 +21,7 @@ MODEL_REPOSITORIES = {
     "sana-sprint-06b": "Efficient-Large-Model/Sana_Sprint_0.6B_1024px_diffusers",
     "wan2.1-t2v-1.3b": "Wan-AI/Wan2.1-T2V-1.3B",
     "cogvideox-2b": "zai-org/CogVideoX-2b",
+    "kokoro-82m": "hexgrad/Kokoro-82M",
 }
 PROGRESS_LOCK = threading.Lock()
 DOWNLOADED_BYTES = 0

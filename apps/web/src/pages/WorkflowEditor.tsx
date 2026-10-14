@@ -5,6 +5,7 @@ import { apiFetch } from "../apiClient";
 import { useDownloadedModels } from "../hooks/useDownloadedModels";
 import { defaultImageModelParameters, imageModelDefaultSteps, type ImageModelParameters } from "../components/ImageModelParametersFields";
 import { defaultVideoModelParameters, type VideoModelParameters } from "../components/VideoModelParametersFields";
+import { defaultAudioModelParameters } from "../components/AudioModelParametersFields";
 import { WorkflowNodeConfiguration } from "./WorkflowNodeConfiguration";
 import { ConfirmActionModal } from "../components/ConfirmActionModal";
 import type { AppView } from "../navigation/navigationState";
@@ -81,6 +82,7 @@ export function WorkflowEditor({ workflowId, onClose, onNavigate }: { workflowId
     const dataType = types.find((item) => item.id === id);
     let parameters: Record<string, unknown> = {};
     if (model?.modality === "video") parameters = { ...defaultVideoModelParameters(id as VideoModelParameters["modelId"]) };
+    else if (model?.modality === "audio") parameters = { ...defaultAudioModelParameters, modelId: "kokoro-82m" };
     else if (model) parameters = { ...defaultImageModelParameters, modelId: id, steps: imageModelDefaultSteps(id as ImageModelParameters["modelId"]), guidanceScale: id === "flux2-klein-4b" ? 1 : ["sana-sprint-06b", "sd35-medium"].includes(id) ? 4.5 : 7.5 };
     const node = hydrate({ id: `node-${crypto.randomUUID()}`, kind, label: model?.name ?? `${dataType?.label ?? id} input`, modelId: model?.modelId ?? null, dataTypeId: kind === "input" ? id : null, inputText: "", artifactId: null, parameters,
       position: { x: 90 + (nodes.length % 3) * 280, y: 90 + Math.floor(nodes.length / 3) * 190 } }, contracts, types);

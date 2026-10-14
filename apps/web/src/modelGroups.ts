@@ -1,4 +1,4 @@
-export type ModelId = "z-image-turbo" | "qwen-image-edit-2511" | "instruct-pix2pix" | "sd15-inpainting" | "longcat-image-edit-turbo" | "flux2-klein-4b" | "sd15-base" | "sdxl-base-1.0" | "sd35-medium" | "sdxl-turbo" | "sana-sprint-06b" | "wan2.1-t2v-1.3b" | "cogvideox-2b";
+export type ModelId = "z-image-turbo" | "qwen-image-edit-2511" | "instruct-pix2pix" | "sd15-inpainting" | "longcat-image-edit-turbo" | "flux2-klein-4b" | "sd15-base" | "sdxl-base-1.0" | "sd35-medium" | "sdxl-turbo" | "sana-sprint-06b" | "wan2.1-t2v-1.3b" | "cogvideox-2b" | "kokoro-82m";
 
 export const modelGroups: Array<{ id: string; title: string; description: string; modelIds: ModelId[] }> = [
   {
@@ -18,5 +18,11 @@ export const modelGroups: Array<{ id: string; title: string; description: string
     title: "Text-to-video models",
     description: "Generate short videos from text prompts. These models do not accept image inputs in Hive workflows.",
     modelIds: ["wan2.1-t2v-1.3b", "cogvideox-2b"],
+  },
+  {
+    id: "text-to-audio",
+    title: "Text-to-speech models",
+    description: "Generate speech audio from connected text prompts.",
+    modelIds: ["kokoro-82m"],
   },
 ];

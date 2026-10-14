@@ -12,6 +12,8 @@ Use `apps/api/src/schema.ts` as the implemented schema reference.
 - `run_nodes`: node snapshots, input-file reference, resolved inference parameters, typed output JSON, status/errors/timestamps. There are no reusable-definition references or inline model prompts.
 - `artifacts`: immutable uploaded inputs or generated outputs with canonical datatype, owner, media type, byte count, checksum, display name, and opaque storage key. Uploads have null run/node references; generated outputs reference their producing run node. Workflow and run-node references protect uploads still in use.
 
+Current model modalities include image, video, and audio. Kokoro-82M has one required text input on its `prompt` port and one audio output. Audio is also available for uploaded inputs and future models.
+
 `GET /api/models/contracts` returns the model contracts and canonical datatype catalog. Save/run validation requires compatible port datatypes, cardinalities, no cycles, configured inputs, and owner-accessible uploads. Download state is checked before model execution is queued.
 
 Migration `0016_model_input_workflows` performs the explicitly authorized discard of old workflow/run data and installs this schema. Existing users, sessions, model catalog, and weight cache are preserved. Binary files from discarded historical runs are not served through the API after their metadata is removed.

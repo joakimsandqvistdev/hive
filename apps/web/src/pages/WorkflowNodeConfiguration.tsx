@@ -2,6 +2,7 @@ import { Alert, FileInput, Image, Loader, Stack, Text, Textarea, TextInput, Titl
 import { apiUrl } from "../apiClient";
 import { ImageModelParametersFields, type ImageModelParameters } from "../components/ImageModelParametersFields";
 import { VideoModelParametersFields, type VideoModelParameters } from "../components/VideoModelParametersFields";
+import { AudioModelParametersFields, type AudioModelParameters } from "../components/AudioModelParametersFields";
 import { formatModelPortCardinality } from "../modelIoTypes";
 import type { DataType, WorkflowNode, WorkflowNodeData } from "./workflowTypes";
 
@@ -30,7 +31,7 @@ export function WorkflowNodeConfiguration({ selected, types, downloadedModelIds,
       {!downloadedModelIds.has(selected.data.modelId ?? "") && <Alert color="hiveWarning">This model is not downloaded. Download it from Models before running.</Alert>}
       <Text size="sm" c="dimmed">Connect input nodes or model outputs to each required port. Prompts are supplied through text connections.</Text>
       {selected.data.inputPorts.map((port) => <Text key={port.portKey} size="sm">{port.label}: {port.dataTypeLabel} · {formatModelPortCardinality(port.minCount, port.maxCount)}</Text>)}
-      {selected.data.contract?.modality === "video" ? <VideoModelParametersFields value={selected.data.parameters as VideoModelParameters} onChange={(parameters) => onUpdate({ parameters: { ...parameters } })} /> : <ImageModelParametersFields showModelSelect={false} value={selected.data.parameters as ImageModelParameters} onChange={(parameters) => onUpdate({ parameters: { ...parameters } })} />}
+      {selected.data.contract?.modality === "video" ? <VideoModelParametersFields value={selected.data.parameters as VideoModelParameters} onChange={(parameters) => onUpdate({ parameters: { ...parameters } })} /> : selected.data.contract?.modality === "audio" ? <AudioModelParametersFields value={selected.data.parameters as AudioModelParameters} onChange={(parameters) => onUpdate({ parameters: { ...parameters } })} /> : <ImageModelParametersFields showModelSelect={false} value={selected.data.parameters as ImageModelParameters} onChange={(parameters) => onUpdate({ parameters: { ...parameters } })} />}
     </>}
   </Stack>;
 }
