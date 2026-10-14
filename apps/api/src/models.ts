@@ -5,14 +5,14 @@ import { models } from "./schema.js";
 import { loadDataTypes, loadModelIoContracts } from "./modelContracts.js";
 
 const router = Router();
-const runnerUrl = (process.env.IMAGE_RUNNER_URL ?? "http://127.0.0.1:8188").replace(/\/$/, "");
+const modelRunnerUrl = (process.env.MODEL_RUNNER_URL ?? process.env.IMAGE_RUNNER_URL ?? "http://127.0.0.1:8188").replace(/\/$/, "");
 async function isEnabledModel(modelId: string) {
   const [model] = await db.select({ id: models.id }).from(models).where(and(eq(models.id, modelId), eq(models.enabled, true))).limit(1);
   return Boolean(model);
 }
 
 export async function forwardRunnerRequest(path: string, method = "GET", timeoutMs = 15_000) {
-  const response = await fetch(`${runnerUrl}${path}`, { method, signal: AbortSignal.timeout(timeoutMs) });
+  const response = await fetch(`${modelRunnerUrl}${path}`, { method, signal: AbortSignal.timeout(timeoutMs) });
   const body = await response.json().catch(() => ({}));
   return { response, body };
 }
