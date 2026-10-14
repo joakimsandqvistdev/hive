@@ -1,0 +1,3 @@
+[submodule "packages/ionodes"]
+	path = packages/ionodes
+	url = https://github.com/joakimsandqvistdev/ionodes.git
