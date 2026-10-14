@@ -2,7 +2,7 @@ import { and, count, eq, inArray, sql } from "drizzle-orm";
 import { Router } from "express";
 import { z } from "zod";
 import { db } from "./db.js";
-import { agents, workflowNodes } from "./schema.js";
+import { agents, models as modelCatalog, workflowNodes } from "./schema.js";
 import { defaultImageModelParameters, imageModelParametersSchema } from "./modelParameters.js";
 import { videoModelParametersSchema } from "./videoModelParameters.js";
 import { forwardRunnerRequest } from "./models.js";
@@ -27,6 +27,8 @@ function isUniqueViolation(error: unknown): boolean {
 
 async function modelAvailability(modelId: string): Promise<"available" | "not_downloaded" | "runner_unavailable"> {
   try {
+    const [registered] = await db.select({ id: modelCatalog.id }).from(modelCatalog).where(and(eq(modelCatalog.id, modelId), eq(modelCatalog.enabled, true))).limit(1);
+    if (!registered) return "not_downloaded";
     const { response, body } = await forwardRunnerRequest("/models");
     const models = typeof body === "object" && body !== null && "models" in body ? body.models : undefined;
     if (!response.ok || !Array.isArray(models)) return "runner_unavailable";

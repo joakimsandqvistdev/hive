@@ -8,6 +8,7 @@ import { defaultVideoModelParameters, VideoModelParametersFields, type VideoMode
 import { ModelDownloadPrompt } from "../components/ModelDownloadPrompt";
 import type { AppView } from "../navigation/navigationState";
 import { useDownloadedModels } from "../hooks/useDownloadedModels";
+import { formatModelPortCardinality, type ModelIoContract } from "../modelIoTypes";
 
 const PAGE_SIZE = 10;
 type Modality = AgentModality;
@@ -44,6 +45,7 @@ export function AgentsPage({ onNavigate }: { onNavigate: (view: AppView) => void
   const [formError, setFormError] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Agent | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [modelContracts, setModelContracts] = useState<ModelIoContract[]>([]);
   const { status: modelStatus, modelIds: downloadedModels, refresh: loadModelAvailability } = useDownloadedModels();
 
   const loadAgents = useCallback(async (requestedPage: number) => {
@@ -63,6 +65,13 @@ export function AgentsPage({ onNavigate }: { onNavigate: (view: AppView) => void
   }, []);
 
   useEffect(() => { void loadAgents(page); }, [loadAgents, page]);
+  useEffect(() => {
+    void fetch(`${API_BASE}/api/models/contracts`, { credentials: "include" }).then(async (response) => {
+      if (!response.ok) return;
+      const body = await response.json() as { models?: ModelIoContract[] };
+      setModelContracts(body.models ?? []);
+    }).catch(() => undefined);
+  }, []);
   const modelOptions: Array<{ value: AgentModelChoice; label: string; disabled?: boolean }> = agentModalityOptions.map((option) => {
     const modelId = option.value === "image" ? "z-image-turbo" : option.value;
     const unavailable = modelId !== null && !downloadedModels.has(modelId);
@@ -176,6 +185,7 @@ export function AgentsPage({ onNavigate }: { onNavigate: (view: AppView) => void
   ));
 
   const modelRequiredMessage = !editingAgent && (modelStatus !== "ready" || downloadedModels.size === 0);
+  const selectedContract = modelContracts.find((contract) => contract.modelId === form.parameters.modelId);
 
   return (
     <Stack className="workspace-page" gap="lg">
@@ -225,6 +235,11 @@ export function AgentsPage({ onNavigate }: { onNavigate: (view: AppView) => void
               ? <VideoModelParametersFields value={form.parameters as VideoModelParameters} onChange={(parameters) => setForm((current) => ({ ...current, parameters }))} />
               : form.modality ? <ImageModelParametersFields showModelSelect={false} value={form.parameters as ImageModelParameters} onChange={(parameters) => setForm((current) => ({ ...current, parameters }))} />
                 : <Text size="xs" c="dimmed">Download an image or video model from Models, then select it here.</Text>}
+            {selectedContract && <Paper withBorder p="sm"><Text size="xs" fw={600}>Model data</Text>
+              <Text size="xs" c="dimmed" mt={4}>Inputs: {selectedContract.inputs.map((port) => `${port.label} (${port.dataTypeLabel}, ${formatModelPortCardinality(port.minCount, port.maxCount)})`).join(" · ") || "None"}</Text>
+              <Text size="xs" c="dimmed" mt={2}>Outputs: {selectedContract.outputs.map((port) => `${port.label} (${port.dataTypeLabel}, ${formatModelPortCardinality(port.minCount, port.maxCount)})`).join(" · ") || "None"}</Text>
+              {selectedContract.inputGroups.map((group) => <Text key={group.key} size="xs" c="dimmed" mt={2}>{group.label}: at least {group.minCount} input(s) across {group.portKeys.join(" or ")}.</Text>)}
+            </Paper>}
             <Text size="xs" c="dimmed">Names must be unique in your agent library, ignoring capitalization.</Text>
             <Group justify="flex-end" mt="xs">
               {editingAgent && <Tooltip label={editingAgent.workflowUsageCount ? "This agent is used by a workflow" : "Remove agent"}><span><ActionIcon type="button" variant="subtle" color="hiveError" aria-label={`Remove ${editingAgent.name}`} disabled={editingAgent.workflowUsageCount > 0} onClick={() => openDelete(editingAgent)}><svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3m3 0-.8 12.2a1 1 0 0 1-1 .8H7.8a1 1 0 0 1-1-.8L6 7m4 4v5m4-5v5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"/></svg></ActionIcon></span></Tooltip>}

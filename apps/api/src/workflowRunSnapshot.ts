@@ -1,3 +1,5 @@
+import type { ModelIoContract } from "./modelContracts.js";
+
 type WorkflowIdentity = { id: string; name: string; description: string };
 
 export type WorkflowRunNodeSource = {
@@ -13,16 +15,18 @@ export type WorkflowRunNodeSource = {
   positionY: number;
 };
 
-export type WorkflowSnapshotEdge = { id: string; source: string; target: string; targetHandle?: string | null };
+export type WorkflowSnapshotEdge = { id: string; source: string; sourceHandle?: string | null; target: string; targetHandle?: string | null };
 
 /** Build the immutable graph snapshot and per-node run rows from the transaction's owner-scoped query results. */
-export function buildWorkflowRunSnapshot(workflow: WorkflowIdentity, nodes: WorkflowRunNodeSource[], edges: WorkflowSnapshotEdge[]) {
+export function buildWorkflowRunSnapshot(workflow: WorkflowIdentity, nodes: WorkflowRunNodeSource[], edges: WorkflowSnapshotEdge[], modelContracts: ModelIoContract[] = []) {
+  const contractsById = new Map(modelContracts.map((contract) => [contract.modelId, contract]));
   const snapshotNodes = nodes.map((node) => ({
     id: node.nodeId,
     agentId: node.agentId,
     agent: { id: node.agentId, name: node.agentName, modality: node.modality, prompt: node.agentPrompt, parameters: node.agentParameters },
     prompt: node.prompt,
     parameters: effectiveNodeParameters(node),
+    modelIoContract: contractsById.get(String(effectiveNodeParameters(node).modelId ?? "")) ?? null,
     position: { x: node.positionX, y: node.positionY },
   }));
 
@@ -31,7 +35,8 @@ export function buildWorkflowRunSnapshot(workflow: WorkflowIdentity, nodes: Work
     runNodes: nodes.map((node) => ({
       nodeId: node.nodeId,
       agentId: node.agentId,
-      agentSnapshotJson: { id: node.agentId, name: node.agentName, modality: node.modality, prompt: node.agentPrompt, parameters: node.agentParameters },
+      agentSnapshotJson: { id: node.agentId, name: node.agentName, modality: node.modality, prompt: node.agentPrompt, parameters: node.agentParameters,
+        modelIoContract: contractsById.get(String(effectiveNodeParameters(node).modelId ?? "")) ?? null },
       prompt: node.prompt,
       parameters: effectiveNodeParameters(node),
     })),

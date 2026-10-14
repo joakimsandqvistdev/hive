@@ -1,3 +1,11 @@
+## 2026-10-14 — Add relational model I/O contracts
+
+- Added a seeded catalog of the 13 current models and the `text`, `image`, and `video` data types. Model ports record input/output direction, transport, required minimum, maximum cardinality, and display order. Added normalized input groups for cross-port alternatives; no current model needs an alternative group. Mask is an image port role.
+- Replaced workflow model-specific edge rules with generic typed-port/cardinality/group validation. Workflow edges now persist source and target handles; old untyped edges are inferred on read when possible. Agent and workflow editors show model data definitions, and workflow node handles render from the catalog. Queued run snapshots carry the model I/O contract.
+- Added migration `0015_jazzy_patriot`, model contract API endpoint, and decision 0018 superseding decision 0017's no-model-tables choice. Updated architecture, data-model, and MVP design docs. Inference parameter JSON schemas remain unchanged.
+- API/web typechecks, API production compilation, Drizzle schema generation, and `git diff --check` passed. Web production build reached Vite but failed because the sandbox denied esbuild process launch (`spawn EPERM`). No automated tests were run. Migration was not applied and live containers were not restarted.
+- Next: apply migration on the next planned service refresh, then verify existing workflows—especially inpainting edges whose older persisted rows had no port handles—and run a workflow end to end.
+
 ## 2026-10-14 — Remove machine-specific model guidance
 
 - Replaced model copy that compared requirements to this host's GPU or computer with general publisher requirements and CPU-offload guidance. Updated the image parameter pane warnings to describe model resource needs without referring to this computer's hardware.

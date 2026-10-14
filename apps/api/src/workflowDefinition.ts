@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { imageModelIdSchema, imageModelParametersSchema } from "./modelParameters.js";
 import { videoModelParametersSchema } from "./videoModelParameters.js";
+import type { ModelIoContract } from "./modelContracts.js";
 
 const nodeSchema = z.object({
   id: z.string().min(1).max(100),
@@ -12,8 +13,9 @@ const nodeSchema = z.object({
 const edgeSchema = z.object({
   id: z.string().min(1).max(120),
   source: z.string().min(1).max(100),
+  sourceHandle: z.string().max(40).nullable().optional(),
   target: z.string().min(1).max(100),
-  targetHandle: z.string().max(40).optional(),
+  targetHandle: z.string().max(40).nullable().optional(),
 });
 
 export const workflowDefinitionSchema = z.object({ nodes: z.array(nodeSchema).max(100), edges: z.array(edgeSchema).max(300) })
@@ -24,9 +26,6 @@ export const workflowDefinitionSchema = z.object({ nodes: z.array(nodeSchema).ma
       nodeIds.add(node.id);
     });
     definition.edges.forEach((edge, index) => {
-      if (edge.targetHandle && edge.targetHandle !== "image" && edge.targetHandle !== "mask") {
-        context.addIssue({ code: "custom", path: ["edges", index, "targetHandle"], message: "Connections must use a supported image input." });
-      }
       if (!nodeIds.has(edge.source) || !nodeIds.has(edge.target)) {
         context.addIssue({ code: "custom", path: ["edges", index], message: "Edges must connect existing nodes." });
       }
@@ -65,24 +64,24 @@ export const startRunSchema = z.object({});
 
 export type WorkflowDefinition = z.infer<typeof workflowDefinitionSchema>;
 export type WorkflowNodeRecord = WorkflowDefinition["nodes"][number] & { prompt: string; parameters: Record<string, unknown> };
+export type WorkflowEdgeRecord = WorkflowDefinition["edges"][number] & { sourceHandle: string; targetHandle: string };
 export type WorkflowAgentRecord = { id: string; prompt: string; modality: string; parameters: Record<string, unknown> };
 
 export type DefinitionValidation =
-  | { ok: true; nodes: WorkflowNodeRecord[] }
-  | { ok: false; error: "invalid_agents" | "invalid_parameters" | "unsupported_image_connections" | "invalid_reference_count" };
+  | { ok: true; nodes: WorkflowNodeRecord[]; edges: WorkflowEdgeRecord[] }
+  | { ok: false; error: "invalid_agents" | "invalid_parameters" | "invalid_model_contract" | "incompatible_data_types" | "invalid_input_counts" };
 
-/** Check owner-scoped agents and model-specific connection rules, and normalize node settings for persistence. */
-export function validateWorkflowDefinition(definition: WorkflowDefinition, agentRows: WorkflowAgentRecord[]): DefinitionValidation {
+/** Validate workflow edges against the current model I/O catalog and normalize single-port legacy edges. */
+export function validateWorkflowDefinition(definition: WorkflowDefinition, agentRows: WorkflowAgentRecord[], catalog: ModelIoContract[]): DefinitionValidation {
   const referencedAgentIds = new Set(definition.nodes.map((node) => node.agentId));
   const agentsById = new Map(agentRows.map((agent) => [agent.id, agent]));
+  const contractsById = new Map(catalog.map((model) => [model.modelId, model]));
   if (agentsById.size !== referencedAgentIds.size) return { ok: false, error: "invalid_agents" };
 
-  const nodeModelById = new Map<string, string>();
-  const nodeModalityById = new Map<string, string>();
+  const contractByNodeId = new Map<string, ModelIoContract>();
   const nodes: WorkflowNodeRecord[] = [];
   for (const node of definition.nodes) {
     const agent = agentsById.get(node.agentId)!;
-    nodeModalityById.set(node.id, agent.modality);
     let parameters: Record<string, unknown> = {};
     if (agent.modality === "image") {
       const agentModelId = agent.parameters.modelId;
@@ -93,35 +92,56 @@ export function validateWorkflowDefinition(definition: WorkflowDefinition, agent
       });
       if (!parsed.success) return { ok: false, error: "invalid_parameters" };
       parameters = parsed.data;
-      nodeModelById.set(node.id, parsed.data.modelId);
     } else if (agent.modality === "video") {
       const parsed = videoModelParametersSchema.safeParse({ ...agent.parameters, ...node.parameters });
       if (!parsed.success) return { ok: false, error: "invalid_parameters" };
       parameters = parsed.data;
-      nodeModelById.set(node.id, parsed.data.modelId);
-    } else {
-      nodeModelById.set(node.id, "");
     }
+    const modelId = typeof parameters.modelId === "string" ? parameters.modelId : "";
+    const contract = contractsById.get(modelId);
+    if (!contract || contract.modality !== agent.modality || contract.inputs.length === 0 || !contract.outputs.some((port) => port.minCount > 0)) {
+      return { ok: false, error: "invalid_model_contract" };
+    }
+    contractByNodeId.set(node.id, contract);
     nodes.push({ ...node, prompt: node.prompt ?? agent.prompt ?? "", parameters });
   }
 
+  const incomingCounts = new Map<string, Map<string, number>>();
+  const edges: WorkflowEdgeRecord[] = [];
   for (const edge of definition.edges) {
-    if (nodeModalityById.get(edge.source) !== "image" || !["qwen-image-edit-2511", "instruct-pix2pix", "sd15-inpainting", "longcat-image-edit-turbo", "flux2-klein-4b"].includes(nodeModelById.get(edge.target) ?? "")) {
-      return { ok: false, error: "unsupported_image_connections" };
+    const sourceContract = contractByNodeId.get(edge.source)!;
+    const targetContract = contractByNodeId.get(edge.target)!;
+    const sourceCandidates = sourceContract.outputs.filter((port) => !edge.sourceHandle || port.portKey === edge.sourceHandle);
+    if (sourceCandidates.length !== 1) return { ok: false, error: "invalid_model_contract" };
+    const sourcePort = sourceCandidates[0]!;
+    const targetCandidates = targetContract.inputs.filter((port) => port.transport === "connection" && (!edge.targetHandle || port.portKey === edge.targetHandle));
+    const compatible = targetCandidates.filter((port) => port.dataTypeId === sourcePort.dataTypeId);
+    if (compatible.length === 0) return { ok: false, error: "incompatible_data_types" };
+    const targetCounts = incomingCounts.get(edge.target) ?? new Map<string, number>();
+    const targetPort = edge.targetHandle
+      ? compatible[0]
+      : compatible.find((port) => (targetCounts.get(port.portKey) ?? 0) < port.minCount && (targetCounts.get(port.portKey) ?? 0) < port.maxCount)
+        ?? compatible.find((port) => (targetCounts.get(port.portKey) ?? 0) < port.maxCount);
+    if (!targetPort) return { ok: false, error: "invalid_input_counts" };
+    const count = targetCounts.get(targetPort.portKey) ?? 0;
+    if (count >= targetPort.maxCount) return { ok: false, error: "invalid_input_counts" };
+    targetCounts.set(targetPort.portKey, count + 1);
+    incomingCounts.set(edge.target, targetCounts);
+    edges.push({ ...edge, sourceHandle: sourcePort.portKey, targetHandle: targetPort.portKey });
+  }
+
+  for (const node of nodes) {
+    const contract = contractByNodeId.get(node.id)!;
+    const counts = incomingCounts.get(node.id) ?? new Map<string, number>();
+    for (const port of contract.inputs) {
+      const count = port.transport === "prompt" ? Number(node.prompt.trim().length > 0) : counts.get(port.portKey) ?? 0;
+      if (count < port.minCount || count > port.maxCount) return { ok: false, error: "invalid_input_counts" };
+      counts.set(port.portKey, count);
+    }
+    for (const group of contract.inputGroups) {
+      const count = group.portKeys.reduce((total, portKey) => total + (counts.get(portKey) ?? 0), 0);
+      if (count < group.minCount || count > group.maxCount) return { ok: false, error: "invalid_input_counts" };
     }
   }
-  for (const node of definition.nodes) {
-    const modelId = nodeModelById.get(node.id);
-    const incoming = definition.edges.filter((edge) => edge.target === node.id);
-    const images = incoming.filter((edge) => (edge.targetHandle ?? "image") === "image").length;
-    const masks = incoming.filter((edge) => edge.targetHandle === "mask").length;
-    const valid = modelId === "wan2.1-t2v-1.3b" || modelId === "cogvideox-2b" ? incoming.length === 0
-      : modelId === "qwen-image-edit-2511" ? images >= 1 && images <= 10 && masks === 0
-      : modelId === "instruct-pix2pix" || modelId === "longcat-image-edit-turbo" ? images === 1 && masks === 0
-        : modelId === "sd15-inpainting" ? images === 1 && masks === 1 && incoming.length === 2
-          : modelId === "flux2-klein-4b" ? images <= 4 && masks === 0
-            : incoming.length === 0;
-    if (!valid) return { ok: false, error: "invalid_reference_count" };
-  }
-  return { ok: true, nodes };
+  return { ok: true, nodes, edges };
 }

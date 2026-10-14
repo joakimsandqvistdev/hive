@@ -27,7 +27,7 @@ type SnapshotNode = {
   position?: { x?: number; y?: number };
   agent?: { name?: string; modality?: string; prompt?: string; description?: string; parameters?: Record<string, unknown> };
 };
-type SnapshotEdge = { source: string; target: string; targetHandle?: string | null };
+type SnapshotEdge = { source: string; sourceHandle?: string | null; target: string; targetHandle?: string | null };
 
 function object(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};

@@ -1,7 +1,9 @@
-import { boolean, foreignKey, index, integer, jsonb, pgEnum, pgTable, primaryKey, real, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
+import { boolean, check, foreignKey, index, integer, jsonb, pgEnum, pgTable, primaryKey, real, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
 export const agentModality = pgEnum("agent_modality", ["image", "video"]);
+export const modelDataDirection = pgEnum("model_data_direction", ["input", "output"]);
+export const modelInputTransport = pgEnum("model_input_transport", ["prompt", "connection"]);
 export const runStatus = pgEnum("run_status", ["queued", "running", "succeeded", "failed", "cancel_requested", "cancelled"]);
 export const runNodeStatus = pgEnum("run_node_status", ["queued", "running", "succeeded", "failed", "skipped", "cancelled"]);
 
@@ -24,6 +26,60 @@ export const sessions = pgTable("sessions", {
 }, (table) => [
   index("sessions_user_id_idx").on(table.userId),
   index("sessions_expires_at_idx").on(table.expiresAt),
+]);
+
+export const dataTypes = pgTable("data_types", {
+  id: text("id").primaryKey(),
+  label: text("label").notNull(),
+  description: text("description").notNull().default(""),
+  mediaType: text("media_type").notNull(),
+});
+
+export const models = pgTable("models", {
+  id: text("id").primaryKey(),
+  name: text("name").notNull(),
+  modality: agentModality("modality").notNull(),
+  sortOrder: integer("sort_order").notNull().default(0),
+  enabled: boolean("enabled").notNull().default(true),
+});
+
+export const modelDataTypes = pgTable("model_data_types", {
+  modelId: text("model_id").notNull().references(() => models.id, { onDelete: "cascade" }),
+  direction: modelDataDirection("direction").notNull(),
+  portKey: text("port_key").notNull(),
+  dataTypeId: text("data_type_id").notNull().references(() => dataTypes.id, { onDelete: "restrict" }),
+  label: text("label").notNull(),
+  transport: modelInputTransport("transport"),
+  minCount: integer("min_count").notNull().default(1),
+  maxCount: integer("max_count").notNull().default(1),
+  sortOrder: integer("sort_order").notNull().default(0),
+}, (table) => [
+  primaryKey({ columns: [table.modelId, table.direction, table.portKey], name: "model_data_types_pk" }),
+  check("model_data_types_count_check", sql`min_count >= 0 and max_count >= min_count`),
+  check("model_data_types_transport_check", sql`(direction = 'input' and transport is not null) or (direction = 'output' and transport is null)`),
+]);
+
+export const modelInputGroups = pgTable("model_input_groups", {
+  modelId: text("model_id").notNull().references(() => models.id, { onDelete: "cascade" }),
+  groupKey: text("group_key").notNull(),
+  label: text("label").notNull(),
+  minCount: integer("min_count").notNull().default(1),
+  maxCount: integer("max_count").notNull().default(1),
+}, (table) => [
+  primaryKey({ columns: [table.modelId, table.groupKey], name: "model_input_groups_pk" }),
+  check("model_input_groups_count_check", sql`min_count >= 0 and max_count >= min_count`),
+]);
+
+export const modelInputGroupPorts = pgTable("model_input_group_ports", {
+  modelId: text("model_id").notNull(),
+  groupKey: text("group_key").notNull(),
+  direction: modelDataDirection("direction").notNull().default("input"),
+  portKey: text("port_key").notNull(),
+}, (table) => [
+  primaryKey({ columns: [table.modelId, table.groupKey, table.portKey], name: "model_input_group_ports_pk" }),
+  foreignKey({ columns: [table.modelId, table.groupKey], foreignColumns: [modelInputGroups.modelId, modelInputGroups.groupKey], name: "model_input_group_ports_group_fk" }).onDelete("cascade"),
+  foreignKey({ columns: [table.modelId, table.direction, table.portKey], foreignColumns: [modelDataTypes.modelId, modelDataTypes.direction, modelDataTypes.portKey], name: "model_input_group_ports_port_fk" }).onDelete("cascade"),
+  check("model_input_group_ports_input_only_check", sql`direction = 'input'`),
 ]);
 
 export const agents = pgTable("agents", {
@@ -75,7 +131,9 @@ export const workflowEdges = pgTable("workflow_edges", {
   edgeId: text("edge_id").notNull(),
   userId: uuid("user_id").notNull(),
   sourceNodeId: text("source_node_id").notNull(),
+  sourceHandle: text("source_handle"),
   targetNodeId: text("target_node_id").notNull(),
+  targetHandle: text("target_handle"),
 }, (table) => [
   primaryKey({ columns: [table.workflowId, table.edgeId], name: "workflow_edges_pk" }),
   foreignKey({ columns: [table.workflowId, table.userId], foreignColumns: [workflows.id, workflows.userId], name: "workflow_edges_workflow_owner_fk" }).onDelete("cascade"),
