@@ -58,10 +58,10 @@ test("text-to-image models use model-specific defaults and no-reference guidance
 });
 
 test("Models page tab groups separate generation and editing without omitting models", () => {
-  assert.deepEqual(modelGroups.map((group) => group.title), ["Text-to-image models", "Image-to-image and editing models", "Text-to-video models"]);
-  assert.deepEqual(modelGroups.map((group) => group.id), ["text-to-image", "image-to-image", "text-to-video"]);
+  assert.deepEqual(modelGroups.map((group) => group.title), ["Text-to-image models", "Image-to-image and editing models", "Text-to-video models", "Text-to-speech models"]);
+  assert.deepEqual(modelGroups.map((group) => group.id), ["text-to-image", "image-to-image", "text-to-video", "text-to-audio"]);
   const allModelIds = modelGroups.flatMap((group) => group.modelIds);
-  assert.equal(allModelIds.length, 13);
+  assert.equal(allModelIds.length, 14);
   assert.equal(new Set(allModelIds).size, allModelIds.length);
   assert.ok(modelGroups[1].modelIds.includes("flux2-klein-4b"));
 });

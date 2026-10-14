@@ -1,5 +1,21 @@
 # Current work
 
+## 2026-10-14 — Use local ionodes source in Hive and Docker
+
+- Added the `ionodes` repository as a pinned Git submodule at `packages/ionodes` and included it as an npm workspace. Hive's lockfile now resolves the package from local source, enabling library edits in place before publishing to npm.
+- Docker copies the submodule source into the app image before `npm ci`; no GitHub credential or SSH forwarding is needed during image builds. The local launcher reports how to initialize the submodule if missing.
+- Fixed an ionodes workspace build issue by aligning its development React/type packages with Hive's React 19 environment. This is isolated to ionodes development dependencies; its React peer range remains `>=18`.
+- README documents recursive cloning and the separate library/Hive commit workflow. Workspace install, Compose config validation, local launcher tests (9), ionodes tests (7), web tests (8), library build, Hive production build, and Docker app-image build passed. Existing npm lockfile reify warnings, audit advisories, and Vite bundle-size advisory remain.
+- The ionodes source changes are still uncommitted in its submodule, and Hive's submodule pointer is uncommitted in the parent repo. Commit/push the library changes first, then commit the Hive changes and updated pointer.
+
+## 2026-10-14 — Replace the starter-kit workflow canvas with ionodes
+
+- Replaced Hive's direct React Flow workflow editor with the `ionodes` graph editor. Added an adapter between ionodes graph data and the existing workflow API format, preserving saved workflows, model ports, connection limits, node settings, uploads, and run behavior without database or API changes.
+- Removed the Chatbot Flow Builder Starter Kit license entry and added ionodes under Apache 2.0. React Flow remains listed as ionodes' underlying peer dependency.
+- Added an `AGENTS.md` rule to report when a library-level ionodes change would be a better fit than a Hive workaround.
+- Web typecheck and production build passed; Vite reports the existing large-bundle advisory. No tests run. Browser interaction and signed-in workflow editing still need manual review.
+- Next: consider adding a supported toolbar visibility/customization prop to ionodes; Hive currently hides the generic editor toolbar with scoped CSS because Hive supplies its own add/save/run controls.
+
 ## 2026-10-14 — Add Kokoro-82M text-to-speech
 
 - Added Kokoro-82M to the local runner download catalog and as a typed text-to-audio model. Its required text prompt produces a WAV artifact; voice and speed are configurable on workflow nodes and outputs use existing audio previews.

@@ -11,6 +11,11 @@ Treat the existing codebase as the source of truth for implemented behavior. Tre
 - Generate or add image assets only when the user explicitly asks for image generation or image creation.
 - Do not generate images merely because a visual asset could improve a design; use existing assets or code-based graphics unless the user explicitly requests a generated image.
 
+## ionodes maintenance feedback
+
+- When integrating `ionodes`, consider whether a limitation is better fixed in the library than worked around in Hive.
+- If a library-level change would make the integration simpler, more correct, or more reusable, tell the user what should change in `ionodes` and why.
+
 ## Before making changes
 
 - Inspect the relevant implementation, tests, and existing patterns.
