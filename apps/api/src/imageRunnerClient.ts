@@ -1,46 +1,15 @@
-import { Agent, fetch, type FormData } from "undici";
-import { imageRunnerTransportFailure } from "./imageRunnerErrors.js";
+/** @deprecated Use createModelRunnerClient; retained for existing internal callers. */
+import { createModelRunnerClient, MODEL_RUNNER_TIMEOUT_MS } from "./modelRunnerClient.js";
+import type { FormData } from "undici";
 
-export const IMAGE_RUNNER_TIMEOUT_MS = 60 * 60 * 1000;
+export const IMAGE_RUNNER_TIMEOUT_MS = MODEL_RUNNER_TIMEOUT_MS;
 
 export function createImageRunnerClient(runnerUrl: string, timeoutMs = IMAGE_RUNNER_TIMEOUT_MS) {
-  // Scope the longer HTTP timeouts to model inference, without changing other fetches.
-  const dispatcher = new Agent({ headersTimeout: timeoutMs, bodyTimeout: timeoutMs });
+  const client = createModelRunnerClient(runnerUrl, timeoutMs);
   return {
-    async generate(form: FormData, signal: AbortSignal) {
-      try {
-        return await fetch(`${runnerUrl.replace(/\/$/, "")}/generate`, {
-          method: "POST",
-          body: form,
-          dispatcher,
-          signal: AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]),
-        });
-      } catch (error) {
-        throw new Error(imageRunnerTransportFailure(error), { cause: error });
-      }
-    },
-    async generateVideo(form: FormData, signal: AbortSignal) {
-      try {
-        return await fetch(`${runnerUrl.replace(/\/$/, "")}/generate-video`, {
-          method: "POST",
-          body: form,
-          dispatcher,
-          signal: AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]),
-        });
-      } catch (error) {
-        throw new Error(imageRunnerTransportFailure(error).replaceAll("Image runner", "Video runner").replaceAll("image runner", "video runner"), { cause: error });
-      }
-    },
-    async generateAudio(form: FormData, signal: AbortSignal) {
-      try {
-        return await fetch(`${runnerUrl.replace(/\/$/, "")}/generate-audio`, {
-          method: "POST", body: form, dispatcher,
-          signal: AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]),
-        });
-      } catch (error) {
-        throw new Error(imageRunnerTransportFailure(error, "Audio"), { cause: error });
-      }
-    },
-    close: () => dispatcher.close(),
+    generate: (form: FormData, signal: AbortSignal) => client.generate("image", form, signal),
+    generateVideo: (form: FormData, signal: AbortSignal) => client.generate("video", form, signal),
+    generateAudio: (form: FormData, signal: AbortSignal) => client.generate("audio", form, signal),
+    close: client.close,
   };
 }

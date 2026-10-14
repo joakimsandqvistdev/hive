@@ -2,44 +2,27 @@ import asyncio
 import ctypes
 import gc
 import io
-import json
 import logging
 import os
-from pathlib import Path
-import shutil
-import sys
-import tempfile
-import threading
 import traceback
 from contextlib import asynccontextmanager
 from typing import Literal
 
 import torch
-from diffusers import CogVideoXPipeline, QwenImageEditPlusPipeline, StableDiffusionInpaintPipeline, StableDiffusionInstructPix2PixPipeline, WanPipeline, ZImagePipeline
-from diffusers.utils import export_to_video
+from model_catalog import MODEL_REPOSITORIES
+from model_downloads import kokoro_english_model_path, model_is_downloaded, router as model_downloads_router
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import StreamingResponse
 from PIL import Image
-from huggingface_hub import snapshot_download
+from audio_generation import generation_worker as run_audio_generation_worker
 from generation_process import GenerationProcessError, run_generation_process
+from image_generation import generate_image as run_image_generation
+from image_generation import generation_worker as run_image_generation_worker
+from image_generation import load_pipeline as load_image_pipeline
+from image_generation import load_reference_images
+from video_generation import generation_worker as run_video_generation_worker
 
 
-MODEL_REPOSITORIES = {
-    "z-image-turbo": "Tongyi-MAI/Z-Image-Turbo",
-    "qwen-image-edit-2511": "Qwen/Qwen-Image-Edit-2511",
-    "instruct-pix2pix": "timbrooks/instruct-pix2pix",
-    "sd15-inpainting": "stable-diffusion-v1-5/stable-diffusion-inpainting",
-    "longcat-image-edit-turbo": "meituan-longcat/LongCat-Image-Edit-Turbo",
-    "flux2-klein-4b": "black-forest-labs/FLUX.2-klein-4B",
-    "sd15-base": "stable-diffusion-v1-5/stable-diffusion-v1-5",
-    "sdxl-base-1.0": "stabilityai/stable-diffusion-xl-base-1.0",
-    "sd35-medium": "stabilityai/stable-diffusion-3.5-medium",
-    "sdxl-turbo": "stabilityai/sdxl-turbo",
-    "sana-sprint-06b": "Efficient-Large-Model/Sana_Sprint_0.6B_1024px_diffusers",
-    "wan2.1-t2v-1.3b": "Wan-AI/Wan2.1-T2V-1.3B",
-    "cogvideox-2b": "zai-org/CogVideoX-2b",
-    "kokoro-82m": "hexgrad/Kokoro-82M",
-}
 PIPELINE = None
 CURRENT_MODEL_KEY = os.getenv("STARTUP_MODEL_KEY", "z-image-turbo")
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
@@ -49,11 +32,6 @@ GPU_MEMORY_GIB = (
     else 0
 )
 GENERATION_LOCK = asyncio.Semaphore(1)
-DOWNLOAD_LOCK = threading.Lock()
-DOWNLOAD_STATUS: dict[str, dict[str, str | int]] = {}
-DOWNLOAD_TASKS: dict[str, asyncio.Task] = {}
-DOWNLOAD_PROCESSES: dict[str, asyncio.subprocess.Process] = {}
-DOWNLOAD_CANCEL_REQUESTED: set[str] = set()
 LOGGER = logging.getLogger("uvicorn.error")
 try:
     MALLOC_TRIM = getattr(ctypes.CDLL(None), "malloc_trim", None)
@@ -87,51 +65,44 @@ def report_generation_failure(error: Exception, model_key: str) -> str:
 
 
 def load_pipeline(model_key: str):
-    if model_key not in MODEL_REPOSITORIES:
-        raise ValueError("Unsupported image model")
-    if DEVICE == "cuda":
-        dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
-    else:
-        dtype = torch.float32
+    return load_image_pipeline(model_key, MODEL_REPOSITORIES, DEVICE, GPU_MEMORY_GIB)
 
-    repository = MODEL_REPOSITORIES[model_key]
-    if model_key == "qwen-image-edit-2511":
-        pipeline_class = QwenImageEditPlusPipeline
-    elif model_key == "instruct-pix2pix":
-        pipeline_class = StableDiffusionInstructPix2PixPipeline
-    elif model_key == "sd15-inpainting":
-        pipeline_class = StableDiffusionInpaintPipeline
-    elif model_key == "longcat-image-edit-turbo":
-        from diffusers import LongCatImageEditPipeline
-        pipeline_class = LongCatImageEditPipeline
-    elif model_key == "flux2-klein-4b":
-        from diffusers import Flux2KleinPipeline
-        pipeline_class = Flux2KleinPipeline
-    elif model_key == "sd15-base":
-        from diffusers import StableDiffusionPipeline
-        pipeline_class = StableDiffusionPipeline
-    elif model_key in {"sdxl-base-1.0", "sdxl-turbo"}:
-        from diffusers import StableDiffusionXLPipeline
-        pipeline_class = StableDiffusionXLPipeline
-    elif model_key == "sd35-medium":
-        from diffusers import StableDiffusion3Pipeline
-        pipeline_class = StableDiffusion3Pipeline
-    elif model_key == "sana-sprint-06b":
-        from diffusers import SanaSprintPipeline
-        pipeline_class = SanaSprintPipeline
-    else:
-        pipeline_class = ZImagePipeline
-    variant = "fp16" if model_key in {"sdxl-base-1.0", "sdxl-turbo"} and DEVICE == "cuda" else None
-    pipeline = pipeline_class.from_pretrained(repository, torch_dtype=dtype, local_files_only=True, **({"variant": variant} if variant else {}))
-    if DEVICE == "cuda" and GPU_MEMORY_GIB < 16 and model_key in {"longcat-image-edit-turbo", "flux2-klein-4b", "sdxl-base-1.0", "sd35-medium"}:
-        pipeline.enable_model_cpu_offload()
-    elif DEVICE == "cuda" and GPU_MEMORY_GIB < 16:
-        # Lower-VRAM GPUs may work through sequential offload, at a substantial speed cost.
-        pipeline.enable_sequential_cpu_offload()
-    else:
-        pipeline.to(DEVICE)
-    return pipeline
 
+def set_pipeline(pipeline) -> None:
+    global PIPELINE
+    PIPELINE = pipeline
+
+
+def generate_image(model_key, prompt, width, height, seed, steps, true_cfg_scale, references,
+                   image_guidance_scale=1.5, strength=0.75, guidance_scale=7.5):
+    return run_image_generation(model_key, prompt, width, height, seed, steps, true_cfg_scale, references,
+                                PIPELINE, DEVICE, image_guidance_scale, strength, guidance_scale)
+
+
+def generation_worker(sender, model_key, prompt, width, height, seed, steps, true_cfg_scale, references,
+                      image_guidance_scale=1.5, strength=0.75, guidance_scale=7.5):
+    return run_image_generation_worker(
+        sender, model_key, prompt, width, height, seed, steps, true_cfg_scale, references,
+        image_guidance_scale, strength, guidance_scale, load_pipeline_fn=load_pipeline,
+        set_pipeline_fn=set_pipeline, generate_image_fn=generate_image,
+        report_failure_fn=report_generation_failure, release_pipeline_fn=release_pipeline,
+    )
+
+
+def video_generation_worker(sender, model_key, prompt, negative_prompt, frames, seed, steps, guidance_scale):
+    return run_video_generation_worker(
+        sender, model_key, prompt, negative_prompt, frames, seed, steps, guidance_scale,
+        repositories=MODEL_REPOSITORIES, device=DEVICE, gpu_memory_gib=GPU_MEMORY_GIB,
+        report_failure_fn=report_generation_failure, release_pipeline_fn=release_pipeline,
+    )
+
+
+def audio_generation_worker(sender, model_key, prompt, voice, speed):
+    return run_audio_generation_worker(
+        sender, model_key, prompt, voice, speed, repositories=MODEL_REPOSITORIES,
+        english_model_path=kokoro_english_model_path(),
+        report_failure_fn=report_generation_failure, release_pipeline_fn=release_pipeline,
+    )
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
@@ -143,213 +114,8 @@ async def lifespan(_: FastAPI):
         release_pipeline()
 
 
-app = FastAPI(title="Hive Z-Image Runner", version="0.1.0", lifespan=lifespan)
-
-
-def model_is_downloaded(model_id: str) -> bool:
-    marker = Path(os.getenv("HF_HOME", "~/.cache/huggingface")).expanduser() / f".hive-{model_id}-download-complete"
-    if not marker.is_file():
-        return False
-    if model_id == "kokoro-82m" and not kokoro_english_model_path().joinpath("en_core_web_sm", "__init__.py").is_file():
-        return False
-    try:
-        snapshot_download(MODEL_REPOSITORIES[model_id], local_files_only=True)
-        return True
-    except Exception:
-        return False
-
-
-def kokoro_english_model_path() -> Path:
-    return Path(os.getenv("HF_HOME", "~/.cache/huggingface")).expanduser() / "hive-kokoro" / "en_core_web_sm"
-
-
-def model_cache_paths(model_id: str) -> tuple[Path, Path, Path]:
-    hf_home = Path(os.getenv("HF_HOME", "~/.cache/huggingface")).expanduser()
-    repo_name = "models--" + MODEL_REPOSITORIES[model_id].replace("/", "--")
-    hub_cache = Path(os.getenv("HF_HUB_CACHE", os.getenv("HUGGINGFACE_HUB_CACHE", str(hf_home / "hub")))).expanduser()
-    marker = hf_home / f".hive-{model_id}-download-complete"
-    xet_cache = hf_home / "hive-xet-cache" / model_id
-    return hub_cache / repo_name, xet_cache, marker
-
-
-def remove_partial_model_cache(model_id: str) -> None:
-    repo_cache, xet_cache, marker = model_cache_paths(model_id)
-    # A Kokoro weights download can predate the G2P sidecar. Preserve those
-    # verified weights if the user cancels the one-time sidecar completion.
-    preserve_kokoro_weights = model_id == "kokoro-82m" and marker.is_file() and repo_cache.exists()
-    cache_paths = (kokoro_english_model_path(),) if preserve_kokoro_weights else (repo_cache, xet_cache, kokoro_english_model_path())
-    for cache_path in cache_paths:
-        if cache_path.is_symlink():
-            cache_path.unlink()
-        elif cache_path.exists():
-            shutil.rmtree(cache_path)
-    if not preserve_kokoro_weights:
-        marker.unlink(missing_ok=True)
-
-
-async def run_model_download(model_id: str) -> None:
-    process = None
-    try:
-        with DOWNLOAD_LOCK:
-            if model_id in DOWNLOAD_CANCEL_REQUESTED:
-                cancelled_before_start = True
-            else:
-                cancelled_before_start = False
-        if cancelled_before_start:
-            await asyncio.to_thread(remove_partial_model_cache, model_id)
-            with DOWNLOAD_LOCK:
-                DOWNLOAD_STATUS[model_id] = {"status": "not_downloaded", "downloadedBytes": 0, "totalBytes": 0}
-            return
-
-        _, xet_cache, _ = model_cache_paths(model_id)
-        child_env = os.environ.copy()
-        child_env["HF_XET_CACHE"] = str(xet_cache)
-        worker_path = str(Path(__file__).with_name("download_worker.py"))
-        process = await asyncio.create_subprocess_exec(
-            sys.executable, worker_path, model_id,
-            stdout=asyncio.subprocess.PIPE,
-            env=child_env,
-        )
-        with DOWNLOAD_LOCK:
-            DOWNLOAD_PROCESSES[model_id] = process
-            cancel_after_start = model_id in DOWNLOAD_CANCEL_REQUESTED
-            if not cancel_after_start:
-                DOWNLOAD_STATUS[model_id] = {"status": "downloading", "downloadedBytes": 0, "totalBytes": 0}
-        if cancel_after_start and process.returncode is None:
-            try:
-                process.terminate()
-            except ProcessLookupError:
-                pass
-
-        assert process.stdout is not None
-        while line := await process.stdout.readline():
-            try:
-                message = json.loads(line)
-            except (ValueError, UnicodeDecodeError):
-                continue
-            if message.get("event") == "progress":
-                with DOWNLOAD_LOCK:
-                    if model_id not in DOWNLOAD_CANCEL_REQUESTED:
-                        DOWNLOAD_STATUS[model_id] = {
-                            "status": "downloading",
-                            "downloadedBytes": max(0, int(message.get("downloadedBytes", 0))),
-                            "totalBytes": max(0, int(message.get("totalBytes", 0))),
-                        }
-        exit_code = await process.wait()
-        with DOWNLOAD_LOCK:
-            cancelled = model_id in DOWNLOAD_CANCEL_REQUESTED
-
-        if cancelled:
-            await asyncio.to_thread(remove_partial_model_cache, model_id)
-            with DOWNLOAD_LOCK:
-                DOWNLOAD_STATUS[model_id] = {"status": "not_downloaded", "downloadedBytes": 0, "totalBytes": 0}
-        elif exit_code == 0:
-            _, _, marker = model_cache_paths(model_id)
-            marker.parent.mkdir(parents=True, exist_ok=True)
-            marker.touch()
-            with DOWNLOAD_LOCK:
-                progress = DOWNLOAD_STATUS.get(model_id, {})
-                DOWNLOAD_STATUS[model_id] = {**progress, "status": "downloaded"}
-        else:
-            with DOWNLOAD_LOCK:
-                progress = DOWNLOAD_STATUS.get(model_id, {})
-                DOWNLOAD_STATUS[model_id] = {
-                    **progress,
-                    "status": "failed",
-                    "error": "Model download failed. Check runner logs and try again.",
-                }
-    except Exception:
-        with DOWNLOAD_LOCK:
-            cancelled = model_id in DOWNLOAD_CANCEL_REQUESTED
-        if cancelled:
-            try:
-                await asyncio.to_thread(remove_partial_model_cache, model_id)
-            except Exception:
-                with DOWNLOAD_LOCK:
-                    DOWNLOAD_STATUS[model_id] = {"status": "failed", "error": "Could not remove the cancelled model cache. Check runner logs."}
-            else:
-                with DOWNLOAD_LOCK:
-                    DOWNLOAD_STATUS[model_id] = {"status": "not_downloaded", "downloadedBytes": 0, "totalBytes": 0}
-        else:
-            with DOWNLOAD_LOCK:
-                DOWNLOAD_STATUS[model_id] = {"status": "failed", "error": "Model download failed. Check runner logs and try again."}
-    finally:
-        with DOWNLOAD_LOCK:
-            DOWNLOAD_PROCESSES.pop(model_id, None)
-            DOWNLOAD_CANCEL_REQUESTED.discard(model_id)
-            DOWNLOAD_TASKS.pop(model_id, None)
-
-
-@app.get("/models")
-async def models() -> dict[str, list[dict[str, str | int]]]:
-    result = []
-    for model_id in MODEL_REPOSITORIES:
-        with DOWNLOAD_LOCK:
-            state = DOWNLOAD_STATUS.get(model_id, {}).copy()
-        status = state.get("status")
-        if status not in {"queued", "downloading", "cancelling", "failed"}:
-            status = "downloaded" if await asyncio.to_thread(model_is_downloaded, model_id) else "not_downloaded"
-        item = {"id": model_id, "status": status}
-        for key in ("downloadedBytes", "totalBytes"):
-            if isinstance(state.get(key), int):
-                item[key] = state[key]
-        if status == "failed":
-            item["error"] = state.get("error", "Model download failed. Check runner logs and try again.")
-        result.append(item)
-    return {"models": result}
-
-
-@app.post("/models/{model_id}/download", status_code=202)
-async def download_model(model_id: str) -> dict[str, str]:
-    if model_id not in MODEL_REPOSITORIES:
-        raise HTTPException(status_code=404, detail="Unknown model")
-    if await asyncio.to_thread(model_is_downloaded, model_id):
-        with DOWNLOAD_LOCK:
-            DOWNLOAD_STATUS[model_id] = {"status": "downloaded"}
-        return {"id": model_id, "status": "downloaded"}
-    with DOWNLOAD_LOCK:
-        model_status = DOWNLOAD_STATUS.get(model_id, {}).get("status")
-        if model_status in {"queued", "downloading"}:
-            return {"id": model_id, "status": str(model_status)}
-        if model_status == "cancelling":
-            raise HTTPException(status_code=409, detail={"code": "download_cancelling"})
-        DOWNLOAD_STATUS[model_id] = {"status": "queued", "downloadedBytes": 0, "totalBytes": 0}
-        DOWNLOAD_TASKS[model_id] = asyncio.create_task(run_model_download(model_id))
-    return {"id": model_id, "status": "queued"}
-
-
-@app.delete("/models/{model_id}/download")
-async def cancel_model_download(model_id: str) -> dict[str, str | int]:
-    if model_id not in MODEL_REPOSITORIES:
-        raise HTTPException(status_code=404, detail="Unknown model")
-    with DOWNLOAD_LOCK:
-        status = DOWNLOAD_STATUS.get(model_id, {}).get("status")
-        task = DOWNLOAD_TASKS.get(model_id)
-        process = DOWNLOAD_PROCESSES.get(model_id)
-        if status not in {"queued", "downloading", "cancelling"} or task is None:
-            raise HTTPException(status_code=409, detail={"code": "download_not_active"})
-        DOWNLOAD_CANCEL_REQUESTED.add(model_id)
-        DOWNLOAD_STATUS[model_id] = {"status": "cancelling", **{k: v for k, v in DOWNLOAD_STATUS[model_id].items() if k != "status"}}
-    if process is not None and process.returncode is None:
-        try:
-            process.terminate()
-        except ProcessLookupError:
-            pass
-    try:
-        await asyncio.wait_for(asyncio.shield(task), timeout=120)
-    except asyncio.TimeoutError:
-        if process is not None and process.returncode is None:
-            try:
-                process.kill()
-            except ProcessLookupError:
-                pass
-        await asyncio.wait_for(asyncio.shield(task), timeout=30)
-    with DOWNLOAD_LOCK:
-        state = DOWNLOAD_STATUS.get(model_id, {"status": "not_downloaded"})
-    if state.get("status") == "failed":
-        raise HTTPException(status_code=500, detail=state.get("error", "Could not cancel model download."))
-    return {"id": model_id, "status": str(state.get("status", "not_downloaded")), "downloadedBytes": int(state.get("downloadedBytes", 0))}
-
+app = FastAPI(title="Hive Model Runner", version="0.1.0", lifespan=lifespan)
+app.include_router(model_downloads_router)
 
 @app.get("/health")
 async def health() -> dict[str, str | bool | float]:
@@ -497,185 +263,3 @@ async def generate_audio(
         finally:
             release_pipeline()
     return StreamingResponse(io.BytesIO(encoded), media_type="audio/wav")
-
-
-def audio_generation_worker(sender, model_key, prompt, voice, speed):
-    output_path = None
-    try:
-        import numpy as np
-        import wave
-        if model_key == "kokoro-82m":
-            english_model_path = kokoro_english_model_path()
-            if not (english_model_path / "en_core_web_sm" / "__init__.py").is_file():
-                raise RuntimeError("Kokoro's English text-processing model is not downloaded")
-            sys.path.insert(0, str(english_model_path))
-        from kokoro import KPipeline
-
-        language_code = voice[0]
-        pipeline = KPipeline(lang_code=language_code, repo_id=MODEL_REPOSITORIES[model_key])
-        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as output_file:
-            output_path = output_file.name
-        total_bytes = 44
-        with wave.open(output_path, "wb") as wav:
-            wav.setnchannels(1)
-            wav.setsampwidth(2)
-            wav.setframerate(24000)
-            for _, _, audio in pipeline(prompt, voice=voice, speed=speed):
-                if audio is None:
-                    continue
-                samples = audio.detach().cpu().numpy() if isinstance(audio, torch.Tensor) else np.asarray(audio)
-                pcm = (np.clip(samples, -1, 1) * 32767).astype("<i2").tobytes()
-                total_bytes += len(pcm)
-                if total_bytes > 25 * 1024 * 1024:
-                    raise ValueError("Audio output exceeds the 25 MB limit")
-                wav.writeframes(pcm)
-        encoded = Path(output_path).read_bytes()
-        if len(encoded) <= 44:
-            raise ValueError("Audio output is empty")
-        sender.send(("result", encoded))
-    except Exception as error:
-        code = report_generation_failure(error, model_key)
-        sender.send(("error", code))
-    finally:
-        if output_path:
-            Path(output_path).unlink(missing_ok=True)
-        release_pipeline()
-        sender.close()
-
-
-def video_generation_worker(sender, model_key, prompt, negative_prompt, frames, seed, steps, guidance_scale):
-    pipeline = None
-    output_path = None
-    try:
-        dtype = (torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16) if DEVICE == "cuda" else torch.float32
-        pipeline_class = WanPipeline if model_key == "wan2.1-t2v-1.3b" else CogVideoXPipeline
-        pipeline = pipeline_class.from_pretrained(MODEL_REPOSITORIES[model_key], torch_dtype=dtype, local_files_only=True)
-        if DEVICE == "cuda" and GPU_MEMORY_GIB < 16:
-            pipeline.enable_sequential_cpu_offload()
-        else:
-            pipeline.to(DEVICE)
-        if model_key == "cogvideox-2b":
-            pipeline.vae.enable_tiling()
-            pipeline.vae.enable_slicing()
-        result = pipeline(
-            prompt=prompt,
-            negative_prompt=negative_prompt or None,
-            height=480,
-            width=832 if model_key == "wan2.1-t2v-1.3b" else 720,
-            num_frames=frames,
-            num_inference_steps=steps,
-            guidance_scale=guidance_scale,
-            generator=torch.Generator(device=DEVICE).manual_seed(seed),
-        )
-        fps = 16 if model_key == "wan2.1-t2v-1.3b" else 8
-        with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as output_file:
-            output_path = output_file.name
-        export_to_video(result.frames[0], output_path, fps=fps)
-        encoded = Path(output_path).read_bytes()
-        if not encoded or len(encoded) > 50 * 1024 * 1024:
-            raise ValueError("Video output is empty or exceeds the 50 MB limit")
-        sender.send(("result", encoded))
-    except Exception as error:
-        code = report_generation_failure(error, model_key)
-        sender.send(("error", code))
-    finally:
-        if output_path:
-            Path(output_path).unlink(missing_ok=True)
-        del pipeline
-        release_pipeline()
-        sender.close()
-
-
-def generation_worker(sender, model_key, prompt, width, height, seed, steps, true_cfg_scale, references, image_guidance_scale=1.5, strength=0.75, guidance_scale=7.5):
-    global PIPELINE
-    image = None
-    try:
-        PIPELINE = load_pipeline(model_key)
-        image = generate_image(model_key, prompt, width, height, seed, steps, true_cfg_scale, references, image_guidance_scale, strength, guidance_scale)
-        output = io.BytesIO()
-        image.save(output, format="PNG")
-        encoded = output.getvalue()
-        if len(encoded) > 25 * 1024 * 1024:
-            raise RuntimeError("Output exceeds the internal size limit")
-        sender.send(("result", encoded))
-    except Exception as error:
-        code = report_generation_failure(error, model_key)
-        error.__traceback__ = None
-        sender.send(("error", code))
-    finally:
-        if image is not None:
-            image.close()
-        for reference in references:
-            reference.close()
-        release_pipeline()
-        sender.close()
-
-
-async def load_reference_images(files: list[UploadFile]) -> list[Image.Image]:
-    references: list[Image.Image] = []
-    total_bytes = 0
-    try:
-        for file in files:
-            if file.content_type not in ("image/png", "image/jpeg", "image/webp"):
-                raise HTTPException(status_code=415, detail="Reference images must be PNG, JPEG, or WebP")
-            content = await file.read(10 * 1024 * 1024 + 1)
-            total_bytes += len(content)
-            if len(content) > 10 * 1024 * 1024 or total_bytes > 25 * 1024 * 1024:
-                raise HTTPException(status_code=413, detail="Reference images exceed size limits")
-            try:
-                with Image.open(io.BytesIO(content)) as source:
-                    references.append(source.convert("RGB"))
-            except Exception as error:
-                raise HTTPException(status_code=415, detail="A reference file is not a valid image") from error
-    except BaseException:
-        for reference in references:
-            reference.close()
-        raise
-    return references
-
-
-def generate_image(model_key: str, prompt: str, width: int, height: int, seed: int, steps: int, true_cfg_scale: float, references: list[Image.Image], image_guidance_scale: float = 1.5, strength: float = 0.75, guidance_scale: float = 7.5):
-    if PIPELINE is None:
-        raise RuntimeError("Model pipeline is not loaded")
-
-    generator_device = "cuda" if DEVICE == "cuda" else "cpu"
-    generator = torch.Generator(device=generator_device).manual_seed(seed)
-    if model_key == "qwen-image-edit-2511":
-        result = PIPELINE(
-            prompt=prompt,
-            image=references,
-            width=width,
-            height=height,
-            num_inference_steps=steps,
-            true_cfg_scale=true_cfg_scale,
-            negative_prompt=" ",
-            guidance_scale=1.0,
-            generator=generator,
-            num_images_per_prompt=1,
-        )
-    elif model_key == "instruct-pix2pix":
-        result = PIPELINE(prompt=prompt, image=references[0], width=width, height=height, num_inference_steps=steps, image_guidance_scale=image_guidance_scale, guidance_scale=7.5, generator=generator)
-    elif model_key == "sd15-inpainting":
-        result = PIPELINE(prompt=prompt, image=references[0], mask_image=references[1], width=width, height=height, num_inference_steps=steps, strength=strength, guidance_scale=guidance_scale, generator=generator)
-    elif model_key == "longcat-image-edit-turbo":
-        result = PIPELINE(references[0], prompt, negative_prompt="", guidance_scale=1, num_inference_steps=8, generator=torch.Generator("cpu").manual_seed(seed))
-    elif model_key == "flux2-klein-4b":
-        result = PIPELINE(prompt=prompt, image=references if references else None, width=width, height=height, num_inference_steps=steps, guidance_scale=guidance_scale, generator=generator)
-    elif model_key == "sana-sprint-06b":
-        result = PIPELINE(prompt=prompt, width=width, height=height, num_inference_steps=steps, guidance_scale=guidance_scale, generator=generator)
-    elif model_key == "sdxl-turbo":
-        result = PIPELINE(prompt=prompt, width=width, height=height, num_inference_steps=steps, guidance_scale=0.0, generator=generator)
-    elif model_key == "sd35-medium":
-        result = PIPELINE(prompt=prompt, width=width, height=height, num_inference_steps=steps, guidance_scale=guidance_scale, generator=generator)
-    elif model_key in {"sd15-base", "sdxl-base-1.0"}:
-        result = PIPELINE(prompt=prompt, width=width, height=height, num_inference_steps=steps, guidance_scale=guidance_scale, generator=generator)
-    else:
-        result = PIPELINE(
-            prompt=prompt,
-            width=width,
-            height=height,
-            num_inference_steps=steps,
-            guidance_scale=0.0,
-            generator=generator,
-        )
-    return result.images[0]

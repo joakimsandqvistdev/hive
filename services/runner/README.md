@@ -1,6 +1,8 @@
 # Local image and video model runner
 
-This standalone service loads one allow-listed Diffusers pipeline at a time for the Hive worker. It supports text-to-image, instruction-based image editing, multi-reference editing, mask-based inpainting, and text-to-video generation. It is separate from the Hive API and database. Keep the development endpoint local; do not expose it directly to the public internet.
+This standalone service loads one allow-listed local model at a time for the Hive worker. It supports text-to-image, image editing, text-to-audio, and text-to-video generation. It is separate from the Hive API and database. Keep the development endpoint local; do not expose it directly to the public internet.
+
+The runner is divided by responsibility: `model_catalog.py` owns the model allow-list; `model_downloads.py` manages persistent model caches and download routes; and the image, audio, and video generation modules own modality-specific inference. `app.py` assembles the HTTP interface and shared runtime cleanup. The API worker's `runInputResolver.ts` turns typed workflow connections and node settings into runner requests, while `modelRunnerClient.ts` owns modality-neutral HTTP transport.
 
 ## Requirements
 
@@ -30,6 +32,7 @@ If this fails to reserve a GPU, verify host GPU visibility and Docker GPU suppor
 
 - `GET http://localhost:8188/health` reports readiness, last selected model, device, `pipeline_loaded`, and `generation_active`. A busy runner is processing a request in its child process; `pipeline_loaded` describes the HTTP process and stays false. An idle runner remains ready when its pipeline has been released; the next request loads it.
 - The Hive worker calls `POST http://localhost:8188/generate` as multipart form data. Text-to-image IDs: `z-image-turbo`, `sd15-base`, `sdxl-base-1.0`, `sd35-medium`, `sdxl-turbo`, and `sana-sprint-06b`. Editing IDs: `qwen-image-edit-2511` (1–10 reference images), `instruct-pix2pix` (one source image), `sd15-inpainting` (one source image plus one mask image), `longcat-image-edit-turbo` (one source image), and `flux2-klein-4b` (text-to-image or up to four reference images). The response is PNG.
+- The Hive worker calls `POST http://localhost:8188/generate-audio` for Kokoro text-to-speech using a text prompt, voice, and speed; the response is WAV.
 - Video agents call `POST http://localhost:8188/generate-video`. The allow-listed text-to-video models are `wan2.1-t2v-1.3b` (832×480 at 16 fps, 41/61/81 frames) and `cogvideox-2b` (720×480 at 8 fps, 25/49 frames). Video nodes do not accept image connections in this MVP. The response is MP4 and is stored alongside image artifacts.
 - `GET http://localhost:8188/models` reports installed/download status and byte progress. Different supported models can download concurrently without a runner-imposed concurrency cap; starting the same active model again is idempotent. Each download has independent progress and cancellation, and `DELETE /models/{id}/download` stops only that model's transfer and removes its incomplete Hub and isolated Xet cache. Completed model caches are preserved. Model weights are not bundled in the application or runner image; generation fails until its model is downloaded.
 

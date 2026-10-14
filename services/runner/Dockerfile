@@ -15,6 +15,11 @@ RUN pip install --no-cache-dir --break-system-packages -r requirements.txt
 COPY app.py ./app.py
 COPY download_worker.py ./download_worker.py
 COPY generation_process.py ./generation_process.py
+COPY model_catalog.py ./model_catalog.py
+COPY model_downloads.py ./model_downloads.py
+COPY image_generation.py ./image_generation.py
+COPY audio_generation.py ./audio_generation.py
+COPY video_generation.py ./video_generation.py
 
 EXPOSE 8000
 CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]

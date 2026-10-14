@@ -10,6 +10,13 @@
 - Python syntax compilation and `git diff --check` passed. Rebuilt and refreshed only the runner while no workflows or model downloads were active; model cache volume was preserved. Downloaded the 12.8 MB English pipeline and verified a short Kokoro request produced a WAV. No test suite or database migration was run.
 - Next: verify an end-to-end workflow run with a text input connected to a Kokoro node.
 
+## 2026-10-14 — Split runner and workflow request responsibilities
+
+- Extracted model catalog/download routing and image/audio/video inference workers from the runner assembly module. Added a modality-neutral model runner client and extracted typed workflow input, settings, artifact, and multipart request resolution from the API worker.
+- Kept the existing runner HTTP routes and compatibility exports for prior image-runner imports. No schema or request contract changes.
+- API typecheck, Python syntax parsing, and `git diff --check` passed. No test suite or container refresh was run.
+- Next: run existing runner/API tests and refresh the runner container in a planned local development cycle.
+
 ## 2026-10-14 — Consolidate repeated API and workflow UI patterns
 
 - Added a shared frontend API URL/request helper with cookie credentials, shared paginated-table footer and confirmation modal components, common random-seed controls, and a focused workflow node configuration component. Replaced duplicate frontend fetch setup in model, run, workflow, and model-download-hook requests.
