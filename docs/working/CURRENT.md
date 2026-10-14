@@ -30,6 +30,12 @@
 - Removed the unused `tasks` table from the Drizzle schema and generated migration `0013_free_charles_xavier` to drop it. The local table had zero rows; the migration uses a strict drop without cascading to unrelated database objects.
 - Applied the migration to the local database and verified `public.tasks` is absent. API typecheck and `git diff --check` passed. Updated the data model and recorded decision 0014; historical migrations/snapshots remain unchanged.
 
+## 2026-10-14 — Fix local container startup
+
+- Local Compose startup was blocked because migration `0013_free_charles_xavier` attempted to drop `tasks` even though the table was already absent and the migration was not recorded in this database. Changed the migration to `DROP TABLE IF EXISTS` without `CASCADE`, preserving failure on dependent objects while allowing the database state to converge.
+- Docker Desktop's Linux engine was stopped/inaccessible after the machine restart; started Docker Desktop. `npm run local` then completed successfully with API, web, worker, database, and runner healthy; `/api/health` returned HTTP 200 with the database connected. The migration completed and `git diff --check` passed.
+- Deleted the shutdown monitor for the completed Qwen download to prevent a repeat shutdown.
+
 ## 2026-10-14 — Add 128×128 output resolution
 
 - Added 128×128 as the minimum selectable output for Z-Image-Turbo and Qwen-Image-Edit-2511 in the shared agent/node settings, API schema, and runner validation. Existing 512×512 defaults are unchanged.
