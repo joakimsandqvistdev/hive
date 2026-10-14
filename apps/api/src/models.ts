@@ -2,7 +2,7 @@ import { Router } from "express";
 
 const router = Router();
 const runnerUrl = (process.env.IMAGE_RUNNER_URL ?? "http://127.0.0.1:8188").replace(/\/$/, "");
-const modelIds = new Set(["z-image-turbo", "qwen-image-edit-2511", "instruct-pix2pix", "sd15-inpainting", "longcat-image-edit-turbo", "flux2-klein-4b", "sd15-base", "sdxl-base-1.0", "sd35-medium", "sdxl-turbo", "sana-sprint-06b"]);
+const modelIds = new Set(["z-image-turbo", "qwen-image-edit-2511", "instruct-pix2pix", "sd15-inpainting", "longcat-image-edit-turbo", "flux2-klein-4b", "sd15-base", "sdxl-base-1.0", "sd35-medium", "sdxl-turbo", "sana-sprint-06b", "wan2.1-t2v-1.3b", "cogvideox-2b"]);
 
 export async function forwardRunnerRequest(path: string, method = "GET", timeoutMs = 15_000) {
   const response = await fetch(`${runnerUrl}${path}`, { method, signal: AbortSignal.timeout(timeoutMs) });

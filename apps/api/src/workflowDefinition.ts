@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { imageModelIdSchema, imageModelParametersSchema } from "./modelParameters.js";
+import { videoModelParametersSchema } from "./videoModelParameters.js";
 
 const nodeSchema = z.object({
   id: z.string().min(1).max(100),
@@ -93,6 +94,11 @@ export function validateWorkflowDefinition(definition: WorkflowDefinition, agent
       if (!parsed.success) return { ok: false, error: "invalid_parameters" };
       parameters = parsed.data;
       nodeModelById.set(node.id, parsed.data.modelId);
+    } else if (agent.modality === "video") {
+      const parsed = videoModelParametersSchema.safeParse({ ...agent.parameters, ...node.parameters });
+      if (!parsed.success) return { ok: false, error: "invalid_parameters" };
+      parameters = parsed.data;
+      nodeModelById.set(node.id, parsed.data.modelId);
     } else {
       nodeModelById.set(node.id, "");
     }
@@ -109,7 +115,8 @@ export function validateWorkflowDefinition(definition: WorkflowDefinition, agent
     const incoming = definition.edges.filter((edge) => edge.target === node.id);
     const images = incoming.filter((edge) => (edge.targetHandle ?? "image") === "image").length;
     const masks = incoming.filter((edge) => edge.targetHandle === "mask").length;
-    const valid = modelId === "qwen-image-edit-2511" ? images >= 1 && images <= 10 && masks === 0
+    const valid = modelId === "wan2.1-t2v-1.3b" || modelId === "cogvideox-2b" ? incoming.length === 0
+      : modelId === "qwen-image-edit-2511" ? images >= 1 && images <= 10 && masks === 0
       : modelId === "instruct-pix2pix" || modelId === "longcat-image-edit-turbo" ? images === 1 && masks === 0
         : modelId === "sd15-inpainting" ? images === 1 && masks === 1 && incoming.length === 2
           : modelId === "flux2-klein-4b" ? images <= 4 && masks === 0

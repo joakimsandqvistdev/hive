@@ -8,13 +8,15 @@ import os
 from pathlib import Path
 import shutil
 import sys
+import tempfile
 import threading
 import traceback
 from contextlib import asynccontextmanager
 from typing import Literal
 
 import torch
-from diffusers import QwenImageEditPlusPipeline, StableDiffusionInpaintPipeline, StableDiffusionInstructPix2PixPipeline, ZImagePipeline
+from diffusers import CogVideoXPipeline, QwenImageEditPlusPipeline, StableDiffusionInpaintPipeline, StableDiffusionInstructPix2PixPipeline, WanPipeline, ZImagePipeline
+from diffusers.utils import export_to_video
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import StreamingResponse
 from PIL import Image
@@ -34,6 +36,8 @@ MODEL_REPOSITORIES = {
     "sd35-medium": "stabilityai/stable-diffusion-3.5-medium",
     "sdxl-turbo": "stabilityai/sdxl-turbo",
     "sana-sprint-06b": "Efficient-Large-Model/Sana_Sprint_0.6B_1024px_diffusers",
+    "wan2.1-t2v-1.3b": "Wan-AI/Wan2.1-T2V-1.3B",
+    "cogvideox-2b": "zai-org/CogVideoX-2b",
 }
 PIPELINE = None
 CURRENT_MODEL_KEY = os.getenv("STARTUP_MODEL_KEY", "z-image-turbo")
@@ -77,7 +81,7 @@ def report_generation_failure(error: Exception, model_key: str) -> str:
         for frame in traceback.extract_tb(error.__traceback__)
     )
     code = "out_of_memory" if isinstance(error, (torch.OutOfMemoryError, MemoryError)) else "generation_failed"
-    LOGGER.error("Image runner failure model=%s code=%s type=%s frames=%s", model_key, code, type(error).__name__, frames)
+    LOGGER.error("Local model runner failure model=%s code=%s type=%s frames=%s", model_key, code, type(error).__name__, frames)
     return code
 
 
@@ -415,6 +419,87 @@ async def generate(
             release_pipeline()
 
     return StreamingResponse(io.BytesIO(encoded), media_type="image/png")
+
+
+@app.post("/generate-video")
+async def generate_video(
+    request: Request,
+    prompt: str = Form(min_length=1, max_length=8000),
+    negative_prompt: str = Form(default="", max_length=1000),
+    model_id: Literal["wan2.1-t2v-1.3b", "cogvideox-2b"] = Form(),
+    frames: int = Form(),
+    seed: int = Form(default=42, ge=0, le=2**31 - 1),
+    num_inference_steps: int = Form(default=20, ge=1, le=50),
+    guidance_scale: float = Form(default=6.0, ge=0, le=20),
+) -> StreamingResponse:
+    global CURRENT_MODEL_KEY
+    allowed_frames = {"wan2.1-t2v-1.3b": {41, 61, 81}, "cogvideox-2b": {25, 49}}
+    if frames not in allowed_frames[model_id]:
+        raise HTTPException(status_code=422, detail="Unsupported video frame count")
+    if not await asyncio.to_thread(model_is_downloaded, model_id):
+        raise HTTPException(status_code=409, detail={"code": "model_not_downloaded"})
+
+    async with GENERATION_LOCK:
+        try:
+            CURRENT_MODEL_KEY = model_id
+            encoded = await run_generation_process(
+                video_generation_worker,
+                (model_id, prompt, negative_prompt, frames, seed, num_inference_steps, guidance_scale),
+                request.is_disconnected,
+            )
+        except GenerationProcessError as error:
+            status_code = 499 if error.code == "request_cancelled" else 504 if error.code == "generation_timeout" else 500
+            raise HTTPException(status_code=status_code, detail={"code": error.code}) from None
+        except Exception as error:
+            code = report_generation_failure(error, model_id)
+            error.__traceback__ = None
+            raise HTTPException(status_code=500, detail={"code": code}) from None
+        finally:
+            release_pipeline()
+    return StreamingResponse(io.BytesIO(encoded), media_type="video/mp4")
+
+
+def video_generation_worker(sender, model_key, prompt, negative_prompt, frames, seed, steps, guidance_scale):
+    pipeline = None
+    output_path = None
+    try:
+        dtype = (torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16) if DEVICE == "cuda" else torch.float32
+        pipeline_class = WanPipeline if model_key == "wan2.1-t2v-1.3b" else CogVideoXPipeline
+        pipeline = pipeline_class.from_pretrained(MODEL_REPOSITORIES[model_key], torch_dtype=dtype, local_files_only=True)
+        if DEVICE == "cuda" and GPU_MEMORY_GIB < 16:
+            pipeline.enable_sequential_cpu_offload()
+        else:
+            pipeline.to(DEVICE)
+        if model_key == "cogvideox-2b":
+            pipeline.vae.enable_tiling()
+            pipeline.vae.enable_slicing()
+        result = pipeline(
+            prompt=prompt,
+            negative_prompt=negative_prompt or None,
+            height=480,
+            width=832 if model_key == "wan2.1-t2v-1.3b" else 720,
+            num_frames=frames,
+            num_inference_steps=steps,
+            guidance_scale=guidance_scale,
+            generator=torch.Generator(device=DEVICE).manual_seed(seed),
+        )
+        fps = 16 if model_key == "wan2.1-t2v-1.3b" else 8
+        with tempfile.NamedTemporaryFile(suffix=".mp4", delete=False) as output_file:
+            output_path = output_file.name
+        export_to_video(result.frames[0], output_path, fps=fps)
+        encoded = Path(output_path).read_bytes()
+        if not encoded or len(encoded) > 50 * 1024 * 1024:
+            raise ValueError("Video output is empty or exceeds the 50 MB limit")
+        sender.send(("result", encoded))
+    except Exception as error:
+        code = report_generation_failure(error, model_key)
+        sender.send(("error", code))
+    finally:
+        if output_path:
+            Path(output_path).unlink(missing_ok=True)
+        del pipeline
+        release_pipeline()
+        sender.close()
 
 
 def generation_worker(sender, model_key, prompt, width, height, seed, steps, true_cfg_scale, references, image_guidance_scale=1.5, strength=0.75, guidance_scale=7.5):

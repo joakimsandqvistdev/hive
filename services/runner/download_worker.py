@@ -19,6 +19,8 @@ MODEL_REPOSITORIES = {
     "sd35-medium": "stabilityai/stable-diffusion-3.5-medium",
     "sdxl-turbo": "stabilityai/sdxl-turbo",
     "sana-sprint-06b": "Efficient-Large-Model/Sana_Sprint_0.6B_1024px_diffusers",
+    "wan2.1-t2v-1.3b": "Wan-AI/Wan2.1-T2V-1.3B",
+    "cogvideox-2b": "zai-org/CogVideoX-2b",
 }
 PROGRESS_LOCK = threading.Lock()
 DOWNLOADED_BYTES = 0

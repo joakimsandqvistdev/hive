@@ -96,11 +96,11 @@ export function ImageModelParametersFields({ value, onChange, showModelSelect = 
     <Stack gap={4}>
       <Text size="xs" c="dimmed">{imageModelInputDescription(value.modelId)} Connectors are assigned by their target port in the workflow canvas.</Text>
       {value.modelId === "qwen-image-edit-2511" && <Text size="xs" c="dimmed">Qwen-Image-Edit-2511 · Apache 2.0 · about 57.7 GB. Download it first from Models.</Text>}
-      {value.modelId === "longcat-image-edit-turbo" && <Text size="xs" c="hiveWarning.8">Large model; CPU offload is slow and may exceed this computer’s system memory.</Text>}
-      {value.modelId === "flux2-klein-4b" && <Text size="xs" c="hiveWarning.8">Requires about 13 GB VRAM according to its publisher, more than this computer’s GPU.</Text>}
-      {value.modelId === "sd35-medium" && <Text size="xs" c="hiveWarning.8">Large pipeline with three text encoders; this may exceed this computer’s Docker memory limit. Accept the Hugging Face terms and set HF_TOKEN in Hive’s .env before downloading.</Text>}
-      {value.modelId === "sdxl-base-1.0" && <Text size="xs" c="hiveWarning.8">Higher memory use than SD 1.5; CPU offload may be slow on this computer.</Text>}
-      {value.modelId === "sana-sprint-06b" && <Text size="xs" c="hiveWarning.8">The published non-quantized path recommends 9 GB VRAM, slightly above this GPU. Gemma encoder terms also apply.</Text>}
+      {value.modelId === "longcat-image-edit-turbo" && <Text size="xs" c="hiveWarning.8">Large model; CPU offload is slow and can require substantial system memory.</Text>}
+      {value.modelId === "flux2-klein-4b" && <Text size="xs" c="hiveWarning.8">Its publisher recommends about 13 GB VRAM; CPU offload may increase system memory use and reduce speed.</Text>}
+      {value.modelId === "sd35-medium" && <Text size="xs" c="hiveWarning.8">Large pipeline with three text encoders; Docker memory limits may need to be increased. Accept the Hugging Face terms and set HF_TOKEN in Hive’s .env before downloading.</Text>}
+      {value.modelId === "sdxl-base-1.0" && <Text size="xs" c="hiveWarning.8">Higher memory use than SD 1.5; CPU offload may reduce VRAM needs at the cost of speed and system memory.</Text>}
+      {value.modelId === "sana-sprint-06b" && <Text size="xs" c="hiveWarning.8">The published non-quantized path recommends 9 GB VRAM; Gemma encoder terms also apply.</Text>}
       {value.modelId === "sdxl-turbo" && <Text size="xs" c="hiveWarning.8">Non-commercial/research license. Commercial use requires separate Stability AI terms.</Text>}
     </Stack>
     {value.modelId !== "longcat-image-edit-turbo" && <Select label="Resolution" description={value.resolution === "128x128"

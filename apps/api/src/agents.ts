@@ -4,6 +4,7 @@ import { z } from "zod";
 import { db } from "./db.js";
 import { agents, workflowNodes } from "./schema.js";
 import { defaultImageModelParameters, imageModelParametersSchema } from "./modelParameters.js";
+import { videoModelParametersSchema } from "./videoModelParameters.js";
 import { forwardRunnerRequest } from "./models.js";
 
 const router = Router();
@@ -11,7 +12,10 @@ const agentFields = {
   name: z.string().trim().min(1).max(80),
   prompt: z.string().trim().max(500).default(""),
 };
-const agentInput = z.object({ ...agentFields, modality: z.literal("image"), parameters: imageModelParametersSchema.default(defaultImageModelParameters) });
+const agentInput = z.discriminatedUnion("modality", [
+  z.object({ ...agentFields, modality: z.literal("image"), parameters: imageModelParametersSchema.default(defaultImageModelParameters) }),
+  z.object({ ...agentFields, modality: z.literal("video"), parameters: videoModelParametersSchema }),
+]);
 
 function userId(res: import("express").Response) {
   return res.locals.userId as string;
@@ -21,7 +25,7 @@ function isUniqueViolation(error: unknown): boolean {
   return typeof error === "object" && error !== null && "code" in error && error.code === "23505";
 }
 
-async function imageModelAvailability(modelId: string): Promise<"available" | "not_downloaded" | "runner_unavailable"> {
+async function modelAvailability(modelId: string): Promise<"available" | "not_downloaded" | "runner_unavailable"> {
   try {
     const { response, body } = await forwardRunnerRequest("/models");
     const models = typeof body === "object" && body !== null && "models" in body ? body.models : undefined;
@@ -34,12 +38,12 @@ async function imageModelAvailability(modelId: string): Promise<"available" | "n
   }
 }
 
-function requestedImageModel(data: z.infer<typeof agentInput>): string | null {
-  return data.modality === "image" ? data.parameters.modelId : null;
+function requestedModel(data: z.infer<typeof agentInput>): string {
+  return data.parameters.modelId;
 }
 
-async function rejectUnavailableImageModel(modelId: string, res: import("express").Response): Promise<boolean> {
-  const availability = await imageModelAvailability(modelId);
+async function rejectUnavailableModel(modelId: string, res: import("express").Response): Promise<boolean> {
+  const availability = await modelAvailability(modelId);
   if (availability === "available") return false;
   if (availability === "runner_unavailable") res.status(503).json({ error: "model_runner_unavailable" });
   else res.status(409).json({ error: "model_not_downloaded", modelId });
@@ -76,8 +80,7 @@ router.post("/", async (req, res, next) => {
     return;
   }
   try {
-    const modelId = requestedImageModel(parsed.data);
-    if (modelId && await rejectUnavailableImageModel(modelId, res)) return;
+    if (await rejectUnavailableModel(requestedModel(parsed.data), res)) return;
     const [agent] = await db.insert(agents).values({ ...parsed.data, userId: userId(res) }).returning();
     res.status(201).json({ agent });
   } catch (error) {
@@ -100,10 +103,9 @@ router.patch("/:id", async (req, res, next) => {
     const [current] = await db.select({ modality: agents.modality, parameters: agents.parameters }).from(agents)
       .where(and(eq(agents.id, req.params.id), eq(agents.userId, userId(res)))).limit(1);
     if (!current) { res.status(404).json({ error: "agent_not_found" }); return; }
-    const modelId = requestedImageModel(parsed.data);
+    const modelId = requestedModel(parsed.data);
     const currentModelId = typeof current.parameters.modelId === "string" ? current.parameters.modelId : null;
-    if (modelId && (current.modality !== "image" || modelId !== currentModelId) &&
-      await rejectUnavailableImageModel(modelId, res)) return;
+    if (modelId !== currentModelId && await rejectUnavailableModel(modelId, res)) return;
     const [agent] = await db.update(agents)
       .set({ ...parsed.data, updatedAt: new Date() })
       .where(and(eq(agents.id, req.params.id), eq(agents.userId, userId(res))))
