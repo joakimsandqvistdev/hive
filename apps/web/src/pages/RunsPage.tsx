@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
-import { ActionIcon, Alert, Badge, Button, Group, Image, Loader, Modal, Pagination, Paper, SimpleGrid, Stack, Table, Text, Title, Tooltip } from "@mantine/core";
-import { API_BASE } from "../auth";
+import { ActionIcon, Alert, Badge, Button, Group, Image, Loader, Modal, Paper, SimpleGrid, Stack, Table, Text, Title, Tooltip } from "@mantine/core";
+import { apiFetch } from "../apiClient";
+import { PaginatedTableFooter } from "../components/PaginatedTableFooter";
 
 import type { AppView } from "../navigation/navigationState";
 
@@ -32,7 +33,7 @@ function ArtifactPreview({ artifactId, label, mediaType }: { artifactId: string;
     let objectUrl: string | null = null;
     setSrc(null);
     setFailed(false);
-    void fetch(`${API_BASE}/api/artifacts/${artifactId}/preview`, { credentials: "include" })
+    void apiFetch(`/api/artifacts/${artifactId}/preview`)
       .then(async (response) => {
         if (!response.ok) throw new Error("Preview unavailable");
         return response.blob();
@@ -74,7 +75,7 @@ export function RunsPage({ onNavigate }: { onNavigate: (view: AppView) => void }
   const loadRuns = useCallback(async (requestedPage = page) => {
     setError(null);
     try {
-      const response = await fetch(`${API_BASE}/api/runs?page=${requestedPage}&pageSize=${PAGE_SIZE}`, { credentials: "include" });
+      const response = await apiFetch(`/api/runs?page=${requestedPage}&pageSize=${PAGE_SIZE}`);
       const body = await response.json() as PageResult;
       if (!response.ok) throw new Error(response.status === 401 ? "Sign in to view runs." : "Could not load runs. Please try again.");
       setResult(body);
@@ -102,7 +103,7 @@ export function RunsPage({ onNavigate }: { onNavigate: (view: AppView) => void }
   const loadDetail = useCallback(async (id: string) => {
     setDetailError(null);
     try {
-      const response = await fetch(`${API_BASE}/api/runs/${id}`, { credentials: "include" });
+      const response = await apiFetch(`/api/runs/${id}`);
       const body = await response.json() as Detail;
       if (!response.ok) throw new Error("Could not load run details.");
       setDetail(body);
@@ -113,7 +114,7 @@ export function RunsPage({ onNavigate }: { onNavigate: (view: AppView) => void }
   const downloadArtifact = async (artifact: Artifact) => {
     setDownloadingId(artifact.id); setDownloadError(null);
     try {
-      const response = await fetch(`${API_BASE}/api/artifacts/${artifact.id}`, { credentials: "include" });
+      const response = await apiFetch(`/api/artifacts/${artifact.id}`);
       if (!response.ok) throw new Error("Could not download this output.");
       const url = URL.createObjectURL(await response.blob());
       const link = document.createElement("a");
@@ -127,7 +128,7 @@ export function RunsPage({ onNavigate }: { onNavigate: (view: AppView) => void }
     setCancellingId(id);
     setError(null);
     try {
-      const response = await fetch(`${API_BASE}/api/runs/${id}/cancel`, { method: "POST", credentials: "include" });
+      const response = await apiFetch(`/api/runs/${id}/cancel`, { method: "POST" });
       if (!response.ok) throw new Error(response.status === 404 ? "This run could not be found." : "Could not stop this run. Please try again.");
       await loadRuns(page);
       if (selectedId === id) await loadDetail(id);
@@ -162,7 +163,7 @@ export function RunsPage({ onNavigate }: { onNavigate: (view: AppView) => void }
     <Paper className="workspace-table-panel" withBorder>
       {loading ? <Group justify="center" p="xl"><Loader size="sm" /><Text size="sm" c="dimmed">Loading runs…</Text></Group>
         : result?.total === 0 ? <Stack className="workspace-empty" align="center" gap="sm"><Badge color="hiveSky" variant="light">Run history</Badge><Title order={2} size="h3">No runs yet</Title><Text c="dimmed" ta="center" maw={480}>Open a saved workflow and choose Run workflow to queue its current definition for execution.</Text><Button variant="light" onClick={() => onNavigate("workflows")}>Browse workflows</Button></Stack>
-          : <><Table.ScrollContainer minWidth={900}><Table verticalSpacing="sm" highlightOnHover><Table.Thead><Table.Tr><Table.Th>Workflow</Table.Th><Table.Th>Status</Table.Th><Table.Th>Duration</Table.Th><Table.Th>Result</Table.Th><Table.Th>Actions</Table.Th></Table.Tr></Table.Thead><Table.Tbody>{rows}</Table.Tbody></Table></Table.ScrollContainer><Group justify="space-between" px="md" py="sm" className="workspace-table-footer"><Text size="sm" c="dimmed">{result?.total ?? 0} {result?.total === 1 ? "run" : "runs"}</Text><Pagination value={page} onChange={setPage} total={result?.totalPages ?? 0} size="sm" withEdges /></Group></>}
+          : <><Table.ScrollContainer minWidth={900}><Table verticalSpacing="sm" highlightOnHover><Table.Thead><Table.Tr><Table.Th>Workflow</Table.Th><Table.Th>Status</Table.Th><Table.Th>Duration</Table.Th><Table.Th>Result</Table.Th><Table.Th>Actions</Table.Th></Table.Tr></Table.Thead><Table.Tbody>{rows}</Table.Tbody></Table></Table.ScrollContainer><PaginatedTableFooter total={result?.total ?? 0} itemName="run" page={page} totalPages={result?.totalPages ?? 0} onPageChange={setPage} /></>}
     </Paper>
     <Modal opened={selectedId !== null} onClose={() => setSelectedId(null)} title="Run details" size="xl" centered>
       {!detail && !detailError ? <Group justify="center" p="xl"><Loader size="sm" /></Group> : detailError ? <Alert color="hiveError" title="Could not load run">{detailError}</Alert> : detail && <Stack gap="md">

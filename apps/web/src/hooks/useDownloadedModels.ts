@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { API_BASE } from "../auth";
+import { apiFetch } from "../apiClient";
 
 type ModelStatusResponse = { models?: Array<{ id: string; status: string }> };
 
@@ -10,7 +10,7 @@ export function useDownloadedModels() {
   const refresh = useCallback(async () => {
     setStatus("checking");
     try {
-      const response = await fetch(`${API_BASE}/api/models`, { credentials: "include" });
+      const response = await apiFetch("/api/models");
       if (!response.ok) throw new Error("model_status_unavailable");
       const body = await response.json() as ModelStatusResponse;
       setModelIds(new Set((body.models ?? []).filter((model) => model.status === "downloaded").map((model) => model.id)));

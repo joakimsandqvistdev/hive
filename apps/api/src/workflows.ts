@@ -6,16 +6,11 @@ import { createWorkflowSchema, saveWorkflowSchema, startRunSchema, validateWorkf
 import { buildWorkflowRunSnapshot } from "./workflowRunSnapshot.js";
 import { forwardRunnerRequest } from "./models.js";
 import { loadDataTypes, loadModelIoContracts } from "./modelContracts.js";
+import { parsePagination, totalPages } from "./pagination.js";
 
 const router = Router();
 function userId(res: import("express").Response) { return res.locals.userId as string; }
 function isUniqueViolation(error: unknown) { return typeof error === "object" && error !== null && "code" in error && error.code === "23505"; }
-function parsePagination(req: import("express").Request) {
-  const page = Math.min(1_000_000, Math.max(1, Number.parseInt(String(req.query.page ?? "1"), 10) || 1));
-  const pageSize = Math.min(50, Math.max(1, Number.parseInt(String(req.query.pageSize ?? "10"), 10) || 10));
-  return { page, pageSize, offset: (page - 1) * pageSize };
-}
-
 router.get("/", async (req, res, next) => {
   const ownerId = userId(res);
   const { page, pageSize, offset } = parsePagination(req);
@@ -35,7 +30,7 @@ router.get("/", async (req, res, next) => {
       .groupBy(runs.workflowId) : [];
     const activeRuns = new Map<string, number>();
     for (const run of activeRunRows) if (run.workflowId) activeRuns.set(run.workflowId, run.runCount);
-    res.json({ items: items.map((workflow) => ({ ...workflow, nodeCount: counts.get(workflow.id) ?? 0, activeRunCount: activeRuns.get(workflow.id) ?? 0 })), page, pageSize, total, totalPages: Math.ceil(total / pageSize) });
+    res.json({ items: items.map((workflow) => ({ ...workflow, nodeCount: counts.get(workflow.id) ?? 0, activeRunCount: activeRuns.get(workflow.id) ?? 0 })), page, pageSize, total, totalPages: totalPages(total, pageSize) });
   } catch (error) { next(error); }
 });
 

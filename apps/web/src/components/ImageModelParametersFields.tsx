@@ -1,4 +1,5 @@
-import { NumberInput, Select, Stack, Switch, Text } from "@mantine/core";
+import { NumberInput, Select, Stack, Text } from "@mantine/core";
+import { RandomSeedFields } from "./RandomSeedFields";
 
 export type ImageModelParameters = {
   modelId: "z-image-turbo" | "qwen-image-edit-2511" | "instruct-pix2pix" | "sd15-inpainting" | "longcat-image-edit-turbo" | "flux2-klein-4b" | "sd15-base" | "sdxl-base-1.0" | "sd35-medium" | "sdxl-turbo" | "sana-sprint-06b";
@@ -85,8 +86,7 @@ export function ImageModelParametersFields({ value, onChange, showModelSelect = 
       if (resolution) onChange({ ...value, resolution: resolution as ImageModelParameters["resolution"] });
     }} allowDeselect={false} />}
     {value.modelId === "longcat-image-edit-turbo" && <Text size="xs" c="dimmed">Output dimensions follow the connected source image.</Text>}
-    <Switch label="Randomize seed for each run" checked={value.randomizeSeed} onChange={(event) => onChange({ ...value, randomizeSeed: event.currentTarget.checked })} />
-    <NumberInput label="Seed" description={value.randomizeSeed ? "A fresh seed is generated for each run." : "The same seed makes this generation repeatable."} value={value.seed} onChange={(seed) => onChange({ ...value, seed: typeof seed === "number" ? seed : Number.parseInt(seed, 10) || 0 })} min={0} max={2_147_483_647} disabled={value.randomizeSeed} />
+    <RandomSeedFields value={value} onChange={onChange} />
     {value.modelId !== "longcat-image-edit-turbo" && <NumberInput label="Inference steps" description={value.modelId === "z-image-turbo" ? "Z-Image-Turbo is tuned for 9 steps." : value.modelId === "qwen-image-edit-2511" ? "Qwen-Image-Edit-2511 default: 40 steps." : value.modelId === "sana-sprint-06b" ? "Sana Sprint uses 1–4 steps." : value.modelId === "sdxl-turbo" ? "SDXL-Turbo is designed for 1–4 steps." : "Diffusion denoising steps."} value={value.steps} onChange={(steps) => onChange({ ...value, steps: typeof steps === "number" ? steps : Number.parseInt(steps, 10) || 4 })} min={value.modelId === "sana-sprint-06b" || value.modelId === "sdxl-turbo" ? 1 : 4} max={value.modelId === "z-image-turbo" ? 12 : value.modelId === "sana-sprint-06b" || value.modelId === "sdxl-turbo" ? 4 : 50} />}
     {value.modelId === "qwen-image-edit-2511" && <NumberInput label="True CFG scale" description="Qwen edit pipeline guidance strength." value={value.trueCfgScale} onChange={(trueCfgScale) => onChange({ ...value, trueCfgScale: typeof trueCfgScale === "number" ? trueCfgScale : Number.parseFloat(trueCfgScale) || 0 })} min={0} max={10} step={0.1} />}
     {value.modelId === "instruct-pix2pix" && <NumberInput label="Image guidance scale" description="How strongly to preserve the source image." value={value.imageGuidanceScale} onChange={(imageGuidanceScale) => onChange({ ...value, imageGuidanceScale: typeof imageGuidanceScale === "number" ? imageGuidanceScale : Number.parseFloat(imageGuidanceScale) || 0 })} min={0} max={3} step={0.1} />}

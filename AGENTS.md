@@ -67,3 +67,8 @@ When finishing a task, report:
 3. Tests and checks performed, including failures.
 4. Decisions made or documentation updated.
 5. Remaining issues and the next useful step.
+
+## Commit message suggestions
+
+- After a task leaves unstaged changes, include a concise, suitable commit message in the completion response. For broad changes, use a short subject and an optional body that summarizes the main related work.
+- Do not stage or commit changes unless the user explicitly asks.
