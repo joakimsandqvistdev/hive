@@ -1,7 +1,7 @@
 import { boolean, foreignKey, index, integer, jsonb, pgEnum, pgTable, primaryKey, real, text, timestamp, uniqueIndex, uuid } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
-export const agentModality = pgEnum("agent_modality", ["image"]);
+export const agentModality = pgEnum("agent_modality", ["image", "video"]);
 export const runStatus = pgEnum("run_status", ["queued", "running", "succeeded", "failed", "cancel_requested", "cancelled"]);
 export const runNodeStatus = pgEnum("run_node_status", ["queued", "running", "succeeded", "failed", "skipped", "cancelled"]);
 

@@ -23,7 +23,7 @@ function timingLabel(startedAt: string | null, finishedAt: string | null, now: n
   return finishedAt ? `${duration} · Finished ${date(finishedAt)}` : `${duration} elapsed`;
 }
 
-function ArtifactPreview({ artifactId, label }: { artifactId: string; label: string }) {
+function ArtifactPreview({ artifactId, label, mediaType }: { artifactId: string; label: string; mediaType: string }) {
   const [src, setSrc] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
   useEffect(() => {
@@ -49,7 +49,9 @@ function ArtifactPreview({ artifactId, label }: { artifactId: string; label: str
   }, [artifactId]);
 
   return <Paper withBorder p="xs" aria-label={`${label} preview`}>
-    {src ? <Image src={src} alt={`${label} generated output`} h={240} fit="contain" radius="sm" />
+    {src ? mediaType.startsWith("video/")
+      ? <video src={src} controls preload="metadata" aria-label={`${label} generated video`} style={{ width: "100%", maxHeight: 240 }} />
+      : <Image src={src} alt={`${label} generated output`} h={240} fit="contain" radius="sm" />
       : <Group h={240} justify="center">{failed ? <Text size="sm" c="dimmed">Preview unavailable</Text> : <Loader size="sm" />}</Group>}
   </Paper>;
 }
@@ -168,7 +170,7 @@ export function RunsPage({ onNavigate }: { onNavigate: (view: AppView) => void }
         <div><Text fw={600} mb="xs">Generated outputs</Text>{downloadError && <Alert color="hiveError" mb="xs">{downloadError}</Alert>}{detail.artifacts.length ? <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="sm">{detail.artifacts.map((artifact) => {
           const node = detail.nodes.find((item) => item.nodeId === artifact.runNodeId);
           const label = node?.agentSnapshotJson?.name ?? artifact.displayName;
-          return <Paper key={artifact.id} withBorder p="sm"><Stack gap="xs"><Group justify="space-between" align="start"><div><Text size="sm" fw={600}>{label}</Text><Text size="xs" c="dimmed">{Math.ceil(artifact.byteSize / 1024)} KB · {date(artifact.createdAt)}</Text></div><Button variant="subtle" size="compact-sm" loading={downloadingId === artifact.id} onClick={() => void downloadArtifact(artifact)}>Download</Button></Group><ArtifactPreview artifactId={artifact.id} label={label} /></Stack></Paper>;
+          return <Paper key={artifact.id} withBorder p="sm"><Stack gap="xs"><Group justify="space-between" align="start"><div><Text size="sm" fw={600}>{label}</Text><Text size="xs" c="dimmed">{Math.ceil(artifact.byteSize / 1024)} KB · {date(artifact.createdAt)}</Text></div><Button variant="subtle" size="compact-sm" loading={downloadingId === artifact.id} onClick={() => void downloadArtifact(artifact)}>Download</Button></Group><ArtifactPreview artifactId={artifact.id} label={label} mediaType={artifact.mediaType} /></Stack></Paper>;
         })}</SimpleGrid> : <Text size="sm" c="dimmed">Outputs will appear here when available.</Text>}</div>
       </Stack>}
     </Modal>

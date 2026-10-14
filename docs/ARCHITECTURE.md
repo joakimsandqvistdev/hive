@@ -1,5 +1,5 @@
-## AI orchestration proposal
+## AI orchestration architecture
 
-The proposed MVP architecture, execution model, local inference options, artifact storage, security considerations, and delivery sequence are documented in [ORCHESTRATION_MVP_DESIGN.md](ORCHESTRATION_MVP_DESIGN.md). This is a proposal; it does not describe implemented functionality.
+The original MVP architecture and storage trade-offs are documented in [ORCHESTRATION_MVP_DESIGN.md](ORCHESTRATION_MVP_DESIGN.md). The application now implements local image and text-to-video inference using the worker and private model runner.
 
-The current slice includes authenticated owner-scoped agent and workflow CRUD. Workflow saves replace the current node and edge rows; no workflow history is retained. Agent deletion is rejected while a current workflow references it, and PostgreSQL enforces the same rule. Model inference remains unimplemented.
+The application uses authenticated owner-scoped agent and workflow CRUD, durable run snapshots, a PostgreSQL-backed queue, a separate worker, and a private local model runner. Workflow saves replace the current node and edge rows; no workflow history is retained. Agent deletion is rejected while a current workflow references it, and PostgreSQL enforces the same rule. Image and text-to-video inference run locally; video outputs are stored as MP4 artifacts.

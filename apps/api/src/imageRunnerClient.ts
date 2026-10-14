@@ -19,6 +19,18 @@ export function createImageRunnerClient(runnerUrl: string, timeoutMs = IMAGE_RUN
         throw new Error(imageRunnerTransportFailure(error), { cause: error });
       }
     },
+    async generateVideo(form: FormData, signal: AbortSignal) {
+      try {
+        return await fetch(`${runnerUrl.replace(/\/$/, "")}/generate-video`, {
+          method: "POST",
+          body: form,
+          dispatcher,
+          signal: AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]),
+        });
+      } catch (error) {
+        throw new Error(imageRunnerTransportFailure(error).replaceAll("Image runner", "Video runner").replaceAll("image runner", "video runner"), { cause: error });
+      }
+    },
     close: () => dispatcher.close(),
   };
 }

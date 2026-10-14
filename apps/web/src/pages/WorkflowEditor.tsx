@@ -4,6 +4,7 @@ import { Alert, Badge, Button, Group, Loader, Modal, Paper, Select, Stack, Text,
 import { API_BASE } from "../auth";
 import { agentModalityLabel } from "../agentModality";
 import { defaultImageModelParameters, imageModelOptions, ImageModelParametersFields } from "../components/ImageModelParametersFields";
+import { defaultVideoModelParameters, VideoModelParametersFields, type VideoModelParameters } from "../components/VideoModelParametersFields";
 import type { AppView } from "../navigation/navigationState";
 import { emptyWorkflowForm } from "./workflowTypes";
 import type { Agent, AgentNodeData, Definition, Workflow, WorkflowForm, WorkflowNode } from "./workflowTypes";
@@ -52,10 +53,12 @@ export function WorkflowEditor({ workflowId, onClose, onNavigate }: {
       const byId = new Map(availableAgents.map((agent) => [agent.id, agent]));
       const mappedNodes: WorkflowNode[] = definition.nodes.map((node) => {
         const agent = byId.get(node.agentId);
-        const parameters = { ...defaultImageModelParameters, ...agent?.parameters, ...node.parameters } as AgentNodeData["parameters"];
-        if (agent?.parameters.modelId && imageModelOptions.some((option) => option.value === agent.parameters.modelId)) {
-          parameters.modelId = agent.parameters.modelId as typeof parameters.modelId;
-        }
+        const modelId = typeof agent?.parameters.modelId === "string" ? agent.parameters.modelId : "z-image-turbo";
+        const parameters = agent?.modality === "video"
+          ? { ...defaultVideoModelParameters((modelId === "cogvideox-2b" ? modelId : "wan2.1-t2v-1.3b") as VideoModelParameters["modelId"]), ...agent.parameters, ...node.parameters } as AgentNodeData["parameters"]
+          : { ...defaultImageModelParameters, ...agent?.parameters, ...node.parameters } as AgentNodeData["parameters"];
+        if (agent?.modality === "image" && agent.parameters.modelId && imageModelOptions.some((option) => option.value === agent.parameters.modelId)) parameters.modelId = agent.parameters.modelId as typeof parameters.modelId;
+        if (agent?.modality === "video" && ["wan2.1-t2v-1.3b", "cogvideox-2b"].includes(modelId)) parameters.modelId = modelId as typeof parameters.modelId;
         return { id: node.id, type: "agent", position: node.position, data: {
           agentId: node.agentId, agentName: agent?.name ?? "Unavailable agent", modality: agent?.modality ?? "unknown",
           agentPrompt: agent?.prompt ?? "This agent is no longer available.", prompt: node.prompt ?? agent?.prompt ?? "",
@@ -90,7 +93,11 @@ export function WorkflowEditor({ workflowId, onClose, onNavigate }: {
   };
   const selectAgent = (agentId: string | null) => {
     const agent = agents.find((item) => item.id === agentId);
-    updateSelectedNode({ agentId: agent?.id ?? "", agentName: agent?.name ?? "Choose an agent", modality: agent?.modality ?? "unconfigured", agentPrompt: agent?.prompt ?? "Select an existing agent in the configuration panel.", prompt: agent?.prompt ?? "", parameters: { ...defaultImageModelParameters, ...agent?.parameters } as AgentNodeData["parameters"] });
+    const modelId = agent?.parameters.modelId;
+    const parameters = agent?.modality === "video"
+      ? { ...defaultVideoModelParameters(modelId === "cogvideox-2b" ? "cogvideox-2b" : "wan2.1-t2v-1.3b"), ...agent.parameters } as AgentNodeData["parameters"]
+      : { ...defaultImageModelParameters, ...agent?.parameters } as AgentNodeData["parameters"];
+    updateSelectedNode({ agentId: agent?.id ?? "", agentName: agent?.name ?? "Choose an agent", modality: agent?.modality ?? "unconfigured", agentPrompt: agent?.prompt ?? "Select an existing agent in the configuration panel.", prompt: agent?.prompt ?? "", parameters });
   };
 
   const saveWorkflow = async () => {
@@ -107,7 +114,7 @@ export function WorkflowEditor({ workflowId, onClose, onNavigate }: {
       const body = await response.json() as { workflow?: Workflow; error?: string };
       if (!response.ok || !body.workflow) {
         const message = body.error === "invalid_workflow_agents" ? "One or more selected agents are unavailable. Review the nodes."
-          : body.error === "unsupported_image_connections" ? "Connections must point to a Qwen-Image-Edit-2511 node and use image-node outputs."
+          : body.error === "unsupported_image_connections" ? "Image connections require an image-producing source and a compatible image-editing agent. Text-to-video agents do not accept image connections."
           : body.error === "invalid_reference_count" ? "Check this model’s required Image and Mask connections on the workflow canvas."
               : "Could not save this workflow.";
         throw new Error(message);
@@ -172,7 +179,10 @@ export function WorkflowEditor({ workflowId, onClose, onNavigate }: {
           <Textarea label="Prompt" description="Defaults to the selected agent’s prompt. Edit it for this workflow node." placeholder="Enter the prompt for this workflow node…" value={selectedNode.data.prompt} onChange={(event) => updateSelectedNode({ prompt: event.currentTarget.value })} maxLength={2000} minRows={5} autosize />
           <Text size="xs" c="dimmed">This node prompt is saved with the workflow and can differ from the reusable agent prompt.</Text>
           {selectedNode.data.parameters.modelId === "sd15-inpainting" && <Text size="xs" c="dimmed">Connect a source image to Image and a black/white mask image to Mask. White mask pixels are edited.</Text>}
-          {selectedNode.data.modality === "image" ? <ImageModelParametersFields showModelSelect={false} value={selectedNode.data.parameters} onChange={(parameters) => updateSelectedNode({ parameters })} /> : <Text size="xs" c="dimmed">Model parameters are not available for this modality yet.</Text>}
+          {selectedNode.data.modality === "video" && "fps" in selectedNode.data.parameters
+            ? <VideoModelParametersFields value={selectedNode.data.parameters} onChange={(parameters) => updateSelectedNode({ parameters })} />
+            : selectedNode.data.modality === "image" ? <ImageModelParametersFields showModelSelect={false} value={selectedNode.data.parameters as import("../components/ImageModelParametersFields").ImageModelParameters} onChange={(parameters) => updateSelectedNode({ parameters })} />
+              : <Text size="xs" c="dimmed">Choose an agent to configure this node.</Text>}
         </Stack> : <Stack gap="md">
           <div><Text className="page-eyebrow">Workflow</Text><Title order={2} size="h4" mt={5}>Configuration</Title></div>
           <Text size="sm" c="dimmed">Select a node to configure its agent and prompt. Connect nodes on the canvas to define the workflow order.</Text>
@@ -197,5 +207,5 @@ export function WorkflowEditor({ workflowId, onClose, onNavigate }: {
 const nodeTypes = { agent: AgentNodeView };
 
 function AgentNodeView({ data, selected }: { data: AgentNodeData; selected: boolean }) {
-  return <Paper className="workflow-agent-node" data-selected={selected || undefined} withBorder shadow="sm"><Handle id="image" type="target" position={Position.Left} style={{ top: "40%" }} /><Text className="workflow-input-label" style={{ top: "34%" }}>Image</Text><Handle id="mask" type="target" position={Position.Left} style={{ top: "68%" }} /><Text className="workflow-input-label" style={{ top: "62%" }}>Mask</Text><Group justify="space-between" gap="xs" wrap="nowrap"><Text size="xs" c="hiveSky.7" fw={700}>{agentModalityLabel(data.modality, data.parameters.modelId)}</Text>{data.agentId && <Badge size="xs" variant="light" color="hiveSky">Configured</Badge>}</Group><Text fw={650} mt={5} lineClamp={1}>{data.agentName}</Text><Text size="xs" c="dimmed" mt={3} lineClamp={3}>{data.prompt || "No prompt configured."}</Text><Handle type="source" position={Position.Right} /></Paper>;
+  return <Paper className="workflow-agent-node" data-selected={selected || undefined} withBorder shadow="sm">{data.modality === "image" && <><Handle id="image" type="target" position={Position.Left} style={{ top: "40%" }} /><Text className="workflow-input-label" style={{ top: "34%" }}>Image</Text><Handle id="mask" type="target" position={Position.Left} style={{ top: "68%" }} /><Text className="workflow-input-label" style={{ top: "62%" }}>Mask</Text><Handle type="source" position={Position.Right} /></>}<Group justify="space-between" gap="xs" wrap="nowrap"><Text size="xs" c="hiveSky.7" fw={700}>{agentModalityLabel(data.modality, data.parameters.modelId)}</Text>{data.agentId && <Badge size="xs" variant="light" color="hiveSky">Configured</Badge>}</Group><Text fw={650} mt={5} lineClamp={1}>{data.agentName}</Text><Text size="xs" c="dimmed" mt={3} lineClamp={3}>{data.prompt || "No prompt configured."}</Text></Paper>;
 }

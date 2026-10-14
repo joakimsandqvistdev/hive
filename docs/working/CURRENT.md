@@ -1,3 +1,14 @@
+## 2026-10-14 — Remove machine-specific model guidance
+
+- Replaced model copy that compared requirements to this host's GPU or computer with general publisher requirements and CPU-offload guidance. Updated the image parameter pane warnings to describe model resource needs without referring to this computer's hardware.
+- Searched `apps/web/src` for host/computer/GPU-specific references; only a generic note that model needs may exceed a user's hardware remains.
+- Web typecheck and `git diff --check` passed.
+## 2026-10-14 — Add local text-to-video models
+
+- Added Wan2.1 T2V 1.3B and CogVideoX-2B as downloadable runner models, with dedicated video-agent choices and model-specific parameters (fixed supported output sizes/frame rates, supported frame counts, seed/randomization, inference steps, guidance, and negative prompt). Workflow nodes inherit agent defaults and expose the same video controls. These are text-to-video models, so video nodes do not accept image connections.
+- Added queued video execution and MP4 artifacts/previews, a Text-to-video group on the Models page, Apache 2.0 license entries, an additive `video` agent-modality migration, and architecture/runner documentation plus decision 0017.
+- API and web typechecks, Python syntax compilation, and `git diff --check` passed. App Docker image build completed. Runner Docker image build stalled while downloading `imageio-ffmpeg` and was canceled due to constrained network bandwidth. FLUX.2 Klein was actively downloading, so no running containers or database migrations were touched. No model weights were downloaded and no inference was attempted.
+- Next: after the active model download finishes, safely refresh services so the additive migration and new runner/API images are applied. Then test video generation on this machine; the host's 8 GB VRAM may require CPU offload and substantial system memory.
 # Current work
 
 ## 2026-10-14 — Browse model groups with tabs

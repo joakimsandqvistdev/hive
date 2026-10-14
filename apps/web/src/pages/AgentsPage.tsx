@@ -4,6 +4,7 @@ import { ActionIcon, Alert, Badge, Button, Group, Loader, Modal, Pagination, Pap
 import { API_BASE } from "../auth";
 import { agentModalityLabel, agentModalityOptions, type AgentModality, type AgentModelChoice } from "../agentModality";
 import { defaultImageModelParameters, imageModelDefaultSteps, imageModelOptions, ImageModelParametersFields, type ImageModelParameters } from "../components/ImageModelParametersFields";
+import { defaultVideoModelParameters, VideoModelParametersFields, type VideoModelParameters } from "../components/VideoModelParametersFields";
 import { ModelDownloadPrompt } from "../components/ModelDownloadPrompt";
 import type { AppView } from "../navigation/navigationState";
 import { useDownloadedModels } from "../hooks/useDownloadedModels";
@@ -12,8 +13,19 @@ const PAGE_SIZE = 10;
 type Modality = AgentModality;
 type Agent = { id: string; modality: Modality; name: string; prompt: string; parameters: Record<string, unknown>; createdAt: string; updatedAt: string; workflowUsageCount: number };
 type AgentPage = { items: Agent[]; page: number; pageSize: number; total: number; totalPages: number };
-type AgentForm = { modality: AgentModelChoice | ""; name: string; prompt: string; parameters: ImageModelParameters };
+type AgentModelParameters = ImageModelParameters | VideoModelParameters;
+type AgentForm = { modality: AgentModelChoice | ""; name: string; prompt: string; parameters: AgentModelParameters };
 const emptyForm: AgentForm = { modality: "", name: "", prompt: "", parameters: { ...defaultImageModelParameters } };
+
+function isVideoChoice(choice: AgentModelChoice | ""): choice is "wan2.1-t2v-1.3b" | "cogvideox-2b" {
+  return choice === "wan2.1-t2v-1.3b" || choice === "cogvideox-2b";
+}
+
+function parametersForChoice(choice: AgentModelChoice): AgentModelParameters {
+  if (choice === "wan2.1-t2v-1.3b" || choice === "cogvideox-2b") return defaultVideoModelParameters(choice);
+  const modelId = (choice === "image" ? "z-image-turbo" : choice) as ImageModelParameters["modelId"];
+  return { ...defaultImageModelParameters, modelId, steps: imageModelDefaultSteps(modelId), trueCfgScale: 4, guidanceScale: modelId === "flux2-klein-4b" ? 1 : modelId === "sana-sprint-06b" || modelId === "sd35-medium" ? 4.5 : 7.5 };
+}
 
 function formatDate(value: string) {
   return new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(new Date(value));
@@ -60,9 +72,8 @@ export function AgentsPage({ onNavigate }: { onNavigate: (view: AppView) => void
   const openCreate = () => {
     void loadModelAvailability();
     setEditingAgent(null);
-    const modelId = modelStatus === "ready" ? (imageModelOptions.find((option) => downloadedModels.has(option.value))?.value ?? "") : "";
-    const selectedModelId = (modelId || "z-image-turbo") as ImageModelParameters["modelId"];
-    setForm({ ...emptyForm, modality: (modelId === "z-image-turbo" ? "image" : modelId) as AgentForm["modality"], parameters: { ...defaultImageModelParameters, modelId: selectedModelId, steps: imageModelDefaultSteps(selectedModelId), trueCfgScale: 4, guidanceScale: modelId === "flux2-klein-4b" ? 1 : modelId === "sana-sprint-06b" || modelId === "sd35-medium" ? 4.5 : 7.5 } });
+    const available = modelStatus === "ready" ? agentModalityOptions.find((option) => downloadedModels.has(option.value === "image" ? "z-image-turbo" : option.value))?.value ?? "" : "";
+    setForm({ ...emptyForm, modality: available, parameters: available ? parametersForChoice(available) : { ...defaultImageModelParameters } });
     setFormError(null);
     setModalOpened(true);
   };
@@ -70,8 +81,12 @@ export function AgentsPage({ onNavigate }: { onNavigate: (view: AppView) => void
   const openEdit = (agent: Agent) => {
     void loadModelAvailability();
     setEditingAgent(agent);
-    const parameters = { ...defaultImageModelParameters, ...agent.parameters } as ImageModelParameters;
-    setForm({ modality: parameters.modelId === "z-image-turbo" ? "image" : parameters.modelId, name: agent.name, prompt: agent.prompt, parameters });
+    const modelId = typeof agent.parameters.modelId === "string" ? agent.parameters.modelId : "z-image-turbo";
+    const choice = (modelId === "z-image-turbo" ? "image" : modelId) as AgentModelChoice;
+    const parameters = agent.modality === "video"
+      ? { ...defaultVideoModelParameters(modelId as VideoModelParameters["modelId"]), ...agent.parameters } as VideoModelParameters
+      : { ...defaultImageModelParameters, ...agent.parameters } as ImageModelParameters;
+    setForm({ modality: choice, name: agent.name, prompt: agent.prompt, parameters });
     setFormError(null);
     setModalOpened(true);
   };
@@ -91,10 +106,10 @@ export function AgentsPage({ onNavigate }: { onNavigate: (view: AppView) => void
         method: editingAgent ? "PATCH" : "POST",
         credentials: "include",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ ...form, modality: "image", parameters: form.parameters }),
+        body: JSON.stringify({ name: form.name, prompt: form.prompt, modality: isVideoChoice(form.modality) ? "video" : "image", parameters: form.parameters }),
       });
       const body = await response.json() as { error?: string };
-      if (body.error === "model_not_downloaded") { setFormError("Download this model from Models before creating or switching to this image agent."); return; }
+      if (body.error === "model_not_downloaded") { setFormError("Download this model from Models before creating or switching to this agent."); return; }
       if (body.error === "model_runner_unavailable") { setFormError("The model runner is unavailable. Start the runner and try again."); return; }
       if (response.status === 409 && body.error === "duplicate_name") { setFormError("An agent with this name already exists. Choose a different name."); return; }
       if (response.status === 401) { setFormError("Sign in to create or edit agents."); return; }
@@ -202,14 +217,14 @@ export function AgentsPage({ onNavigate }: { onNavigate: (view: AppView) => void
             {modelRequiredMessage ? <ModelDownloadPrompt status={modelStatus} onOpenModels={() => onNavigate("models")} onClose={() => setModalOpened(false)} /> : <>
             <Select label="Agent type" placeholder="Choose a modality" data={modelOptions} value={form.modality} onChange={(value) => setForm((current) => {
               const modality = (value ?? "") as AgentForm["modality"];
-              const isImage = Boolean(modality);
-              const modelId = modality === "image" ? "z-image-turbo" : modality;
-              const selectedModelId = (modelId || "z-image-turbo") as ImageModelParameters["modelId"];
-              return { ...current, modality, parameters: isImage ? { ...current.parameters, ...defaultImageModelParameters, modelId: selectedModelId, steps: imageModelDefaultSteps(selectedModelId), trueCfgScale: 4, guidanceScale: modelId === "flux2-klein-4b" ? 1 : modelId === "sana-sprint-06b" || modelId === "sd35-medium" ? 4.5 : 7.5 } : current.parameters };
+              return { ...current, modality, parameters: modality ? parametersForChoice(modality) : current.parameters };
             })} allowDeselect={false} required />
             <TextInput label="Name" placeholder="e.g. Story Writer" value={form.name} onChange={(event) => { const name = event.currentTarget.value; setForm((current) => ({ ...current, name })); }} maxLength={80} required autoFocus />
             <Textarea label="Prompt" placeholder="Write the base instructions this agent should follow." value={form.prompt} onChange={(event) => { const prompt = event.currentTarget.value; setForm((current) => ({ ...current, prompt })); }} maxLength={500} minRows={3} autosize />
-            {form.modality ? <ImageModelParametersFields showModelSelect={false} value={form.parameters} onChange={(parameters) => setForm((current) => ({ ...current, parameters, modality: parameters.modelId === "z-image-turbo" ? "image" : parameters.modelId }))} /> : <Text size="xs" c="dimmed">Download an image model from Models, then select it here.</Text>}
+            {form.modality && isVideoChoice(form.modality) && "fps" in form.parameters
+              ? <VideoModelParametersFields value={form.parameters as VideoModelParameters} onChange={(parameters) => setForm((current) => ({ ...current, parameters }))} />
+              : form.modality ? <ImageModelParametersFields showModelSelect={false} value={form.parameters as ImageModelParameters} onChange={(parameters) => setForm((current) => ({ ...current, parameters }))} />
+                : <Text size="xs" c="dimmed">Download an image or video model from Models, then select it here.</Text>}
             <Text size="xs" c="dimmed">Names must be unique in your agent library, ignoring capitalization.</Text>
             <Group justify="flex-end" mt="xs">
               {editingAgent && <Tooltip label={editingAgent.workflowUsageCount ? "This agent is used by a workflow" : "Remove agent"}><span><ActionIcon type="button" variant="subtle" color="hiveError" aria-label={`Remove ${editingAgent.name}`} disabled={editingAgent.workflowUsageCount > 0} onClick={() => openDelete(editingAgent)}><svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3m3 0-.8 12.2a1 1 0 0 1-1 .8H7.8a1 1 0 0 1-1-.8L6 7m4 4v5m4-5v5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"/></svg></ActionIcon></span></Tooltip>}

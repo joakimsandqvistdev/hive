@@ -1,21 +1,23 @@
 import { hostname } from "node:os";
-import { FormData } from "undici";
+import { FormData, type Response } from "undici";
 import { randomInt } from "node:crypto";
 import { and, eq } from "drizzle-orm";
 import { setTimeout as delay } from "node:timers/promises";
 import { db, pool } from "./db.js";
-import { readArtifact, removeArtifact, savePng } from "./artifactStore.js";
+import { readArtifact, removeArtifact, saveMp4, savePng } from "./artifactStore.js";
 import { artifacts } from "./schema.js";
 import { defaultImageModelParameters, dimensionsForResolution, imageModelParametersSchema } from "./modelParameters.js";
 import { claimNextRun, failRun, finishCancelledRun, finishRun, finishRunNode, heartbeatRun, runCancellationRequested, setRunNodeRunning, type ClaimedRun } from "./runQueue.js";
 import { workflowExecutionOrder } from "./workflowExecutionOrder.js";
 import { imageRunnerRejection, imageRunnerTransportFailure } from "./imageRunnerErrors.js";
 import { createImageRunnerClient } from "./imageRunnerClient.js";
+import { defaultVideoModelParameters, videoModelParametersSchema } from "./videoModelParameters.js";
 
 const workerId = `${hostname()}:${process.pid}`;
 const runnerUrl = (process.env.IMAGE_RUNNER_URL ?? "http://127.0.0.1:8188").replace(/\/$/, "");
 const imageRunner = createImageRunnerClient(runnerUrl);
 const MAX_OUTPUT_BYTES = 25 * 1024 * 1024;
+const MAX_VIDEO_BYTES = 50 * 1024 * 1024;
 
 type SnapshotNode = {
   id: string;
@@ -29,6 +31,61 @@ type SnapshotEdge = { source: string; target: string; targetHandle?: string | nu
 
 function object(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+async function videoRunnerRejection(response: Response): Promise<string> {
+  const message = await imageRunnerRejection(response);
+  if (message.includes("ran out of GPU or system memory")) return "Video runner ran out of GPU or system memory. Try a shorter clip or a host with more memory.";
+  return message.replaceAll("Image runner", "Video runner").replaceAll("image runner", "video runner").replaceAll("Image generation", "Video generation");
+}
+
+async function executeVideoNode(run: ClaimedRun, node: SnapshotNode, signal: AbortSignal, prompt: string): Promise<string> {
+  const rawParameters = { ...object(node.agent?.parameters), ...object(node.parameters) };
+  const parsed = videoModelParametersSchema.safeParse(rawParameters);
+  if (!parsed.success) throw new Error("Video agent settings are invalid. Edit the agent and save the workflow again.");
+  const configured = parsed.data;
+  const candidate = {
+    ...configured,
+    seed: configured.randomizeSeed ? randomInt(0, 2_147_483_648) : configured.seed,
+  };
+  const resolvedInput = await setRunNodeRunning(run.id, node.id, workerId, { modelParameters: candidate });
+  if (!resolvedInput) throw new Error("Worker lease was lost before node execution.");
+  const saved = object(resolvedInput.modelParameters);
+  const settings = Object.keys(saved).length ? saved : candidate;
+  const form = new FormData();
+  form.set("model_id", String(settings.modelId ?? configured.modelId));
+  form.set("prompt", prompt);
+  form.set("negative_prompt", String(settings.negativePrompt ?? ""));
+  form.set("frames", String(settings.frames ?? configured.frames));
+  form.set("seed", String(settings.seed ?? configured.seed));
+  form.set("num_inference_steps", String(settings.steps ?? configured.steps));
+  form.set("guidance_scale", String(settings.guidanceScale ?? configured.guidanceScale));
+
+  const response = await imageRunner.generateVideo(form, signal);
+  if (!response.ok) throw new Error(await videoRunnerRejection(response));
+  if (!response.headers.get("content-type")?.toLowerCase().startsWith("video/mp4")) throw new Error("Video runner did not return an MP4 video.");
+  const declaredLength = Number(response.headers.get("content-length") ?? 0);
+  if (declaredLength > MAX_VIDEO_BYTES) throw new Error("Video output exceeds the 50 MB limit.");
+  const bytes = Buffer.from(await response.arrayBuffer());
+  const stored = await saveMp4(bytes);
+  let metadataInserted = false;
+  try {
+    await db.insert(artifacts).values({
+      id: stored.id, userId: run.user_id, runId: run.id, runNodeId: node.id,
+      storageKey: stored.storageKey, mediaType: "video/mp4", byteSize: stored.byteSize,
+      checksum: stored.checksum, displayName: `${node.agent?.name ?? "generated-video"}.mp4`,
+    });
+    metadataInserted = true;
+    const finished = await finishRunNode(run.id, node.id, workerId, {
+      artifactId: stored.id, mediaType: "video/mp4", byteSize: stored.byteSize, checksum: stored.checksum, modelParameters: settings,
+    });
+    if (!finished) throw new Error("Worker lease was lost while saving node output.");
+  } catch (error) {
+    if (metadataInserted) await db.delete(artifacts).where(eq(artifacts.id, stored.id));
+    await removeArtifact(stored.storageKey);
+    throw error;
+  }
+  return stored.id;
 }
 
 async function execute(run: ClaimedRun, signal: AbortSignal): Promise<void> {
@@ -58,7 +115,13 @@ async function execute(run: ClaimedRun, signal: AbortSignal): Promise<void> {
     const existing = await pool.query<{ status: string }>("SELECT status FROM run_nodes WHERE run_id=$1 AND node_id=$2", [run.id, node.id]);
     if (existing.rows[0]?.status === "succeeded") continue;
     const modality = node.agent?.modality;
-    if (modality !== "image") throw new Error(`Node “${node.agent?.name ?? node.id}” uses ${String(modality ?? "an unknown modality")}; this worker currently supports image agents only.`);
+    const prompt = (node.prompt ?? node.instructions ?? "").trim();
+    if (!prompt) throw new Error("The workflow-node prompt is empty.");
+    if (modality === "video") {
+      artifactIdByNode.set(node.id, await executeVideoNode(run, node, signal, prompt));
+      continue;
+    }
+    if (modality !== "image") throw new Error(`Node “${node.agent?.name ?? node.id}” uses an unsupported modality.`);
     const rawParameters = { ...object(node.agent?.parameters), ...object(node.parameters) };
     const parsedParameters = imageModelParametersSchema.safeParse(rawParameters);
     const configuredParameters = parsedParameters.success ? parsedParameters.data : defaultImageModelParameters;
@@ -79,8 +142,6 @@ async function execute(run: ClaimedRun, signal: AbortSignal): Promise<void> {
     if (!resolvedInput) throw new Error("Worker lease was lost before node execution.");
     const modelParameters = object(resolvedInput.modelParameters);
     const settings = Object.keys(modelParameters).length ? modelParameters : candidateSettings;
-    const prompt = (node.prompt ?? node.instructions ?? "").trim();
-    if (!prompt) throw new Error("The workflow-node prompt is empty.");
     const sourceInputs = [...(incoming.get(node.id) ?? [])].sort((leftInput, rightInput) => {
       const left = nodeById.get(leftInput.source)?.position ?? {};
       const right = nodeById.get(rightInput.source)?.position ?? {};
