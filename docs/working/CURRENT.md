@@ -486,3 +486,4 @@
 - Fixed Klein workflow node creation: its image input and output share the `image` port key, so Hive now includes connector direction in generated ionodes IDs. Added an adapter regression test; web tests and typecheck pass. Restart/rebuild the local app to load the updated frontend bundle.
 - Darkened the workflow canvas zoom/fit SVG icons by setting their inherited `color` to gray-9 (including hover state); React Flow's SVG paths use `fill: currentColor`.
 - Moved workflow validation and operation errors into a compact inline alert beside Back in the editor header; added responsive width constraints so long messages remain readable without covering the canvas.
+- Fixed CI setup to initialize the ionodes submodule and build its library before Hive typechecking, so the workspace's generated `dist` entrypoints and declarations exist on a clean GitHub runner.
