@@ -6,39 +6,31 @@ const root = resolve(process.env.ARTIFACT_ROOT ?? resolve(import.meta.dirname, "
 const MAX_ARTIFACT_BYTES = 25 * 1024 * 1024;
 const MAX_VIDEO_BYTES = 50 * 1024 * 1024;
 
+async function saveGenerated(bytes: Buffer, extension: "png" | "mp4" | "wav", maxBytes: number, minimumBytes: number, formatIsValid: (data: Buffer) => boolean, sizeError: string, formatError: string) {
+  if (bytes.length < minimumBytes || bytes.length > maxBytes) throw new Error(sizeError);
+  if (!formatIsValid(bytes)) throw new Error(formatError);
+  const id = randomUUID();
+  const storageKey = `${id}.${extension}`;
+  await mkdir(root, { recursive: true });
+  await writeFile(resolve(root, storageKey), bytes, { flag: "wx", mode: 0o600 });
+  return { id, storageKey, byteSize: bytes.length, checksum: createHash("sha256").update(bytes).digest("hex") };
+}
+
 export function artifactPath(storageKey: string): string {
   if (!/^[0-9a-f-]{36}\.(?:png|mp4|jpg|webp|wav|mp3|ogg|flac)$/.test(storageKey)) throw new Error("Invalid artifact key.");
   return resolve(root, storageKey);
 }
 
 export async function savePng(bytes: Buffer): Promise<{ id: string; storageKey: string; byteSize: number; checksum: string }> {
-  if (bytes.length === 0 || bytes.length > MAX_ARTIFACT_BYTES) throw new Error("Image output is empty or exceeds the 25 MB limit.");
-  if (bytes.subarray(0, 8).toString("hex") !== "89504e470d0a1a0a") throw new Error("Image runner returned an invalid PNG.");
-  const id = randomUUID();
-  const storageKey = `${id}.png`;
-  await mkdir(root, { recursive: true });
-  await writeFile(resolve(root, storageKey), bytes, { flag: "wx", mode: 0o600 });
-  return { id, storageKey, byteSize: bytes.length, checksum: createHash("sha256").update(bytes).digest("hex") };
+  return saveGenerated(bytes, "png", MAX_ARTIFACT_BYTES, 1, (data) => data.subarray(0, 8).toString("hex") === "89504e470d0a1a0a", "Image output is empty or exceeds the 25 MB limit.", "Image runner returned an invalid PNG.");
 }
 
 export async function saveMp4(bytes: Buffer): Promise<{ id: string; storageKey: string; byteSize: number; checksum: string }> {
-  if (bytes.length < 12 || bytes.length > MAX_VIDEO_BYTES) throw new Error("Video output is empty or exceeds the 50 MB limit.");
-  if (bytes.subarray(4, 8).toString("ascii") !== "ftyp") throw new Error("Video runner returned an invalid MP4.");
-  const id = randomUUID();
-  const storageKey = `${id}.mp4`;
-  await mkdir(root, { recursive: true });
-  await writeFile(resolve(root, storageKey), bytes, { flag: "wx", mode: 0o600 });
-  return { id, storageKey, byteSize: bytes.length, checksum: createHash("sha256").update(bytes).digest("hex") };
+  return saveGenerated(bytes, "mp4", MAX_VIDEO_BYTES, 12, (data) => data.subarray(4, 8).toString("ascii") === "ftyp", "Video output is empty or exceeds the 50 MB limit.", "Video runner returned an invalid MP4.");
 }
 
 export async function saveWav(bytes: Buffer): Promise<{ id: string; storageKey: string; byteSize: number; checksum: string }> {
-  if (bytes.length < 44 || bytes.length > MAX_ARTIFACT_BYTES) throw new Error("Audio output is empty or exceeds the 25 MB limit.");
-  if (bytes.subarray(0, 4).toString("ascii") !== "RIFF" || bytes.subarray(8, 12).toString("ascii") !== "WAVE") throw new Error("Audio runner returned an invalid WAV.");
-  const id = randomUUID();
-  const storageKey = `${id}.wav`;
-  await mkdir(root, { recursive: true });
-  await writeFile(resolve(root, storageKey), bytes, { flag: "wx", mode: 0o600 });
-  return { id, storageKey, byteSize: bytes.length, checksum: createHash("sha256").update(bytes).digest("hex") };
+  return saveGenerated(bytes, "wav", MAX_ARTIFACT_BYTES, 44, (data) => data.subarray(0, 4).toString("ascii") === "RIFF" && data.subarray(8, 12).toString("ascii") === "WAVE", "Audio output is empty or exceeds the 25 MB limit.", "Audio runner returned an invalid WAV.");
 }
 
 export async function readArtifact(storageKey: string): Promise<Buffer> {

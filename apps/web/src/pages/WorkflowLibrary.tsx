@@ -6,6 +6,7 @@ import { ConfirmActionModal } from "../components/ConfirmActionModal";
 import { PaginatedTableFooter } from "../components/PaginatedTableFooter";
 import type { AppView } from "../navigation/navigationState";
 import { emptyWorkflowForm, type Workflow, type WorkflowForm } from "./workflowTypes";
+import { startWorkflowRun } from "./startWorkflowRun";
 
 const PAGE_SIZE = 10;
 type WorkflowPageResult = { items: Workflow[]; page: number; pageSize: number; total: number; totalPages: number };
@@ -47,9 +48,7 @@ export function WorkflowLibrary({ onNavigate }: { onNavigate: (view: AppView) =>
   const startRun = async (item: Workflow) => {
     setStartingRunId(item.id); setRunError(null);
     try {
-      const response = await apiFetch(`/api/workflows/${item.id}/runs`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
-      const body = await response.json() as { error?: string };
-      if (!response.ok) throw new Error(body.error === "model_not_downloaded" ? "Download every model used by this workflow from Models before running." : body.error === "invalid_input_counts" ? "Connect all required model inputs and check connection limits." : body.error === "invalid_input" ? "Fill every text input and upload a file for each media input." : "Could not start workflow.");
+      await startWorkflowRun(item.id);
       onNavigate("runs");
     } catch (error) { setRunError(error instanceof Error ? error.message : "Could not start workflow."); }
     finally { setStartingRunId(null); }

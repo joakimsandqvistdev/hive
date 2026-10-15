@@ -6,17 +6,11 @@ Users manage Models, Workflows, and Runs. Download an allow-listed model from Mo
 
 Model prompts and other data inputs come exclusively from connections. Inference controls such as resolution, seed, steps, and guidance remain on model nodes. Video negative prompts are optional text connections. Kokoro-82M adds text-to-speech: a connected text prompt produces a WAV audio output, with voice and speech speed configured on the model node. Input outputs and model I/O ports use the same canonical datatype catalog.
 
-## Implemented architecture
+## Product and implementation boundaries
 
-React/Vite/Mantine and React Flow provide the editor. Express/Drizzle/PostgreSQL provide authenticated ownership, model I/O contracts, graph persistence, and durable run queueing. A separate worker resolves typed outputs in dependency order. Allow-listed local image, text-to-video, and text-to-speech adapters perform inference in temporary runner processes. A persistent model cache survives app refreshes; downloaded availability is checked before queueing model workflows.
+The editor offers typed input and model nodes. Model ports determine which edges can be connected; text and media inputs are configured through input nodes. Model inference settings remain on model nodes. A workflow run uses the saved graph and model settings as its input snapshot.
 
-All workflow data/model contracts/settings are snapshotted per run. Uploaded inputs are immutable files referenced by workflow and run nodes. Generated PNG/MP4/WAV outputs and uploaded PNG/JPEG/WebP/WAV/MP3/Ogg/FLAC inputs use opaque-key local storage, owner-scoped preview/download routes, file size limits, and checksums. Cleanup cannot delete inputs referenced by saved workflows or runs.
-
-## Contracts and constraints
-
-Model ports define datatype, required minimum, maximum cardinality, direction, and named roles. The same contracts drive editor handles and API validation. Text input nodes can fan out to multiple prompt ports; image outputs can feed edit or mask ports. Invalid/missing/excess connections and cycles are rejected. No automatic hidden prompt concatenation or inline model data input exists.
-
-Authenticated mutations retain origin checks. Uploads are bounded and content-sniffed; filenames cannot choose filesystem paths. The worker only reads owner-accessible input/output artifacts and the runner has no database credentials. Queue leases, retries with persisted settings, user cancellation, and process teardown are retained.
+Connection rules, input validation, queue lifecycle, ownership, artifact retention and deletion behavior are documented in [ARCHITECTURE.md](ARCHITECTURE.md) and [DATA_MODEL.md](DATA_MODEL.md). This document describes the user-facing orchestration scope and decisions; those references are canonical for system behavior and storage details.
 
 ## Scope and remaining work
 
