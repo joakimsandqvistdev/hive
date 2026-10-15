@@ -20,7 +20,7 @@ await new Promise<void>((resolve) => runner.listen(0, "127.0.0.1", resolve));
 const runnerAddress = runner.address(); assert.ok(runnerAddress && typeof runnerAddress !== "string");
 process.env.IMAGE_RUNNER_URL = `http://127.0.0.1:${runnerAddress.port}`;
 const { db, pool } = await import("../src/db.js");
-const { users, artifacts, workflows, runs, runNodes } = await import("../src/schema.js");
+const { users, artifacts, workflows, runs, runNodes, runDeletions } = await import("../src/schema.js");
 const { workflowsRouter } = await import("../src/workflows.js");
 const { artifactsRouter } = await import("../src/artifacts.js");
 const { runsRouter } = await import("../src/runs.js");
@@ -193,4 +193,30 @@ test("cancelling a connected-model run interrupts its HTTP request and cancels t
   assert.equal(disconnected, true);
   const steps = await db.select().from(runNodes).where(eq(runNodes.runId, runId));
   assert.equal(steps.find((node) => node.nodeId === "model")!.status, "cancelled");
+});
+
+test("deleting a queued run cancels it and queues artifact cleanup", async () => {
+  const id = await createFlow();
+  assert.equal((await request(`/api/workflows/${id}`, "PUT", { name: "Queued delete", description: "", definition: { nodes: [text, model], edges: [promptEdge] } })).status, 200);
+  stallNext = true;
+  const activeResponse = await request(`/api/workflows/${id}/runs`, "POST", {});
+  const activeRunId = (await activeResponse.json()).run.id as string;
+  for (let attempt = 0; attempt < 100 && !stalled; attempt++) await new Promise((resolve) => setTimeout(resolve, 50));
+  assert.equal(stalled, true);
+
+  const queuedResponse = await request(`/api/workflows/${id}/runs`, "POST", {});
+  const queuedRunId = (await queuedResponse.json()).run.id as string;
+  const removed = await request(`/api/runs/${queuedRunId}`, "DELETE");
+  assert.equal(removed.status, 202);
+  const [queuedRun] = await db.select().from(runs).where(eq(runs.id, queuedRunId));
+  assert.equal(queuedRun!.status, "cancelled");
+  assert.equal((await db.select().from(runDeletions).where(eq(runDeletions.runId, queuedRunId))).length, 1);
+
+  assert.equal((await request(`/api/runs/${activeRunId}/cancel`, "POST", {})).status, 200);
+  assert.equal((await waitRun(activeRunId)).status, "cancelled");
+  for (let attempt = 0; attempt < 100; attempt++) {
+    if (!(await db.select({ id: runs.id }).from(runs).where(eq(runs.id, queuedRunId))).length) break;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  assert.equal((await db.select({ id: runs.id }).from(runs).where(eq(runs.id, queuedRunId))).length, 0);
 });

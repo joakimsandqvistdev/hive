@@ -193,7 +193,7 @@ export function RunsPage({ onNavigate }: { onNavigate: (view: AppView) => void }
       {run.deletion ? run.deletion.lastError
         ? <Tooltip label="Cleanup failed. Retry removing generated media"><ActionIcon color="hiveError" variant="subtle" aria-label="Retry run cleanup" loading={retryingDeletionId === run.id} onClick={() => void retryDeletion(run.id)}><RetryIcon /></ActionIcon></Tooltip>
         : <Badge color="hiveSky" variant="light">Removing…</Badge>
-        : <Tooltip label={active(run.status) ? "Stop the run before deleting it" : "Delete run and generated media"}><ActionIcon color="hiveError" variant="subtle" aria-label={"Delete run for " + (run.workflowSnapshotJson?.name ?? "workflow")} disabled={active(run.status)} loading={deletingId === run.id} onClick={() => { setDeleteError(null); setDeleteTarget(run); }}><TrashIcon /></ActionIcon></Tooltip>}
+        : <Tooltip label={run.status === "queued" ? "Cancel and delete queued run" : active(run.status) ? "Stop the run before deleting it" : "Delete run and generated media"}><ActionIcon color="hiveError" variant="subtle" aria-label={"Delete run for " + (run.workflowSnapshotJson?.name ?? "workflow")} disabled={active(run.status) && run.status !== "queued"} loading={deletingId === run.id} onClick={() => { setDeleteError(null); setDeleteTarget(run); }}><TrashIcon /></ActionIcon></Tooltip>}
     </Group></Table.Td>
   </Table.Tr>);
 
@@ -207,7 +207,7 @@ export function RunsPage({ onNavigate }: { onNavigate: (view: AppView) => void }
           : <><Table.ScrollContainer minWidth={900}><Table verticalSpacing="sm" highlightOnHover><Table.Thead><Table.Tr><Table.Th>Workflow</Table.Th><Table.Th>Status</Table.Th><Table.Th>Duration</Table.Th><Table.Th>Result</Table.Th><Table.Th>Actions</Table.Th></Table.Tr></Table.Thead><Table.Tbody>{rows}</Table.Tbody></Table></Table.ScrollContainer><PaginatedTableFooter total={result?.total ?? 0} itemName="run" page={page} totalPages={result?.totalPages ?? 0} onPageChange={setPage} /></>}
     </Paper>
     <ConfirmActionModal opened={deleteTarget !== null} onClose={() => { if (!deletingId) setDeleteTarget(null); }} title="Delete run?" confirmLabel="Delete run" loading={deletingId !== null} onConfirm={() => void deleteRun()}>
-      <Text>Delete the run for <strong>{deleteTarget?.workflowSnapshotJson?.name ?? "Workflow"}</strong>? Its run history and generated media will be permanently removed. Uploaded input files are removed only when no workflow or other run still uses them.</Text>
+      <Text>{deleteTarget?.status === "queued" ? <>Cancel and delete the queued run for <strong>{deleteTarget.workflowSnapshotJson?.name ?? "Workflow"}</strong>?</> : <>Delete the run for <strong>{deleteTarget?.workflowSnapshotJson?.name ?? "Workflow"}</strong>?</>} Its run history and generated media will be permanently removed. Uploaded input files are removed only when no workflow or other run still uses them.</Text>
     </ConfirmActionModal>
     <Modal opened={selectedId !== null} onClose={() => setSelectedId(null)} title="Run details" size="xl" centered>
       {!detail && !detailError ? <Group justify="center" p="xl"><Loader size="sm" /></Group> : detailError ? <Alert color="hiveError" title="Could not load run">{detailError}</Alert> : detail && <Stack gap="md">

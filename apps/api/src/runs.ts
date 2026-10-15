@@ -49,7 +49,12 @@ router.delete("/:id", async (req, res, next) => {
       res.status(404).json({ error: "run_not_found" });
       return;
     }
-    if (["queued", "running", "cancel_requested"].includes(status)) {
+    if (status === "queued") {
+      // Cancel under the same row lock as deletion so the worker cannot claim this run
+      // between a separate cancel request and the cleanup request.
+      await client.query("UPDATE runs SET status='cancelled',cancel_requested_at=COALESCE(cancel_requested_at,now()),finished_at=now(),error_summary='Run stopped by user.' WHERE id=$1 AND status='queued'", [req.params.id]);
+      await client.query("UPDATE run_nodes SET status='cancelled',error_code='run_cancelled',error_summary='Step cancelled because the run was stopped.',finished_at=COALESCE(finished_at,now()) WHERE run_id=$1 AND status='queued'", [req.params.id]);
+    } else if (["running", "cancel_requested"].includes(status)) {
       await client.query("ROLLBACK");
       res.status(409).json({ error: "run_active" });
       return;
