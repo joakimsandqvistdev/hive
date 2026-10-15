@@ -9,6 +9,42 @@ export type ClaimedRun = {
   attempt_count: number;
 };
 
+export type ClaimedRunDeletion = {
+  run_id: string;
+  user_id: string;
+  storage_keys: string[];
+  candidate_upload_ids: string[];
+  attempt_count: number;
+};
+
+/** Claim one run-artifact cleanup task with a lease so crashes can be retried safely. */
+export async function claimNextRunDeletion(workerId: string, leaseSeconds = 120): Promise<ClaimedRunDeletion | null> {
+  const result = await pool.query<ClaimedRunDeletion>(`
+    WITH candidate AS (
+      SELECT run_id FROM run_deletions
+      WHERE next_attempt_at <= now() AND (claimed_by IS NULL OR lease_expires_at < now())
+      ORDER BY created_at, run_id
+      FOR UPDATE SKIP LOCKED
+      LIMIT 1
+    )
+    UPDATE run_deletions AS deletion
+    SET claimed_by=$1, attempt_count=deletion.attempt_count+1,
+        lease_expires_at=now()+($2 * interval '1 second'), last_error=NULL
+    FROM candidate
+    WHERE deletion.run_id=candidate.run_id
+    RETURNING deletion.run_id, deletion.user_id, deletion.storage_keys, deletion.candidate_upload_ids, deletion.attempt_count
+  `, [workerId, leaseSeconds]);
+  return result.rows[0] ?? null;
+}
+
+/** Release a failed cleanup task with a retry delay. Removing files is idempotent. */
+export async function retryRunDeletion(runId: string, workerId: string): Promise<void> {
+  await pool.query(`UPDATE run_deletions
+    SET claimed_by=NULL, lease_expires_at=NULL, last_error='artifact_cleanup_failed',
+        next_attempt_at=now()+CASE WHEN attempt_count < 6 THEN interval '15 seconds' ELSE interval '1 minute' END
+    WHERE run_id=$1 AND claimed_by=$2`, [runId, workerId]);
+}
+
 /** Atomically claim one queued run, or recover a running run whose lease expired. */
 export async function claimNextRun(workerId: string, leaseSeconds = 120): Promise<ClaimedRun | null> {
   if (!workerId.trim() || workerId.length > 100) throw new Error("workerId must contain 1 to 100 characters.");

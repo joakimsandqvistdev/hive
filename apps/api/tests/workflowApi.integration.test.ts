@@ -4,7 +4,7 @@ import { createServer } from "node:http";
 import { spawn } from "node:child_process";
 import express from "express";
 import { eq, inArray } from "drizzle-orm";
-import { removeArtifact } from "../src/artifactStore.js";
+import { readArtifact, removeArtifact } from "../src/artifactStore.js";
 
 const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+/l9sAAAAASUVORK5CYII=", "base64");
 let received = "";
@@ -117,6 +117,37 @@ test("uploaded and generated image outputs can both feed editing model ports", a
   const run = await waitRun((await started.json()).run.id); assert.equal(run.status, "succeeded", run.errorSummary ?? "");
   assert.match(received, /qwen-image-edit-2511/); assert.match(received, /name="images"/);
   const files = await db.select().from(artifacts).where(eq(artifacts.runId, run.id)); assert.equal(files.length, 2);
+  assert.equal((await request("/api/runs/" + run.id, "DELETE", undefined, other)).status, 404);
+  assert.equal((await request("/api/runs/" + run.id, "DELETE")).status, 202);
+  assert.equal((await request("/api/runs/" + run.id)).status, 404);
+  for (let attempt = 0; attempt < 100; attempt++) {
+    const [remaining] = await db.select({ id: runs.id }).from(runs).where(eq(runs.id, run.id));
+    if (!remaining) break;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  assert.equal((await db.select({ id: runs.id }).from(runs).where(eq(runs.id, run.id))).length, 0);
+  assert.equal((await db.select().from(artifacts).where(eq(artifacts.runId, run.id))).length, 0);
+  for (const generated of files) await assert.rejects(readArtifact(generated.storageKey), { code: "ENOENT" });
+  assert.equal((await request("/api/artifacts/" + file.id + "/preview")).status, 200, "uploaded inputs are preserved");
+});
+
+test("deleting a run removes an uploaded input after its workflow releases it", async () => {
+  const uploaded = (await (await upload()).json()).artifact;
+  const id = await createFlow();
+  const image = { id: "image", kind: "input", label: "Image", dataTypeId: "image", inputText: "", artifactId: uploaded.id, parameters: {}, position: { x: 0, y: 0 } };
+  assert.equal((await request("/api/workflows/" + id, "PUT", { name: "Image input", description: "", definition: { nodes: [image], edges: [] } })).status, 200);
+  const started = await request("/api/workflows/" + id + "/runs", "POST", {});
+  const run = await waitRun((await started.json()).run.id);
+  assert.equal(run.status, "succeeded");
+  assert.equal((await request("/api/workflows/" + id, "DELETE")).status, 204);
+  assert.equal((await request("/api/runs/" + run.id, "DELETE")).status, 202);
+  for (let attempt = 0; attempt < 100; attempt++) {
+    const [remaining] = await db.select({ id: runs.id }).from(runs).where(eq(runs.id, run.id));
+    if (!remaining) break;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+  assert.equal((await db.select().from(artifacts).where(eq(artifacts.id, uploaded.id))).length, 0);
+  await assert.rejects(readArtifact(uploaded.storageKey), { code: "ENOENT" });
 });
 
 test("audio input uses the shared datatype and runs without a model", async () => {
@@ -146,6 +177,7 @@ test("cross-origin upload and cancellation mutations are rejected", async () => 
   const headers = { origin: "http://untrusted.example", "test-user": owner, "content-type": "application/octet-stream" };
   assert.equal((await fetch(`${base}/api/artifacts/upload?dataTypeId=image`, { method: "POST", headers, body: png })).status, 403);
   assert.equal((await fetch(`${base}/api/runs/00000000-0000-4000-8000-000000000001/cancel`, { method: "POST", headers })).status, 403);
+  assert.equal((await fetch(`${base}/api/runs/00000000-0000-4000-8000-000000000001`, { method: "DELETE", headers })).status, 403);
 });
 
 test("cancelling a connected-model run interrupts its HTTP request and cancels the running node", async () => {
@@ -155,6 +187,7 @@ test("cancelling a connected-model run interrupts its HTTP request and cancels t
   const started = await request(`/api/workflows/${id}/runs`, "POST", {}); const runId = (await started.json()).run.id;
   for (let attempt = 0; attempt < 100 && !stalled; attempt++) await new Promise((resolve) => setTimeout(resolve, 50));
   assert.equal(stalled, true);
+  assert.equal((await request("/api/runs/" + runId, "DELETE")).status, 409);
   assert.equal((await request(`/api/runs/${runId}/cancel`, "POST", {})).status, 200);
   assert.equal((await waitRun(runId)).status, "cancelled");
   assert.equal(disconnected, true);

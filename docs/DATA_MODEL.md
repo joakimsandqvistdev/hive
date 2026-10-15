@@ -11,6 +11,7 @@ Use `apps/api/src/schema.ts` as the implemented schema reference.
 - `runs`: durable queue status, immutable workflow snapshot, attempt counts, worker lease/heartbeat, and cancellation state.
 - `run_nodes`: node snapshots, input-file reference, resolved inference parameters, typed output JSON, status/errors/timestamps. There are no reusable-definition references or inline model prompts.
 - `artifacts`: immutable uploaded inputs or generated outputs with canonical datatype, owner, media type, byte count, checksum, display name, and opaque storage key. Uploads have null run/node references; generated outputs reference their producing run node. Workflow and run-node references protect uploads still in use.
+- `run_deletions`: durable cleanup outbox containing the owner, run-generated artifact keys, candidate input uploads, retry state, and worker lease. Run deletion removes run-owned outputs and uploaded inputs that no workflow or other run still references; shared inputs and model caches are preserved.
 
 Current model modalities include image, video, and audio. Kokoro-82M has one required text input on its `prompt` port and one audio output. Audio is also available for uploaded inputs and future models.
 

@@ -1,8 +1,11 @@
 import { and, eq, sql } from "drizzle-orm";
+import { createReadStream } from "node:fs";
+import { stat } from "node:fs/promises";
 import { Router, raw } from "express";
-import { readArtifact, removeArtifact, saveUpload } from "./artifactStore.js";
+import { artifactPath, readArtifact, removeArtifact, saveUpload } from "./artifactStore.js";
+import { parseArtifactByteRange } from "./artifactRange.js";
 import { db } from "./db.js";
-import { artifacts, workflowNodes, runNodes } from "./schema.js";
+import { artifacts, runDeletions, workflowNodes, runNodes } from "./schema.js";
 
 const router = Router();
 router.delete("/:id", async (req, res, next) => {
@@ -39,13 +42,45 @@ router.post("/upload", (req, res, next) => {
 router.get("/:id/preview", async (req, res, next) => {
   try {
     const [artifact] = await db.select().from(artifacts).where(and(eq(artifacts.id, req.params.id), eq(artifacts.userId, res.locals.userId as string))).limit(1);
+    if (artifact?.runId) {
+      const [deletion] = await db.select({ runId: runDeletions.runId }).from(runDeletions).where(eq(runDeletions.runId, artifact.runId)).limit(1);
+      if (deletion) { res.status(404).json({ error: "artifact_not_found" }); return; }
+    }
     if (!artifact || !(artifact.mediaType.startsWith("image/") || artifact.mediaType.startsWith("audio/") || artifact.mediaType === "video/mp4")) { res.status(404).json({ error: "artifact_not_found" }); return; }
-    const content = await readArtifact(artifact.storageKey);
     res.setHeader("Content-Type", artifact.mediaType);
-    res.setHeader("Content-Length", String(artifact.byteSize));
     res.setHeader("Cache-Control", "private, no-store");
     res.setHeader("X-Content-Type-Options", "nosniff");
     res.setHeader("Content-Disposition", "inline");
+    if (artifact.mediaType === "video/mp4") {
+      const path = artifactPath(artifact.storageKey);
+      const size = (await stat(path)).size;
+      const range = req.headers.range;
+      let start = 0;
+      let end = size - 1;
+      if (range) {
+        const parsedRange = parseArtifactByteRange(range, size);
+        if (!parsedRange) {
+          res.setHeader("Content-Range", `bytes */${size}`);
+          res.status(416).end();
+          return;
+        }
+        start = parsedRange.start;
+        end = parsedRange.end;
+        res.status(206);
+        res.setHeader("Content-Range", `bytes ${start}-${end}/${size}`);
+      }
+      res.setHeader("Accept-Ranges", "bytes");
+      res.setHeader("Content-Length", String(end - start + 1));
+      const stream = createReadStream(path, { start, end });
+      stream.on("error", (error) => {
+        if (res.headersSent) res.destroy(error);
+        else next(error);
+      });
+      stream.pipe(res);
+      return;
+    }
+    const content = await readArtifact(artifact.storageKey);
+    res.setHeader("Content-Length", String(content.length));
     res.send(content);
   } catch (error) { next(error); }
 });
@@ -53,6 +88,10 @@ router.get("/:id/preview", async (req, res, next) => {
 router.get("/:id", async (req, res, next) => {
   try {
     const [artifact] = await db.select().from(artifacts).where(and(eq(artifacts.id, req.params.id), eq(artifacts.userId, res.locals.userId as string))).limit(1);
+    if (artifact?.runId) {
+      const [deletion] = await db.select({ runId: runDeletions.runId }).from(runDeletions).where(eq(runDeletions.runId, artifact.runId)).limit(1);
+      if (deletion) { res.status(404).json({ error: "artifact_not_found" }); return; }
+    }
     if (!artifact) { res.status(404).json({ error: "artifact_not_found" }); return; }
     const content = await readArtifact(artifact.storageKey);
     res.setHeader("Content-Type", artifact.mediaType);

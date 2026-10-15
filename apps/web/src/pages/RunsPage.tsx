@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { ActionIcon, Alert, Badge, Button, Group, Image, Loader, Modal, Paper, SimpleGrid, Stack, Table, Text, Title, Tooltip } from "@mantine/core";
-import { apiFetch } from "../apiClient";
+import { apiFetch, apiUrl } from "../apiClient";
+import { ConfirmActionModal } from "../components/ConfirmActionModal";
 import { PaginatedTableFooter } from "../components/PaginatedTableFooter";
 
 import type { AppView } from "../navigation/navigationState";
@@ -8,7 +9,7 @@ import type { AppView } from "../navigation/navigationState";
 function nodeTypeLabel(modality?: string, modelId?: unknown) { return typeof modelId === "string" ? modelId : modality ?? "Input"; }
 const PAGE_SIZE = 10;
 type RunStatus = "queued" | "running" | "succeeded" | "failed" | "cancel_requested" | "cancelled";
-type Run = { id: string; workflowId: string | null; status: RunStatus; workflowSnapshotJson: { name?: string }; errorSummary: string | null; createdAt: string; startedAt: string | null; finishedAt: string | null };
+type Run = { id: string; workflowId: string | null; status: RunStatus; workflowSnapshotJson: { name?: string }; errorSummary: string | null; createdAt: string; startedAt: string | null; finishedAt: string | null; deletion?: { attemptCount: number; lastError: string | null; processing: boolean } | null };
 type RunNode = { nodeId: string; status: string; startedAt: string | null; finishedAt: string | null; nodeSnapshotJson: { name?: string; modality?: string; kind?: string; dataTypeId?: string; parameters?: { modelId?: string } }; parameters?: { modelId?: string }; outputJson?: { dataTypeId?: string; text?: string; artifactId?: string }; errorSummary: string | null };
 type Artifact = { id: string; runNodeId: string; displayName: string; mediaType: string; byteSize: number; createdAt: string };
 type PageResult = { items: Run[]; page: number; pageSize: number; total: number; totalPages: number };
@@ -33,6 +34,10 @@ function ArtifactPreview({ artifactId, label, mediaType }: { artifactId: string;
     let objectUrl: string | null = null;
     setSrc(null);
     setFailed(false);
+    if (mediaType === "video/mp4") {
+      setSrc(apiUrl(`/api/artifacts/${artifactId}/preview`));
+      return () => { disposed = true; };
+    }
     void apiFetch(`/api/artifacts/${artifactId}/preview`)
       .then(async (response) => {
         if (!response.ok) throw new Error("Preview unavailable");
@@ -48,14 +53,15 @@ function ArtifactPreview({ artifactId, label, mediaType }: { artifactId: string;
       disposed = true;
       if (objectUrl) URL.revokeObjectURL(objectUrl);
     };
-  }, [artifactId]);
+  }, [artifactId, mediaType]);
 
   return <Paper withBorder p="xs" aria-label={`${label} preview`}>
-    {src ? mediaType.startsWith("video/")
-      ? <video src={src} controls preload="metadata" aria-label={`${label} generated video`} style={{ width: "100%", maxHeight: 240 }} />
+    {failed ? <Group h={240} justify="center"><Text size="sm" c="dimmed">Preview unavailable</Text></Group>
+      : src ? mediaType.startsWith("video/")
+      ? <video src={src} controls crossOrigin="use-credentials" playsInline preload="metadata" onError={() => setFailed(true)} aria-label={`${label} generated video`} style={{ width: "100%", maxHeight: 320 }} />
       : mediaType.startsWith("audio/") ? <audio src={src} controls aria-label={label} style={{ width: "100%" }} />
       : <Image src={src} alt={`${label} output`} h={240} fit="contain" radius="sm" />
-      : <Group h={240} justify="center">{failed ? <Text size="sm" c="dimmed">Preview unavailable</Text> : <Loader size="sm" />}</Group>}
+      : <Group h={240} justify="center"><Loader size="sm" /></Group>}
   </Paper>;
 }
 
@@ -70,6 +76,10 @@ export function RunsPage({ onNavigate }: { onNavigate: (view: AppView) => void }
   const [downloadError, setDownloadError] = useState<string | null>(null);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const [cancellingId, setCancellingId] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Run | null>(null);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [retryingDeletionId, setRetryingDeletionId] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
 
   const loadRuns = useCallback(async (requestedPage = page) => {
@@ -86,7 +96,7 @@ export function RunsPage({ onNavigate }: { onNavigate: (view: AppView) => void }
 
   useEffect(() => { setLoading(true); void loadRuns(page); }, [loadRuns, page]);
   useEffect(() => {
-    if (!result?.items.some((run) => active(run.status))) return;
+    if (!result?.items.some((run) => active(run.status) || run.deletion)) return;
     const timer = window.setInterval(() => void loadRuns(page), 3000);
     return () => window.clearInterval(timer);
   }, [loadRuns, page, result?.items]);
@@ -136,6 +146,30 @@ export function RunsPage({ onNavigate }: { onNavigate: (view: AppView) => void }
     finally { setCancellingId(null); }
   };
 
+  const deleteRun = async () => {
+    if (!deleteTarget) return;
+    const target = deleteTarget;
+    setDeletingId(target.id); setDeleteError(null);
+    try {
+      const response = await apiFetch("/api/runs/" + target.id, { method: "DELETE" });
+      if (!response.ok) throw new Error(response.status === 409 ? "Stop the run and wait for it to finish before deleting it." : response.status === 404 ? "This run could not be found." : "Could not delete this run. Please try again.");
+      setDeleteTarget(null);
+      if (selectedId === target.id) setSelectedId(null);
+      await loadRuns(page);
+    } catch (cause) { setDeleteError(cause instanceof Error ? cause.message : "Could not delete this run."); }
+    finally { setDeletingId(null); }
+  };
+
+  const retryDeletion = async (id: string) => {
+    setRetryingDeletionId(id); setDeleteError(null);
+    try {
+      const response = await apiFetch("/api/runs/" + id + "/delete/retry", { method: "POST" });
+      if (!response.ok) throw new Error(response.status === 409 ? "Cleanup is already running. Please wait." : "Could not retry cleanup. Please try again.");
+      await loadRuns(page);
+    } catch (cause) { setDeleteError(cause instanceof Error ? cause.message : "Could not retry cleanup."); }
+    finally { setRetryingDeletionId(null); }
+  };
+
   useEffect(() => {
     setDetail(null);
     if (!selectedId) return;
@@ -154,17 +188,27 @@ export function RunsPage({ onNavigate }: { onNavigate: (view: AppView) => void }
     <Table.Td><Badge variant="light" color={statusColor(run.status)}>{run.status.replaceAll("_", " ")}</Badge></Table.Td>
     <Table.Td><Text size="sm" c="dimmed">{timingLabel(run.startedAt, run.finishedAt, now)}</Text></Table.Td>
     <Table.Td><Text size="sm" c={run.errorSummary ? "hiveError.7" : "dimmed"} lineClamp={2}>{run.errorSummary ?? (active(run.status) ? "Waiting for worker…" : "—")}</Text></Table.Td>
-    <Table.Td>{run.status === "running" && <Tooltip label="Stop run"><ActionIcon color="hiveError" variant="subtle" aria-label={`Stop run for ${run.workflowSnapshotJson?.name ?? "workflow"}`} loading={cancellingId === run.id} onClick={(event) => { event.stopPropagation(); void stopRun(run.id); }} onKeyDown={(event) => event.stopPropagation()}><StopIcon /></ActionIcon></Tooltip>}</Table.Td>
+    <Table.Td><Group gap={4} justify="flex-end" onClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()}>
+      {run.status === "running" && <Tooltip label="Stop run"><ActionIcon color="hiveError" variant="subtle" aria-label={"Stop run for " + (run.workflowSnapshotJson?.name ?? "workflow")} loading={cancellingId === run.id} onClick={() => void stopRun(run.id)}><StopIcon /></ActionIcon></Tooltip>}
+      {run.deletion ? run.deletion.lastError
+        ? <Tooltip label="Cleanup failed. Retry removing generated media"><ActionIcon color="hiveError" variant="subtle" aria-label="Retry run cleanup" loading={retryingDeletionId === run.id} onClick={() => void retryDeletion(run.id)}><RetryIcon /></ActionIcon></Tooltip>
+        : <Badge color="hiveSky" variant="light">Removing…</Badge>
+        : <Tooltip label={active(run.status) ? "Stop the run before deleting it" : "Delete run and generated media"}><ActionIcon color="hiveError" variant="subtle" aria-label={"Delete run for " + (run.workflowSnapshotJson?.name ?? "workflow")} disabled={active(run.status)} loading={deletingId === run.id} onClick={() => { setDeleteError(null); setDeleteTarget(run); }}><TrashIcon /></ActionIcon></Tooltip>}
+    </Group></Table.Td>
   </Table.Tr>);
 
   return <Stack className="workspace-page" gap="lg">
     <Group justify="space-between" align="end"><Stack gap={3}><Text className="page-eyebrow">Workspace</Text><Title order={1} className="page-title">Runs</Title></Stack><Group><Button variant="light" onClick={() => void loadRuns(page)}>Refresh</Button><Button onClick={() => onNavigate("workflows")}>Browse workflows</Button></Group></Group>
     {error && <Alert color="hiveError" title="Run history unavailable">{error}</Alert>}
+    {deleteError && <Alert color="hiveError" title="Run deletion">{deleteError}</Alert>}
     <Paper className="workspace-table-panel" withBorder>
       {loading ? <Group justify="center" p="xl"><Loader size="sm" /><Text size="sm" c="dimmed">Loading runs…</Text></Group>
         : result?.total === 0 ? <Stack className="workspace-empty" align="center" gap="sm"><Badge color="hiveSky" variant="light">Run history</Badge><Title order={2} size="h3">No runs yet</Title><Text c="dimmed" ta="center" maw={480}>Open a saved workflow and choose Run workflow to queue its current definition for execution.</Text><Button variant="light" onClick={() => onNavigate("workflows")}>Browse workflows</Button></Stack>
           : <><Table.ScrollContainer minWidth={900}><Table verticalSpacing="sm" highlightOnHover><Table.Thead><Table.Tr><Table.Th>Workflow</Table.Th><Table.Th>Status</Table.Th><Table.Th>Duration</Table.Th><Table.Th>Result</Table.Th><Table.Th>Actions</Table.Th></Table.Tr></Table.Thead><Table.Tbody>{rows}</Table.Tbody></Table></Table.ScrollContainer><PaginatedTableFooter total={result?.total ?? 0} itemName="run" page={page} totalPages={result?.totalPages ?? 0} onPageChange={setPage} /></>}
     </Paper>
+    <ConfirmActionModal opened={deleteTarget !== null} onClose={() => { if (!deletingId) setDeleteTarget(null); }} title="Delete run?" confirmLabel="Delete run" loading={deletingId !== null} onConfirm={() => void deleteRun()}>
+      <Text>Delete the run for <strong>{deleteTarget?.workflowSnapshotJson?.name ?? "Workflow"}</strong>? Its run history and generated media will be permanently removed. Uploaded input files are removed only when no workflow or other run still uses them.</Text>
+    </ConfirmActionModal>
     <Modal opened={selectedId !== null} onClose={() => setSelectedId(null)} title="Run details" size="xl" centered>
       {!detail && !detailError ? <Group justify="center" p="xl"><Loader size="sm" /></Group> : detailError ? <Alert color="hiveError" title="Could not load run">{detailError}</Alert> : detail && <Stack gap="md">
         <Group justify="space-between"><div><Text fw={650}>{detail.run.workflowSnapshotJson?.name ?? "Workflow"}</Text><Text size="xs" c="dimmed">Created {date(detail.run.createdAt)}</Text><Text size="xs" c="dimmed" mt={3}>{timingLabel(detail.run.startedAt, detail.run.finishedAt, now)}</Text></div><Group><Badge variant="light" color={statusColor(detail.run.status)}>{detail.run.status.replaceAll("_", " ")}</Badge>{active(detail.run.status) && <Button color="hiveError" variant="light" loading={cancellingId === detail.run.id} disabled={detail.run.status === "cancel_requested"} onClick={() => void stopRun(detail.run.id)}>Stop run</Button>}</Group></Group>
@@ -192,4 +236,6 @@ export function RunsPage({ onNavigate }: { onNavigate: (view: AppView) => void }
   </Stack>;
 }
 
+function TrashIcon() { return <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="m19 6-1 14H6L5 6"/><path d="M10 11v5M14 11v5"/></svg>; }
+function RetryIcon() { return <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M20 7v5h-5"/><path d="M4 17v-5h5"/><path d="M5.6 9a7 7 0 0 1 11.5-2L20 12"/><path d="M18.4 15a7 7 0 0 1-11.5 2L4 12"/></svg>; }
 function StopIcon() { return <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="2" /></svg>; }
