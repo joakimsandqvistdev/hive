@@ -1,6 +1,8 @@
 # Hive
 
-A full-stack starter using React, TypeScript, Node.js, Express, PostgreSQL, Drizzle ORM, and Docker Compose.
+Hive is a self-hosted application for building and running workflows with typed text, image, and audio inputs, downloadable AI models, and built-in processing operations such as Text Overlay. Run workflows on demand or schedule them as Jobs, then track run progress and preview generated media.
+
+Built with React, TypeScript, Node.js, Express, PostgreSQL, Drizzle ORM, and Docker Compose.
 
 ## Clone the repository
 
