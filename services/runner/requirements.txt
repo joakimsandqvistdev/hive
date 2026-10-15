@@ -5,6 +5,7 @@ kokoro==0.9.4
 fastapi>=0.120,<1
 huggingface_hub>=0.34,<2
 pillow>=11,<13
+sentencepiece>=0.2,<1
 python-multipart>=0.0.20,<1
 transformers>=4.57.1,<5
 uvicorn[standard]>=0.38,<1
