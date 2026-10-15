@@ -125,7 +125,7 @@ export function ModelsPage() {
             <Group justify="space-between" align="center" mt="auto">
               <Text component="a" href={detail.source} target="_blank" rel="noreferrer" size="sm" c="hiveSky">Model card</Text>
               {busy ? <Button variant="light" color="hiveError" disabled={status === "cancelling"} loading={cancelling === detail.id || status === "cancelling"} onClick={() => void cancelDownload(detail.id)}>Cancel download</Button>
-                : <Button disabled={loading || !state || status === "downloaded"} loading={requesting === detail.id} onClick={() => void startDownload(detail.id)}>
+                : <Button disabled={loading || !state || status === "downloaded" || status === "unavailable"} loading={requesting === detail.id} onClick={() => void startDownload(detail.id)}>
                   {status === "downloaded" ? "Downloaded" : status === "failed" ? "Retry download" : "Download model"}
                 </Button>}
             </Group>
