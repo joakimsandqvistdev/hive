@@ -29,7 +29,7 @@ Hive installs `ionodes` from the public npm registry as a web workspace dependen
 npm run local
 ```
 
-This creates `.env` if missing (with a random local database password), installs dependencies inside the app image, builds the app, starts PostgreSQL and the image runner, applies tracked database migrations, and starts the API, web app, and workflow worker. It waits for service readiness, then returns to your terminal. Open [http://localhost:5173](http://localhost:5173).
+This creates `.env` if missing (with a random local database password), installs dependencies inside the app image, builds the app, starts PostgreSQL and the model runner, applies tracked database migrations, and starts the API, web app, and workflow worker. The worker also schedules due Jobs from PostgreSQL. It waits for service readiness, then returns to your terminal. Open [http://localhost:5173](http://localhost:5173).
 
 To stop all Compose services belonging to this checkout's project:
 
@@ -63,7 +63,7 @@ Launcher checks: `npm run test:local`.
 6. Start the API and web app: `npm run dev`
 7. Open <http://localhost:5173>. The API runs at <http://localhost:3001>.
 
-For workflow execution, also run `npm run worker:dev -w @hive/api` in another terminal and start the [image runner](services/runner/README.md).
+For workflow execution and Jobs scheduling, also run `npm run worker:dev -w @hive/api` in another terminal and start the [model runner](services/runner/README.md). The development worker handles both queued runs and due Jobs.
 
 ## Google sign-in setup
 
@@ -81,5 +81,15 @@ The API exposes `GET /api/health`. The web page calls the API to show its databa
 
 For tracked schema changes, update `apps/api/src/schema.ts`, generate a migration with `npm run db:generate -w @hive/api`, then apply it with `npm run db:migrate -w @hive/api`.
 
-Workflows contain Text/Image/Audio input nodes and downloaded model nodes. Use Add node, connect matching datatypes (including text to Prompt), save, then run. Model data inputs are supplied only through connections.
+Workflows contain Text/Image/Audio input nodes and downloaded model nodes. Use Add node, connect matching datatypes (including text to Prompt), save, then run. Model data inputs are supplied only through connections. Runs can be started manually or by a Job.
+
+## Schedule workflow jobs
+
+Sign in and open **Jobs** in the side navigation. Create a job by choosing a saved workflow, naming the job, and setting the first run time. A job can run once, repeat a chosen total number of times, or repeat indefinitely. Repeating jobs use intervals from one minute to 365 days, measured from when the previous run finishes.
+
+Jobs queue only their current run. They do not create future run records in advance, and the next run is scheduled only after the previous run reaches a terminal state. This prevents overlapping runs from the same job. Pause a job to stop future queueing; an already queued or running run is allowed to finish. Removing a job cancels its queued run, lets an in-progress run finish, and preserves existing run history and generated media.
+
+Each job run validates the workflow and checks model availability when it is queued. It snapshots the then-current workflow definition, so later workflow edits apply to later runs only. Failed or cancelled executions count toward a finite repeat limit; worker-level retries remain part of that individual run. If workflow validation or model availability prevents queueing, the job pauses in a failed state with an error; resume it after resolving the issue to retry.
+
+The scheduler stores job definitions and next-run times in PostgreSQL. Keep the Hive worker running for jobs to be queued and executed. Jobs are local to the configured database and are not transferred by Git.
 To stop PostgreSQL, run `docker compose down`. To also erase its local data, run `docker compose down -v`.

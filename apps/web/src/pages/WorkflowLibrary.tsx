@@ -72,7 +72,8 @@ export function WorkflowLibrary({ onNavigate }: { onNavigate: (view: AppView) =>
     try {
       const response = await apiFetch(`/api/workflows/${deleteTarget.id}`, { method: "DELETE" });
       if (response.status === 409) {
-        const body = await response.json() as { activeRunCount?: number };
+        const body = await response.json() as { activeRunCount?: number; activeJobCount?: number };
+        if (body.activeJobCount) throw new Error("Pause or remove this workflow’s jobs before removing the workflow.");
         const updatedTarget = { ...deleteTarget, activeRunCount: body.activeRunCount ?? 1 };
         setDeleteTarget(updatedTarget);
         setResult((current) => current ? { ...current, items: current.items.map((item) => item.id === updatedTarget.id ? updatedTarget : item) } : current);

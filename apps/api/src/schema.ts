@@ -6,6 +6,7 @@ export const modelDataDirection = pgEnum("model_data_direction", ["input", "outp
 export const modelInputTransport = pgEnum("model_input_transport", ["prompt", "connection"]);
 export const runStatus = pgEnum("run_status", ["queued", "running", "succeeded", "failed", "cancel_requested", "cancelled"]);
 export const runNodeStatus = pgEnum("run_node_status", ["queued", "running", "succeeded", "failed", "skipped", "cancelled"]);
+export const workflowJobStatus = pgEnum("workflow_job_status", ["active", "paused", "completed", "failed", "removed"]);
 
 export const users = pgTable("users", {
   id: uuid("id").defaultRandom().primaryKey(),
@@ -95,6 +96,29 @@ export const workflows = pgTable("workflows", {
   uniqueIndex("workflows_id_user_unique").on(table.id, table.userId),
 ]);
 
+export const workflowJobs = pgTable("workflow_jobs", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  workflowId: uuid("workflow_id").notNull(),
+  name: text("name").notNull(),
+  status: workflowJobStatus("status").notNull().default("active"),
+  firstRunAt: timestamp("first_run_at", { withTimezone: true }).notNull(),
+  intervalSeconds: integer("interval_seconds"),
+  repeatCount: integer("repeat_count"),
+  completedRuns: integer("completed_runs").notNull().default(0),
+  nextRunAt: timestamp("next_run_at", { withTimezone: true }),
+  currentRunId: uuid("current_run_id"),
+  lastError: text("last_error"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table): PgTableExtraConfigValue[] => [
+  foreignKey({ columns: [table.workflowId, table.userId], foreignColumns: [workflows.id, workflows.userId], name: "workflow_jobs_workflow_owner_fk" }).onDelete("cascade"),
+  check("workflow_jobs_repeat_check", sql`repeat_count IS NULL OR repeat_count >= 1`),
+  check("workflow_jobs_interval_check", sql`(repeat_count = 1 AND interval_seconds IS NULL) OR ((repeat_count IS NULL OR repeat_count > 1) AND interval_seconds IS NOT NULL AND interval_seconds BETWEEN 60 AND 31536000)`),
+  index("workflow_jobs_due_idx").on(table.status, table.nextRunAt),
+  index("workflow_jobs_owner_idx").on(table.userId, table.createdAt),
+]);
+
 export const workflowNodes = pgTable("workflow_nodes", {
   workflowId: uuid("workflow_id").notNull(),
   nodeId: text("node_id").notNull(),
@@ -134,6 +158,8 @@ export const runs = pgTable("runs", {
   id: uuid("id").defaultRandom().primaryKey(),
   userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   workflowId: uuid("workflow_id").references(() => workflows.id, { onDelete: "set null" }),
+  jobId: uuid("job_id").references(() => workflowJobs.id, { onDelete: "set null" }),
+  scheduledFor: timestamp("scheduled_for", { withTimezone: true }),
   status: runStatus("status").notNull().default("queued"),
   inputJson: jsonb("input_json").$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
   workflowSnapshotJson: jsonb("workflow_snapshot_json").$type<Record<string, unknown>>().notNull(),
@@ -150,6 +176,8 @@ export const runs = pgTable("runs", {
   index("runs_user_created_idx").on(table.userId, table.createdAt),
   index("runs_queue_idx").on(table.status, table.createdAt, table.leaseExpiresAt),
   uniqueIndex("runs_id_user_unique").on(table.id, table.userId),
+  uniqueIndex("runs_job_scheduled_unique").on(table.jobId, table.scheduledFor).where(sql`${table.jobId} IS NOT NULL`),
+  uniqueIndex("runs_one_active_job_run_unique").on(table.jobId).where(sql`${table.jobId} IS NOT NULL AND status IN ('queued', 'running', 'cancel_requested')`),
 ]);
 
 export const runNodes = pgTable("run_nodes", {

@@ -9,7 +9,7 @@ import type { AppView } from "../navigation/navigationState";
 function nodeTypeLabel(modality?: string, modelId?: unknown) { return typeof modelId === "string" ? modelId : modality ?? "Input"; }
 const PAGE_SIZE = 10;
 type RunStatus = "queued" | "running" | "succeeded" | "failed" | "cancel_requested" | "cancelled";
-type Run = { id: string; workflowId: string | null; status: RunStatus; workflowSnapshotJson: { name?: string }; errorSummary: string | null; createdAt: string; startedAt: string | null; finishedAt: string | null; deletion?: { attemptCount: number; lastError: string | null; processing: boolean } | null };
+type Run = { id: string; workflowId: string | null; jobId: string | null; scheduledFor: string | null; status: RunStatus; workflowSnapshotJson: { name?: string }; errorSummary: string | null; createdAt: string; startedAt: string | null; finishedAt: string | null; deletion?: { attemptCount: number; lastError: string | null; processing: boolean } | null };
 type RunNode = { nodeId: string; status: string; startedAt: string | null; finishedAt: string | null; nodeSnapshotJson: { name?: string; modality?: string; kind?: string; dataTypeId?: string; parameters?: { modelId?: string } }; parameters?: { modelId?: string }; outputJson?: { dataTypeId?: string; text?: string; artifactId?: string }; errorSummary: string | null };
 type Artifact = { id: string; runNodeId: string; displayName: string; mediaType: string; byteSize: number; createdAt: string };
 type PageResult = { items: Run[]; page: number; pageSize: number; total: number; totalPages: number };
@@ -184,7 +184,7 @@ export function RunsPage({ onNavigate }: { onNavigate: (view: AppView) => void }
   }, [loadDetail, selectedId]);
 
   const rows = result?.items.map((run) => <Table.Tr key={run.id} role="button" tabIndex={0} aria-label={`View run for ${run.workflowSnapshotJson?.name ?? "workflow"}`} onClick={() => setSelectedId(run.id)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setSelectedId(run.id); } }} style={{ cursor: "pointer" }}>
-    <Table.Td><Text fw={600}>{run.workflowSnapshotJson?.name ?? "Workflow"}</Text><Text size="xs" c="dimmed" ff="monospace">{run.id.slice(0, 8)}</Text></Table.Td>
+    <Table.Td><Group gap="xs" wrap="nowrap"><Text fw={600}>{run.workflowSnapshotJson?.name ?? "Workflow"}</Text>{run.jobId && <Badge size="xs" color="hiveSky" variant="light">Job</Badge>}</Group><Text size="xs" c="dimmed" ff="monospace">{run.id.slice(0, 8)}{run.scheduledFor ? " · Scheduled " + date(run.scheduledFor) : ""}</Text></Table.Td>
     <Table.Td><Badge variant="light" color={statusColor(run.status)}>{run.status.replaceAll("_", " ")}</Badge></Table.Td>
     <Table.Td><Text size="sm" c="dimmed">{timingLabel(run.startedAt, run.finishedAt, now)}</Text></Table.Td>
     <Table.Td><Text size="sm" c={run.errorSummary ? "hiveError.7" : "dimmed"} lineClamp={2}>{run.errorSummary ?? (active(run.status) ? "Waiting for worker…" : "—")}</Text></Table.Td>
