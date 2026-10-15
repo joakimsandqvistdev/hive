@@ -26,7 +26,10 @@ export function WorkflowLibrary({ onNavigate }: { onNavigate: (view: AppView) =>
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [startingRunId, setStartingRunId] = useState<string | null>(null);
+  const [duplicatingWorkflowId, setDuplicatingWorkflowId] = useState<string | null>(null);
   const [runError, setRunError] = useState<string | null>(null);
+  const [duplicateError, setDuplicateError] = useState<string | null>(null);
+  const [duplicateSuccess, setDuplicateSuccess] = useState<string | null>(null);
 
   const loadWorkflows = useCallback(async (requestedPage: number) => {
     setLoading(true); setLoadError(null);
@@ -52,6 +55,17 @@ export function WorkflowLibrary({ onNavigate }: { onNavigate: (view: AppView) =>
       onNavigate("runs");
     } catch (error) { setRunError(error instanceof Error ? error.message : "Could not start workflow."); }
     finally { setStartingRunId(null); }
+  };
+
+  const duplicateWorkflow = async (item: Workflow) => {
+    setDuplicatingWorkflowId(item.id); setDuplicateError(null); setDuplicateSuccess(null);
+    try {
+      const response = await apiFetch(`/api/workflows/${item.id}/duplicate`, { method: "POST" });
+      const body = await response.json().catch(() => ({})) as { workflow?: Workflow };
+      if (!response.ok || !body.workflow) throw new Error(response.status === 401 ? "Sign in to duplicate workflows." : "Could not duplicate this workflow.");
+      setPage(1); await loadWorkflows(1); setDuplicateSuccess(`“${body.workflow.name}” was added to your workflows.`);
+    } catch (error) { setDuplicateError(error instanceof Error ? error.message : "Could not duplicate this workflow."); }
+    finally { setDuplicatingWorkflowId(null); }
   };
 
   const createWorkflow = async (event: FormEvent<HTMLFormElement>) => {
@@ -90,12 +104,14 @@ export function WorkflowLibrary({ onNavigate }: { onNavigate: (view: AppView) =>
     <Table.Td><Text size="sm" c={item.description ? undefined : "dimmed"} lineClamp={2}>{item.description || "No description"}</Text></Table.Td>
     <Table.Td><Text size="sm">{item.nodeCount} {item.nodeCount === 1 ? "node" : "nodes"}</Text></Table.Td>
     <Table.Td><Text size="sm" c="dimmed">{formatDate(item.updatedAt)}</Text></Table.Td>
-    <Table.Td><Group gap={4} wrap="nowrap" justify="flex-end" w="100%"><Tooltip label={`Run ${item.name}`}><span><ActionIcon variant="subtle" color="hiveSuccess" aria-label={`Run ${item.name}`} loading={startingRunId === item.id} disabled={startingRunId !== null} onClick={() => void startRun(item)}><PlayIcon /></ActionIcon></span></Tooltip><Tooltip label={`Edit ${item.name}`}><ActionIcon variant="subtle" color="hiveSky" aria-label={`Edit ${item.name}`} onClick={() => openEdit(item)}><EditIcon /></ActionIcon></Tooltip><Tooltip label={item.activeRunCount ? "This workflow is currently running" : `Remove ${item.name}`}><span><ActionIcon variant="subtle" color="hiveError" aria-label={`Remove ${item.name}`} disabled={(item.activeRunCount ?? 0) > 0} onClick={() => { setDeleteTarget(item); setDeleteError(null); }}><TrashIcon /></ActionIcon></span></Tooltip></Group></Table.Td>
+    <Table.Td><Group gap={4} wrap="nowrap" justify="flex-end" w="100%"><Tooltip label={`Run ${item.name}`}><span><ActionIcon variant="subtle" color="hiveSuccess" aria-label={`Run ${item.name}`} loading={startingRunId === item.id} disabled={startingRunId !== null} onClick={() => void startRun(item)}><PlayIcon /></ActionIcon></span></Tooltip><Tooltip label={`Edit ${item.name}`}><ActionIcon variant="subtle" color="hiveSky" aria-label={`Edit ${item.name}`} onClick={() => openEdit(item)}><EditIcon /></ActionIcon></Tooltip><Tooltip label={`Duplicate ${item.name}`}><span><ActionIcon variant="subtle" color="hiveSky" aria-label={`Duplicate ${item.name}`} loading={duplicatingWorkflowId === item.id} disabled={duplicatingWorkflowId !== null} onClick={() => void duplicateWorkflow(item)}><DuplicateIcon /></ActionIcon></span></Tooltip><Tooltip label={item.activeRunCount ? "This workflow is currently running" : `Remove ${item.name}`}><span><ActionIcon variant="subtle" color="hiveError" aria-label={`Remove ${item.name}`} disabled={(item.activeRunCount ?? 0) > 0} onClick={() => { setDeleteTarget(item); setDeleteError(null); }}><TrashIcon /></ActionIcon></span></Tooltip></Group></Table.Td>
   </Table.Tr>);
 
   return <Stack className="workspace-page" gap="lg">
     <Group justify="space-between" align="end"><Stack gap={3}><Text className="page-eyebrow">Workspace</Text><Title order={1} className="page-title">Workflows</Title></Stack><Group><Button variant="light" onClick={() => onNavigate("models")}>Manage models</Button><Button onClick={openCreate}>Create workflow</Button></Group></Group>
     {runError && <Alert color="hiveError" title="Could not start workflow" withCloseButton onClose={() => setRunError(null)}>{runError}</Alert>}
+    {duplicateError && <Alert color="hiveError" title="Could not duplicate workflow" withCloseButton onClose={() => setDuplicateError(null)}>{duplicateError}</Alert>}
+    {duplicateSuccess && <Alert color="hiveSuccess" withCloseButton onClose={() => setDuplicateSuccess(null)}>{duplicateSuccess}</Alert>}
     {loadError && <Alert color="hiveError" title="Workflow list unavailable">{loadError}</Alert>}
     <Paper className="workspace-table-panel" withBorder>
       {loading ? <Group justify="center" p="xl"><Loader size="sm" /><Text size="sm" c="dimmed">Loading workflows…</Text></Group>
@@ -113,4 +129,5 @@ export function WorkflowLibrary({ onNavigate }: { onNavigate: (view: AppView) =>
 
 function EditIcon() { return <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m14 5 5 5M4 20l4.2-.8L19 8.4a2.12 2.12 0 0 0-3-3L5.2 16.2 4 20Z" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" /></svg>; }
 function PlayIcon() { return <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M8 5.5v13l10-6.5-10-6.5Z" fill="currentColor" /></svg>; }
+function DuplicateIcon() { return <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2" stroke="currentColor" strokeWidth="1.7"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"/></svg>; }
 function TrashIcon() { return <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3m3 0-.8 12.2a1 1 0 0 1-1 .8H7.8a1 1 0 0 1-1-.8L6 7m4 4v5m4-5v5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" /></svg>; }
