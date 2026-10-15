@@ -42,7 +42,7 @@ async def run_generation_process(target, arguments, disconnected, timeout_second
                     raise GenerationProcessError("generation_failed") from None
                 if message[0] == "error":
                     raise GenerationProcessError(message[1])
-                if message[0] == "result" and isinstance(message[1], bytes):
+                if message[0] == "result" and isinstance(message[1], (bytes, str)):
                     return message[1]
                 raise GenerationProcessError("generation_failed")
             if not process.is_alive():

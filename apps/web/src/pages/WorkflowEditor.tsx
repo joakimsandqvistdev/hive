@@ -6,6 +6,7 @@ import { useDownloadedModels } from "../hooks/useDownloadedModels";
 import { defaultImageModelParameters, imageModelDefaultSteps, type ImageModelParameters } from "../components/ImageModelParametersFields";
 import { defaultVideoModelParameters, type VideoModelParameters } from "../components/VideoModelParametersFields";
 import { defaultAudioModelParameters } from "../components/AudioModelParametersFields";
+import { defaultTextModelParameters } from "../components/TextModelParametersFields";
 import { WorkflowNodeConfiguration } from "./WorkflowNodeConfiguration";
 import { ConfirmActionModal } from "../components/ConfirmActionModal";
 import { startWorkflowRun } from "./startWorkflowRun";
@@ -61,7 +62,7 @@ export function WorkflowEditor({ workflowId, onClose, onNavigate }: { workflowId
     { group: "Inputs", items: types.filter((type) => ["text", "image", "audio"].includes(type.id)).map((type) => ({ value: `input:${type.id}`, label: `${type.label} input` })) },
     { group: "Processing", items: [{ value: "processing:text-overlay", label: "Text Overlay" }] },
     { group: "Publishing", items: [{ value: "publishing:instagram-post", label: "Instagram Post" }, { value: "publishing:instagram-reel", label: "Instagram Reel" }] },
-    { group: "Downloaded models", items: contracts.filter((model) => downloaded.modelIds.has(model.modelId)).map((model) => ({ value: `model:${model.modelId}`, label: model.name })) },
+    { group: "Models", items: contracts.filter((model) => downloaded.modelIds.has(model.modelId)).map((model) => ({ value: `model:${model.modelId}`, label: model.name })) },
   ], [types, contracts, downloaded.modelIds]);
   function update(patch: Partial<WorkflowNodeData>) {
     if (!selected) return;
@@ -82,7 +83,8 @@ export function WorkflowEditor({ workflowId, onClose, onNavigate }: { workflowId
     const model = contracts.find((item) => item.modelId === id);
     const dataType = types.find((item) => item.id === id);
     let parameters: Record<string, unknown> = {};
-    if (model?.modality === "video") parameters = { ...defaultVideoModelParameters(id as VideoModelParameters["modelId"]) };
+    if (model?.modality === "text") parameters = { ...defaultTextModelParameters, modelId: id as "qwen3-0.6b" | "qwen3-1.7b" };
+    else if (model?.modality === "video") parameters = { ...defaultVideoModelParameters(id as VideoModelParameters["modelId"]) };
     else if (model?.modality === "audio") parameters = { ...defaultAudioModelParameters, modelId: "kokoro-82m" };
     else if (model) parameters = { ...defaultImageModelParameters, modelId: id, steps: imageModelDefaultSteps(id as ImageModelParameters["modelId"]), guidanceScale: id === "flux2-klein-4b" ? 1 : ["sana-sprint-06b", "sd35-medium"].includes(id) ? 4.5 : 7.5 };
     if (kind === "processing" && id === "text-overlay") parameters = { ...textOverlayDefaults };

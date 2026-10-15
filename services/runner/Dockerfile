@@ -20,6 +20,7 @@ COPY model_downloads.py ./model_downloads.py
 COPY image_generation.py ./image_generation.py
 COPY audio_generation.py ./audio_generation.py
 COPY video_generation.py ./video_generation.py
+COPY text_generation.py ./text_generation.py
 
 EXPOSE 8000
 CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "8000"]

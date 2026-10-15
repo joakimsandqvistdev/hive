@@ -3,6 +3,7 @@ import { modelRunnerTransportFailure, type RunnerModality } from "./modelRunnerE
 
 export const MODEL_RUNNER_TIMEOUT_MS = 60 * 60 * 1000;
 const endpoints: Record<RunnerModality, string> = {
+  text: "/generate-text",
   image: "/generate",
   video: "/generate-video",
   audio: "/generate-audio",

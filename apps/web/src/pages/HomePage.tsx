@@ -10,7 +10,7 @@ export function HomePage({ onNavigate }: { onNavigate: (view: AppView) => void }
         <Stack gap="xs">
           <Title order={2} className="welcome-title">Build workflows from models, inputs, and processing nodes.</Title>
           <Text className="welcome-description">
-            Combine typed text, image, and audio inputs with downloaded AI models and built-in Processing operations. Text Overlay renders connected text onto an image with configurable typography, without using an AI model. Publish generated Instagram posts and Reels automatically, or edit captions and publish after review. Run workflows locally or schedule one-time and repeating Jobs, then track progress and preview generated media.
+            Combine typed text, image, and audio inputs with downloadable text-generation and media-generation models plus built-in Processing operations. Text Overlay renders connected text onto an image without an AI model. Publish generated Instagram posts and Reels automatically, or edit captions and publish after review. Run workflows locally or schedule one-time and repeating Jobs, then track progress and preview generated media.
           </Text>
         </Stack>
         {!user && <Button w="fit-content" onClick={openLoginModal}>Log in to get started</Button>}

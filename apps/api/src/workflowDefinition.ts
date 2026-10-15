@@ -2,6 +2,7 @@ import { z } from "zod";
 import { imageModelParametersSchema } from "./modelParameters.js";
 import { videoModelParametersSchema } from "./videoModelParameters.js";
 import { audioModelParametersSchema } from "./audioModelParameters.js";
+import { textModelParametersSchema } from "./textModelParameters.js";
 import type { ModelIoContract } from "./modelContracts.js";
 import { instagramPublishingContract, instagramPublishingSettingsSchema, processingContract, textOverlaySettingsSchema } from "./processingNodes.js";
 
@@ -96,7 +97,7 @@ export function validateWorkflowDefinition(definition: WorkflowDefinition, catal
     } else if (node.kind === "model") {
       const contract = catalogById.get(node.modelId ?? "");
       if (!contract || node.dataTypeId || node.artifactId || node.inputText) return { ok: false, error: "invalid_model_contract" };
-      const parameterSchema = contract.modality === "video" ? videoModelParametersSchema : contract.modality === "audio" ? audioModelParametersSchema : imageModelParametersSchema;
+      const parameterSchema = contract.modality === "text" ? textModelParametersSchema : contract.modality === "video" ? videoModelParametersSchema : contract.modality === "audio" ? audioModelParametersSchema : imageModelParametersSchema;
       const parsed = parameterSchema.safeParse({ ...node.parameters, modelId: node.modelId });
       if (!parsed.success) return { ok: false, error: "invalid_parameters" };
       parameters = parsed.data;

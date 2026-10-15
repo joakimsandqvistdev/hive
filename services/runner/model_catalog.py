@@ -1,6 +1,8 @@
 """Allow-listed model identifiers and Hugging Face repositories."""
 
 MODEL_REPOSITORIES = {
+    "qwen3-0.6b": "Qwen/Qwen3-0.6B",
+    "qwen3-1.7b": "Qwen/Qwen3-1.7B",
     "z-image-turbo": "Tongyi-MAI/Z-Image-Turbo",
     "qwen-image-edit-2511": "Qwen/Qwen-Image-Edit-2511",
     "instruct-pix2pix": "timbrooks/instruct-pix2pix",
