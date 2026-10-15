@@ -96,7 +96,7 @@ router.put("/:id", async (req, res, next) => {
       if (!existing) return null;
       const ids = parsed.data.definition.nodes.flatMap((node) => node.artifactId ? [node.artifactId] : []);
       const uploads = ids.length ? await tx.select().from(artifacts).where(and(eq(artifacts.userId, ownerId), inArray(artifacts.id, ids))) : [];
-      const validation = validateWorkflowDefinition(parsed.data.definition, contracts, uploads, types.map((type) => type.id));
+      const validation = validateWorkflowDefinition(parsed.data.definition, contracts, uploads, types.map((type) => type.id), existing.id);
       if (!validation.ok) return validation.error;
       for (const node of validation.nodes.filter((item) => item.kind === "publishing")) {
         const [account] = await tx.select({ id: instagramAccounts.id }).from(instagramAccounts)

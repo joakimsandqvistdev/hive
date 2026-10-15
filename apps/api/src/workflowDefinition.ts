@@ -4,14 +4,14 @@ import { videoModelParametersSchema } from "./videoModelParameters.js";
 import { audioModelParametersSchema } from "./audioModelParameters.js";
 import { textModelParametersSchema } from "./textModelParameters.js";
 import type { ModelIoContract } from "./modelContracts.js";
-import { instagramPublishingContract, instagramPublishingSettingsSchema, processingContract, textOverlaySettingsSchema } from "./processingNodes.js";
+import { instagramPublishingContract, instagramPublishingSettingsSchema, processingContract, stillImageVideoSettingsSchema, textOverlaySettingsSchema } from "./processingNodes.js";
 
 const nodeSchema = z.object({
   id: z.string().min(1).max(100),
   kind: z.enum(["input", "model", "processing", "publishing"]),
   label: z.string().trim().min(1).max(100),
   modelId: z.string().max(100).nullable().optional(),
-  dataTypeId: z.enum(["text", "image", "audio"]).nullable().optional(),
+  dataTypeId: z.enum(["text", "image", "audio", "video"]).nullable().optional(),
   inputText: z.string().max(8000).default(""),
   artifactId: z.string().uuid().nullable().optional(),
   parameters: z.record(z.string(), z.unknown()).optional(),
@@ -72,11 +72,11 @@ export const startRunSchema = z.object({});
 export type WorkflowDefinition = z.infer<typeof workflowDefinitionSchema>;
 export type WorkflowNodeRecord = WorkflowDefinition["nodes"][number] & { parameters: Record<string, unknown> };
 export type WorkflowEdgeRecord = WorkflowDefinition["edges"][number] & { sourceHandle: string; targetHandle: string };
-type UploadedInput = { id: string; dataTypeId: string; runId: string | null };
+type UploadedInput = { id: string; dataTypeId: string; runId: string | null; savedToLibrary?: boolean; sourceWorkflowId?: string | null };
 export type DefinitionValidation = { ok: true; nodes: WorkflowNodeRecord[]; edges: WorkflowEdgeRecord[] }
   | { ok: false; error: "invalid_parameters" | "invalid_model_contract" | "invalid_input" | "incompatible_data_types" | "invalid_input_counts" };
 
-export function validateWorkflowDefinition(definition: WorkflowDefinition, catalog: ModelIoContract[], uploads: UploadedInput[] = [], dataTypeIds = ["text", "image", "audio"]) : DefinitionValidation {
+export function validateWorkflowDefinition(definition: WorkflowDefinition, catalog: ModelIoContract[], uploads: UploadedInput[] = [], dataTypeIds = ["text", "image", "audio", "video"], workflowId?: string) : DefinitionValidation {
   const catalogById = new Map(catalog.map((model) => [model.modelId, model]));
   const uploadsById = new Map(uploads.map((input) => [input.id, input]));
   const contracts = new Map<string, ModelIoContract>();
@@ -90,7 +90,7 @@ export function validateWorkflowDefinition(definition: WorkflowDefinition, catal
         if (!node.inputText.trim() || node.artifactId) return { ok: false, error: "invalid_input" };
       } else {
         const upload = uploadsById.get(node.artifactId ?? "");
-        if (!upload || upload.dataTypeId !== type || upload.runId !== null || node.inputText) return { ok: false, error: "invalid_input" };
+        if (!upload || upload.dataTypeId !== type || upload.runId !== null || (!upload.savedToLibrary && upload.sourceWorkflowId !== workflowId) || node.inputText) return { ok: false, error: "invalid_input" };
       }
       contracts.set(node.id, { modelId: "", name: node.label, modality: "image", inputs: [], inputGroups: [],
         outputs: [{ direction: "output", portKey: "output", dataTypeId: type, dataTypeLabel: type, mediaType: type === "text" ? "text/plain" : `${type}/*`, label: type, transport: null, minCount: 1, maxCount: 1, sortOrder: 0 }] });
@@ -105,7 +105,7 @@ export function validateWorkflowDefinition(definition: WorkflowDefinition, catal
     } else if (node.kind === "processing") {
       const contract = processingContract(node.parameters ?? {});
       if (!contract || node.modelId || node.dataTypeId || node.artifactId || node.inputText) return { ok: false, error: "invalid_model_contract" };
-      const parsed = textOverlaySettingsSchema.safeParse(node.parameters ?? {});
+      const parsed = (node.parameters?.operationId === "still-image-video" ? stillImageVideoSettingsSchema : textOverlaySettingsSchema).safeParse(node.parameters ?? {});
       if (!parsed.success) return { ok: false, error: "invalid_parameters" };
       parameters = parsed.data;
       contracts.set(node.id, contract);

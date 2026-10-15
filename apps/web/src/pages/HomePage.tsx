@@ -10,7 +10,7 @@ export function HomePage({ onNavigate }: { onNavigate: (view: AppView) => void }
         <Stack gap="xs">
           <Title order={2} className="welcome-title">Build workflows from models, inputs, and processing nodes.</Title>
           <Text className="welcome-description">
-            Combine typed text, image, and audio inputs with downloadable text-generation and media-generation models plus built-in Processing operations. Text Overlay renders connected text onto an image without an AI model. Publish generated Instagram posts and Reels automatically, or edit captions and publish after review. Run workflows locally or schedule one-time and repeating Jobs, then track progress and preview generated media.
+            Build workflows from typed inputs, downloadable AI models, and deterministic Processing operations. Overlay text on images or turn a still image into a 9:16 MP4 with optional soundtrack. Manage uploaded and generated files in the Media Library, publish Instagram posts and Reels, and schedule workflows as Jobs.
           </Text>
         </Stack>
         {!user && <Button w="fit-content" onClick={openLoginModal}>Log in to get started</Button>}
@@ -19,16 +19,19 @@ export function HomePage({ onNavigate }: { onNavigate: (view: AppView) => void }
         <span className="note-mark" aria-hidden="true" />
         <Stack gap={2}>
           <Text fw={600} size="sm">Your workspace is ready.</Text>
-          <Text size="sm" c="dimmed">Manage models, build workflows, publish to Instagram, schedule Jobs, and review generated media.</Text>
+          <Text size="sm" c="dimmed">Manage models, build workflows, browse and preserve media, publish to Instagram, schedule Jobs, and review run outputs.</Text>
         </Stack>
       </Paper> : <Paper className="home-note" withBorder>
         <span className="note-mark" aria-hidden="true" />
         <Stack gap={2}>
           <Text fw={600} size="sm">Sign in to access your private workspace.</Text>
-          <Text size="sm" c="dimmed">Download models, build workflows with built-in Processing operations, schedule one-time or repeating Jobs, connect Instagram, and review generated media after you log in.</Text>
+          <Text size="sm" c="dimmed">Download models, build workflows with built-in Processing operations, save media, schedule Jobs, connect Instagram, and review generated media after you log in.</Text>
         </Stack>
       </Paper>}
       {user && <Group className="workspace-shortcuts" grow align="stretch">
+        <Paper className="workspace-shortcut" withBorder onClick={() => onNavigate("media")} role="button" tabIndex={0} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") onNavigate("media"); }}>
+          <Text fw={600}>Media Library</Text><Text size="sm" c="dimmed">Browse generated and uploaded image, audio, and MP4 files. Save outputs beyond their run history.</Text><Button variant="subtle" onClick={(event) => { event.stopPropagation(); onNavigate("media"); }}>Browse media</Button>
+        </Paper>
         <Paper className="workspace-shortcut" withBorder onClick={() => onNavigate("accounts")} role="button" tabIndex={0} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") onNavigate("accounts"); }}>
           <Text fw={600}>Accounts</Text><Text size="sm" c="dimmed">Connect a professional Instagram account for workflow publishing and prepare profile pictures from Hive assets.</Text><Button variant="subtle" onClick={(event) => { event.stopPropagation(); onNavigate("accounts"); }}>Manage accounts</Button>
         </Paper>

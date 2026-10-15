@@ -10,8 +10,9 @@ import { modelRunnerRejection, modelRunnerTransportFailure } from "./modelRunner
 import { createModelRunnerClient } from "./modelRunnerClient.js";
 import { bindModelInputs, buildRunnerInput, object, resolveModelSettings, type NodeOutput, type SnapshotEdge, type SnapshotNode } from "./runInputResolver.js";
 import { processWorkflowJobTick } from "./workflowJobScheduler.js";
-import { parseTextOverlaySettings } from "./processingNodes.js";
+import { parseTextOverlaySettings, stillImageVideoSettingsSchema } from "./processingNodes.js";
 import { renderTextOverlay } from "./textOverlayRenderer.js";
+import { renderStillImageVideo } from "./stillImageVideo.js";
 import { instagramMediaUrl, usableInstagramToken } from "./instagram.js";
 import sharp from "sharp";
 
@@ -71,6 +72,27 @@ async function execute(run: ClaimedRun, signal: AbortSignal): Promise<void> {
       continue;
     }
     if (node.kind === "processing") {
+      if (node.parameters?.operationId === "still-image-video") {
+        const settings = stillImageVideoSettingsSchema.parse(node.parameters);
+        const imageId = bound.find((input) => input.port.portKey === "image")?.output.artifactId;
+        const audioId = bound.find((input) => input.port.portKey === "audio")?.output.artifactId;
+        if (!imageId) throw new Error("Connect an image to Still Image Video.");
+        const [image] = await db.select().from(artifacts).where(and(eq(artifacts.id, imageId), eq(artifacts.userId, run.user_id))).limit(1);
+        const [audio] = audioId ? await db.select().from(artifacts).where(and(eq(artifacts.id, audioId), eq(artifacts.userId, run.user_id))).limit(1) : [undefined];
+        if (!image || image.dataTypeId !== "image" || (image.runId !== null && image.runId !== run.id) || (audioId && (!audio || audio.dataTypeId !== "audio" || (audio.runId !== null && audio.runId !== run.id)))) throw new Error("Connected image or audio is unavailable.");
+        const processing = await setRunNodeRunning(run.id, node.id, workerId, { settings });
+        if (!processing) throw new Error("Worker lease was lost before video processing.");
+        const bytes = await renderStillImageVideo({ storageKey: image.storageKey, mediaType: image.mediaType, bytes: await readArtifact(image.storageKey) }, audio ? { storageKey: audio.storageKey, mediaType: audio.mediaType, bytes: await readArtifact(audio.storageKey) } : undefined, settings, signal);
+        const stored = await saveMp4(bytes);
+        let inserted = false;
+        try {
+          await db.insert(artifacts).values({ ...stored, userId: run.user_id, runId: run.id, runNodeId: node.id, dataTypeId: "video", mediaType: "video/mp4", displayName: `${node.label}.mp4` }); inserted = true;
+          const output = { dataTypeId: "video", artifactId: stored.id };
+          if (!await finishRunNode(run.id, node.id, workerId, output)) throw new Error("Worker lease was lost after video processing.");
+          outputs.set(node.id, output);
+        } catch (error) { if (inserted) await db.delete(artifacts).where(eq(artifacts.id, stored.id)); await removeArtifact(stored.storageKey); throw error; }
+        continue;
+      }
       const settings = parseTextOverlaySettings(object(node.parameters));
       const text = bound.find((input) => input.port.portKey === "text")?.output.text;
       const imageId = bound.find((input) => input.port.portKey === "image")?.output.artifactId;

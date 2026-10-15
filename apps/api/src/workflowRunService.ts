@@ -11,7 +11,7 @@ export type WorkflowRunCreation = { ok: true; run: typeof runs.$inferSelect } | 
 
 export function definitionFor(nodes: typeof workflowNodes.$inferSelect[], edges: typeof workflowEdges.$inferSelect[]) {
   return { nodes: nodes.map(({ nodeId, kind, label, modelId, dataTypeId, inputText, artifactId, parameters, positionX, positionY }) => ({
-    id: nodeId, kind: kind as "input" | "model" | "processing" | "publishing", label, modelId, dataTypeId: dataTypeId as "text" | "image" | "audio" | null,
+    id: nodeId, kind: kind as "input" | "model" | "processing" | "publishing", label, modelId, dataTypeId: dataTypeId as "text" | "image" | "audio" | "video" | null,
     inputText, artifactId, parameters, position: { x: positionX, y: positionY } })),
     edges: edges.map((edge) => ({ id: edge.edgeId, source: edge.sourceNodeId, target: edge.targetNodeId, sourceHandle: edge.sourceHandle, targetHandle: edge.targetHandle })) };
 }
@@ -31,7 +31,7 @@ export async function createWorkflowRunInTransaction(
   const edges = await tx.select().from(workflowEdges).where(eq(workflowEdges.workflowId, workflow.id)).orderBy(asc(workflowEdges.edgeId));
   const ids = nodes.flatMap((node) => node.artifactId ? [node.artifactId] : []);
   const uploads = ids.length ? await tx.select().from(artifacts).where(and(eq(artifacts.userId, ownerId), inArray(artifacts.id, ids))) : [];
-  const validation = validateWorkflowDefinition(definitionFor(nodes, edges), contracts, uploads, dataTypes.map((type) => type.id));
+  const validation = validateWorkflowDefinition(definitionFor(nodes, edges), contracts, uploads, dataTypes.map((type) => type.id), workflow.id);
   if (!validation.ok) return { ok: false, error: validation.error };
   for (const node of validation.nodes.filter((item) => item.kind === "publishing")) {
     const [account] = await tx.select({ id: instagramAccounts.id }).from(instagramAccounts)

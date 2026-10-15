@@ -19,6 +19,7 @@ app.use("/api/instagram", instagramRouter);
 app.use("/api/workflows", requireAuthenticatedUser, workflowsRouter);
 app.use("/api/jobs", requireAuthenticatedUser, workflowJobsRouter);
 app.use("/api/runs", requireAuthenticatedUser, runsRouter);
+app.use("/api/artifacts/import-url", requireAuthenticatedUser, express.json({ limit: "8kb" }));
 app.use("/api/artifacts", requireAuthenticatedUser, artifactsRouter);
 app.use("/api/models", requireAuthenticatedUser, modelsRouter);
 

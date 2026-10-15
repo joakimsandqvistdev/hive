@@ -1,4 +1,5 @@
-import { Alert, ColorInput, FileInput, Image, Loader, NumberInput, Select, Stack, Text, Textarea, TextInput, Title } from "@mantine/core";
+import { useState } from "react";
+import { Alert, Button, ColorInput, FileInput, Group, Image, Loader, NumberInput, Select, Stack, Text, Textarea, TextInput, Title } from "@mantine/core";
 import { apiUrl } from "../apiClient";
 import { ImageModelParametersFields, type ImageModelParameters } from "../components/ImageModelParametersFields";
 import { VideoModelParametersFields, type VideoModelParameters } from "../components/VideoModelParametersFields";
@@ -6,17 +7,20 @@ import { AudioModelParametersFields, type AudioModelParameters } from "../compon
 import { TextModelParametersFields, type TextModelParameters } from "../components/TextModelParametersFields";
 import { formatModelPortCardinality } from "../modelIoTypes";
 import type { DataType, WorkflowNode, WorkflowNodeData } from "./workflowTypes";
-import { textOverlayDefaults } from "./processingNodeTypes";
+import { stillImageVideoDefaults, textOverlayDefaults } from "./processingNodeTypes";
 
-export function WorkflowNodeConfiguration({ selected, types, instagramAccounts, downloadedModelIds, uploading, onUpdate, onUpload }: {
+export function WorkflowNodeConfiguration({ selected, types, instagramAccounts, downloadedModelIds, mediaItems, uploading, onUpdate, onUpload, onImportUrl }: {
   selected?: WorkflowNode;
   types: DataType[];
   instagramAccounts: Array<{ id: string; username: string }>;
   downloadedModelIds: Set<string>;
+  mediaItems: Array<{ id: string; dataTypeId: string; displayName: string; savedToLibrary: boolean }>;
   uploading: boolean;
   onUpdate: (patch: Partial<WorkflowNodeData>) => void;
   onUpload: (file: File | null) => void;
+  onImportUrl: (url: string) => void;
 }) {
+  const [sourceUrl, setSourceUrl] = useState("");
   if (!selected) return <Text size="sm" c="dimmed">Select a node to edit its data or model settings. Connect outputs to matching model input datatypes.</Text>;
   return <Stack>
     <Title order={2} size="h4">{selected.data.kind === "input" ? "Input node" : selected.data.kind === "processing" ? "Processing node" : selected.data.kind === "publishing" ? "Publishing node" : "Model node"}</Title>
@@ -24,12 +28,20 @@ export function WorkflowNodeConfiguration({ selected, types, instagramAccounts, 
     {selected.data.kind === "input" ? <>
       <Text size="sm">Datatype: {types.find((type) => type.id === selected.data.dataTypeId)?.label}</Text>
       {selected.data.dataTypeId === "text" ? <Textarea label="Text" value={selected.data.inputText} onChange={(event) => onUpdate({ inputText: event.currentTarget.value })} maxLength={8000} minRows={6} autosize /> : <>
-        <FileInput key={selected.id} label={selected.data.artifactId ? "Replace file" : "Upload file"} accept={selected.data.dataTypeId === "image" ? "image/png,image/jpeg,image/webp" : "audio/wav,audio/mpeg,audio/ogg,audio/flac"} onChange={onUpload} disabled={uploading} />
-        <Text size="xs" c="dimmed">{selected.data.dataTypeId === "image" ? "PNG, JPEG, WebP · up to 10 MB" : "WAV, MP3, Ogg, FLAC · up to 25 MB"}</Text>
+        <Select label="Choose from Media Library" placeholder="Select saved media" clearable value={selected.data.artifactId ?? null} data={mediaItems.filter((item) => (item.savedToLibrary || item.id === selected.data.artifactId) && item.dataTypeId === selected.data.dataTypeId).map((item) => ({ value: item.id, label: item.displayName }))} onChange={(artifactId) => onUpdate({ artifactId, inputText: "" })} />
+        <FileInput key={selected.id} label={selected.data.artifactId ? "Replace with uploaded file" : "Upload file to this workflow"} accept={selected.data.dataTypeId === "image" ? "image/png,image/jpeg,image/webp" : selected.data.dataTypeId === "audio" ? "audio/wav,audio/mpeg,audio/ogg,audio/flac" : "video/mp4"} onChange={onUpload} disabled={uploading} />
+        <Text size="xs" c="dimmed">{selected.data.dataTypeId === "image" ? "PNG, JPEG, WebP · up to 10 MB" : selected.data.dataTypeId === "audio" ? "WAV, MP3, Ogg, FLAC · up to 25 MB" : "MP4 only · up to 50 MB"} Uploads stay with this workflow unless you save them to the Media Library.</Text>
+        <Group align="end"><TextInput label="Import from URL" placeholder="https://example.com/media" value={sourceUrl} onChange={(event) => setSourceUrl(event.currentTarget.value)} style={{ flex: 1 }} /><Button variant="light" loading={uploading} disabled={!sourceUrl.trim()} onClick={() => { onImportUrl(sourceUrl.trim()); setSourceUrl(""); }}>Import</Button></Group>
         {uploading && <Loader size="sm" />}
-        {selected.data.artifactId && (selected.data.dataTypeId === "image" ? <Image src={apiUrl(`/api/artifacts/${selected.data.artifactId}/preview`)} alt={selected.data.label} fit="contain" mah={240} /> : <audio key={selected.data.artifactId} controls src={apiUrl(`/api/artifacts/${selected.data.artifactId}/preview`)} />)}
+        {selected.data.artifactId && (selected.data.dataTypeId === "image" ? <Image src={apiUrl(`/api/artifacts/${selected.data.artifactId}/preview`)} alt={selected.data.label} fit="contain" mah={240} /> : selected.data.dataTypeId === "audio" ? <audio key={selected.data.artifactId} controls src={apiUrl(`/api/artifacts/${selected.data.artifactId}/preview`)} /> : <video key={selected.data.artifactId} controls playsInline src={apiUrl(`/api/artifacts/${selected.data.artifactId}/preview`)} style={{ width: "100%" }} />)}
       </>}
     </> : selected.data.kind === "processing" ? <>
+      {selected.data.parameters.operationId === "still-image-video" ? <>
+        <Text fw={600}>Still Image Video</Text>
+        <Text size="sm" c="dimmed">Creates a 1080×1920 H.264 MP4 at 24 fps. The full image is fitted with black padding and is not cropped. Optional audio is mixed as a soundtrack and only attenuated.</Text>
+        <NumberInput label="Duration (seconds)" min={3} max={900} step={1} value={Number(selected.data.parameters.durationSeconds ?? stillImageVideoDefaults.durationSeconds)} onChange={(value) => typeof value === "number" && onUpdate({ parameters: { ...selected.data.parameters, durationSeconds: value } })} />
+        <NumberInput label="Soundtrack volume (%)" description="0–100%; the original audio is never amplified." min={0} max={100} step={1} value={Number(selected.data.parameters.audioVolume ?? 100)} onChange={(value) => typeof value === "number" && onUpdate({ parameters: { ...selected.data.parameters, audioVolume: value } })} />
+      </> : <>
       <Text fw={600}>Text Overlay</Text>
       <Text size="sm" c="dimmed">Connect one image and one text input. Text is rendered directly; no model is used.</Text>
       <Select label="Font" data={[
@@ -44,6 +56,7 @@ export function WorkflowNodeConfiguration({ selected, types, instagramAccounts, 
       <Select label="Text alignment" data={[{ value: "left", label: "Left" }, { value: "center", label: "Center" }, { value: "right", label: "Right" }]} value={String(selected.data.parameters.alignment ?? textOverlayDefaults.alignment)} onChange={(alignment) => alignment && onUpdate({ parameters: { ...selected.data.parameters, alignment } })} />
       <NumberInput label="Margin" description="Percent of the shorter image dimension" min={0} max={30} value={Number(selected.data.parameters.margin ?? textOverlayDefaults.margin)} onChange={(margin) => typeof margin === "number" && onUpdate({ parameters: { ...selected.data.parameters, margin } })} />
       <NumberInput label="Line spacing" min={1} max={2} step={0.1} decimalScale={1} value={Number(selected.data.parameters.lineSpacing ?? textOverlayDefaults.lineSpacing)} onChange={(lineSpacing) => typeof lineSpacing === "number" && onUpdate({ parameters: { ...selected.data.parameters, lineSpacing } })} />
+      </>}
       {selected.data.inputPorts.map((port) => <Text key={port.portKey} size="sm">{port.label}: {port.dataTypeLabel}</Text>)}
     </> : selected.data.kind === "publishing" ? <>
       <Text fw={600}>{selected.data.parameters.operationId === "instagram-reel" ? "Instagram Reel" : "Instagram Post"}</Text>

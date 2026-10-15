@@ -1,4 +1,4 @@
-import { and, count, desc, eq } from "drizzle-orm";
+import { and, count, desc, eq, inArray, or } from "drizzle-orm";
 import { Router } from "express";
 import { db, pool } from "./db.js";
 import { artifacts, instagramPublications, runDeletions, runNodes, runs } from "./schema.js";
@@ -138,7 +138,14 @@ router.get("/:id", async (req, res, next) => {
     const rank = (nodeId: string) => executionRank.get(nodeId) ?? Number.MAX_SAFE_INTEGER;
     const nodes = (await db.select().from(runNodes).where(and(eq(runNodes.runId, run.id), eq(runNodes.userId, run.userId))))
       .sort((left, right) => rank(left.nodeId) - rank(right.nodeId));
-    const outputs = (await db.select().from(artifacts).where(and(eq(artifacts.runId, run.id), eq(artifacts.userId, run.userId))))
+    const outputIds = nodes.flatMap((node) => {
+      const output = node.outputJson as { artifactId?: unknown } | null;
+      return typeof output?.artifactId === "string" ? [output.artifactId] : [];
+    });
+    const outputScope = outputIds.length
+      ? or(eq(artifacts.runId, run.id), inArray(artifacts.id, outputIds))
+      : eq(artifacts.runId, run.id);
+    const outputs = (await db.select().from(artifacts).where(and(outputScope, eq(artifacts.userId, run.userId))))
       .sort((left, right) => rank(left.runNodeId ?? "") - rank(right.runNodeId ?? ""));
     const [publication] = await db.select().from(instagramPublications).where(and(eq(instagramPublications.runId, run.id), eq(instagramPublications.userId, run.userId))).limit(1);
     res.json({ run, nodes, artifacts: outputs, publication: publication ?? null });

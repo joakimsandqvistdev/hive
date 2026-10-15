@@ -9,6 +9,7 @@ function JobsIcon() { return <svg width="19" height="19" viewBox="0 0 24 24" fil
 function ModelsIcon() { return <svg width="19" height="19" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3.5 19.5 7v10L12 20.5 4.5 17V7L12 3.5Z" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round"/><path d="m4.8 7.2 7.2 3.5 7.2-3.5M12 10.7v9.5" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round"/></svg>; }
 function LicenseIcon() { return <svg width="19" height="19" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M7 3.75h7l4 4v12.5H7a2 2 0 0 1-2-2v-12.5a2 2 0 0 1 2-2Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round"/><path d="M14 4v4h4M8.5 12h7M8.5 15.5h7" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"/></svg>; }
 function AccountsIcon() { return <svg width="19" height="19" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="8.5" stroke="currentColor" strokeWidth="1.7"/><circle cx="12" cy="12" r="3.3" stroke="currentColor" strokeWidth="1.7"/><circle cx="18.2" cy="5.8" r="1.1" fill="currentColor"/></svg>; }
+function MediaIcon() { return <svg width="19" height="19" viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="2" stroke="currentColor" strokeWidth="1.7"/><circle cx="9" cy="10" r="1.5" fill="currentColor"/><path d="m5 17 4.5-4 3 2.5 2.5-2 4 3.5" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round"/></svg>; }
 
 function HomeIcon() {
   return (
@@ -83,6 +84,7 @@ export function SideNavigation({
             <Text className="nav-caption">Workspace</Text>
             <Stack gap={5} mt="sm">
             {!loading && user && <NavigationButton label="Accounts" active={activeView === "accounts"} icon={<AccountsIcon />} compact={compact} onClick={() => { onViewChange("accounts"); onNavigate(); }} />}
+            {!loading && user && <NavigationButton label="Media Library" active={activeView === "media"} icon={<MediaIcon />} compact={compact} onClick={() => { onViewChange("media"); onNavigate(); }} />}
             <NavigationButton label="Models" active={activeView === "models"} icon={<ModelsIcon />} compact={compact} onClick={() => { onViewChange("models"); onNavigate(); }} />
             {!loading && user && <>
               <NavigationButton label="Workflows" active={activeView === "workflows"} icon={<WorkflowIcon />} compact={compact} onClick={() => { onViewChange("workflows"); onNavigate(); }} />

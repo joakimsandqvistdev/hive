@@ -248,6 +248,8 @@ export const artifacts = pgTable("artifacts", {
   byteSize: integer("byte_size").notNull(),
   checksum: text("checksum").notNull(),
   displayName: text("display_name").notNull(),
+  savedToLibrary: boolean("saved_to_library").notNull().default(false),
+  sourceWorkflowId: uuid("source_workflow_id"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table): PgTableExtraConfigValue[] => [
   index("artifacts_user_created_idx").on(table.userId, table.createdAt),

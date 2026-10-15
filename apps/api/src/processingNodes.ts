@@ -13,6 +13,25 @@ export const textOverlaySettingsSchema = z.object({
   lineSpacing: z.number().min(1).max(2).default(1.2),
 }).strict();
 
+export const stillImageVideoSettingsSchema = z.object({
+  operationId: z.literal("still-image-video").default("still-image-video"),
+  durationSeconds: z.number().int().min(3).max(900).default(10),
+  audioVolume: z.number().int().min(0).max(100).default(100),
+}).strict();
+export type StillImageVideoSettings = z.infer<typeof stillImageVideoSettingsSchema>;
+
+export const stillImageVideoContract: ModelIoContract = {
+  modelId: "still-image-video",
+  name: "Still Image Video",
+  modality: "video",
+  inputs: [
+    { direction: "input", portKey: "image", dataTypeId: "image", dataTypeLabel: "Image", mediaType: "image/*", label: "Image", transport: "connection", minCount: 1, maxCount: 1, sortOrder: 0 },
+    { direction: "input", portKey: "audio", dataTypeId: "audio", dataTypeLabel: "Audio", mediaType: "audio/*", label: "Audio (optional)", transport: "connection", minCount: 0, maxCount: 1, sortOrder: 1 },
+  ],
+  outputs: [{ direction: "output", portKey: "video", dataTypeId: "video", dataTypeLabel: "Video", mediaType: "video/mp4", label: "Video", transport: null, minCount: 1, maxCount: 1, sortOrder: 0 }],
+  inputGroups: [],
+};
+
 export type TextOverlaySettings = z.infer<typeof textOverlaySettingsSchema>;
 
 export const instagramPublishingSettingsSchema = z.object({
@@ -52,7 +71,7 @@ export const textOverlayContract: ModelIoContract = {
 };
 
 export function processingContract(parameters: Record<string, unknown>): ModelIoContract | undefined {
-  return parameters.operationId === "text-overlay" ? textOverlayContract : undefined;
+  return parameters.operationId === "text-overlay" ? textOverlayContract : parameters.operationId === "still-image-video" ? stillImageVideoContract : undefined;
 }
 
 export function parseTextOverlaySettings(parameters: Record<string, unknown>): TextOverlaySettings {
