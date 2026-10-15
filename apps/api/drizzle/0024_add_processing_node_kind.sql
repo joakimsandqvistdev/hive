@@ -1,0 +1,2 @@
+ALTER TABLE "workflow_nodes" DROP CONSTRAINT "workflow_nodes_kind_check";--> statement-breakpoint
+ALTER TABLE "workflow_nodes" ADD CONSTRAINT "workflow_nodes_kind_check" CHECK (kind in ('input', 'model', 'processing'));

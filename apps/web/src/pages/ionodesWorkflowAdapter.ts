@@ -1,6 +1,7 @@
 import { addNode, createGraph, type CompatibilityRule, type GraphDocument, type GraphNode as IonodesNode } from "ionodes";
 import type { ModelIoContract } from "../modelIoTypes";
 import type { DataType, Definition, NodeDefinition, WorkflowNode } from "./workflowTypes";
+import { textOverlayContract } from "./processingNodeTypes";
 
 type PortMetadata = {
   portKey: string;
@@ -38,9 +39,10 @@ function colorForDatatype(dataTypeId: string) {
 
 function portsForNode(node: NodeDefinition, contracts: ModelIoContract[], types: DataType[]) {
   const contract = contracts.find((item) => item.modelId === node.modelId);
+  const processing = node.kind === "processing" && node.parameters.operationId === "text-overlay" ? textOverlayContract : undefined;
   const dataType = types.find((item) => item.id === node.dataTypeId);
-  const inputs = node.kind === "model" ? contract?.inputs ?? [] : [];
-  const outputs = node.kind === "model" ? contract?.outputs ?? [] : dataType ? [{
+  const inputs = node.kind === "model" ? contract?.inputs ?? [] : node.kind === "processing" ? processing?.inputs ?? [] : [];
+  const outputs = node.kind === "model" ? contract?.outputs ?? [] : node.kind === "processing" ? processing?.outputs ?? [] : dataType ? [{
     direction: "output" as const,
     portKey: "output",
     dataTypeId: dataType.id,
@@ -52,14 +54,14 @@ function portsForNode(node: NodeDefinition, contracts: ModelIoContract[], types:
     maxCount: 1,
     sortOrder: 0,
   }] : [];
-  return { inputs, outputs, contract };
+  return { inputs, outputs, contract: contract ?? processing };
 }
 
 function toIonodesNode(node: NodeDefinition, contracts: ModelIoContract[], types: DataType[]): IonodesNode {
   const { inputs, outputs, contract } = portsForNode(node, contracts, types);
   const description = node.kind === "input"
     ? node.inputText || (node.artifactId ? "File uploaded" : "Input not set")
-    : contract?.name ?? "Model";
+    : node.kind === "processing" ? "Processing · Text Overlay" : contract?.name ?? "Model";
   return {
     id: node.id,
     title: node.label,
@@ -138,7 +140,7 @@ export function toIonodesGraph(definition: Definition, contracts: ModelIoContrac
 
 function workflowMetadata(node: IonodesNode): WorkflowMetadata {
   const metadata = node.metadata as Partial<WorkflowMetadata> | undefined;
-  if ((metadata?.kind !== "input" && metadata?.kind !== "model") || typeof metadata.parameters !== "object" || metadata.parameters === null) {
+  if ((metadata?.kind !== "input" && metadata?.kind !== "model" && metadata?.kind !== "processing") || typeof metadata.parameters !== "object" || metadata.parameters === null) {
     throw new Error(`Node “${node.title}” is missing Hive workflow data.`);
   }
   return {

@@ -11,7 +11,7 @@ export type WorkflowRunCreation = { ok: true; run: typeof runs.$inferSelect } | 
 
 export function definitionFor(nodes: typeof workflowNodes.$inferSelect[], edges: typeof workflowEdges.$inferSelect[]) {
   return { nodes: nodes.map(({ nodeId, kind, label, modelId, dataTypeId, inputText, artifactId, parameters, positionX, positionY }) => ({
-    id: nodeId, kind: kind as "input" | "model", label, modelId, dataTypeId: dataTypeId as "text" | "image" | "audio" | null,
+    id: nodeId, kind: kind as "input" | "model" | "processing", label, modelId, dataTypeId: dataTypeId as "text" | "image" | "audio" | null,
     inputText, artifactId, parameters, position: { x: positionX, y: positionY } })),
     edges: edges.map((edge) => ({ id: edge.edgeId, source: edge.sourceNodeId, target: edge.targetNodeId, sourceHandle: edge.sourceHandle, targetHandle: edge.targetHandle })) };
 }

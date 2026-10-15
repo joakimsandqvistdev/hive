@@ -10,6 +10,8 @@ import { modelRunnerRejection, modelRunnerTransportFailure } from "./modelRunner
 import { createModelRunnerClient } from "./modelRunnerClient.js";
 import { bindModelInputs, buildRunnerInput, object, resolveModelSettings, type NodeOutput, type SnapshotEdge, type SnapshotNode } from "./runInputResolver.js";
 import { processWorkflowJobTick } from "./workflowJobScheduler.js";
+import { parseTextOverlaySettings } from "./processingNodes.js";
+import { renderTextOverlay } from "./textOverlayRenderer.js";
 
 const workerId = `${hostname()}:${process.pid}`;
 const modelRunnerUrl = (process.env.MODEL_RUNNER_URL ?? "http://127.0.0.1:8188").replace(/\/$/, "");
@@ -40,8 +42,28 @@ async function execute(run: ClaimedRun, signal: AbortSignal): Promise<void> {
       outputs.set(node.id, output); continue;
     }
     const contract = node.modelIoContract;
-    if (!contract) throw new Error("Model input/output contract is missing.");
+    if (!contract) throw new Error("Node input/output contract is missing.");
     const bound = bindModelInputs(node, edges, outputs, nodeById);
+    if (node.kind === "processing") {
+      const settings = parseTextOverlaySettings(object(node.parameters));
+      const text = bound.find((input) => input.port.portKey === "text")?.output.text;
+      const imageId = bound.find((input) => input.port.portKey === "image")?.output.artifactId;
+      if (!text?.trim() || !imageId) throw new Error("Connect a text input and image input to Text Overlay.");
+      const processing = await setRunNodeRunning(run.id, node.id, workerId, { settings });
+      if (!processing) throw new Error("Worker lease was lost before processing.");
+      const [artifact] = await db.select().from(artifacts).where(and(eq(artifacts.id, imageId), eq(artifacts.userId, run.user_id))).limit(1);
+      if (!artifact || artifact.dataTypeId !== "image" || (artifact.runId !== null && artifact.runId !== run.id)) throw new Error("Connected image is unavailable.");
+      const rendered = await renderTextOverlay(await readArtifact(artifact.storageKey), text, settings);
+      const stored = await savePng(rendered);
+      let inserted = false;
+      try {
+        await db.insert(artifacts).values({ ...stored, userId: run.user_id, runId: run.id, runNodeId: node.id, dataTypeId: "image", mediaType: "image/png", displayName: `${node.label}.png` }); inserted = true;
+        const output = { dataTypeId: "image", artifactId: stored.id };
+        if (!await finishRunNode(run.id, node.id, workerId, output)) throw new Error("Worker lease was lost after processing.");
+        outputs.set(node.id, output);
+      } catch (error) { if (inserted) await db.delete(artifacts).where(eq(artifacts.id, stored.id)); await removeArtifact(stored.storageKey); throw error; }
+      continue;
+    }
     const resolvedSettings = resolveModelSettings(node);
     const resolved = await setRunNodeRunning(run.id, node.id, workerId, { modelParameters: resolvedSettings.parameters });
     if (!resolved) throw new Error("Worker lease was lost before model execution.");

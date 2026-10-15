@@ -3,10 +3,11 @@ import { imageModelParametersSchema } from "./modelParameters.js";
 import { videoModelParametersSchema } from "./videoModelParameters.js";
 import { audioModelParametersSchema } from "./audioModelParameters.js";
 import type { ModelIoContract } from "./modelContracts.js";
+import { processingContract, textOverlaySettingsSchema } from "./processingNodes.js";
 
 const nodeSchema = z.object({
   id: z.string().min(1).max(100),
-  kind: z.enum(["input", "model"]),
+  kind: z.enum(["input", "model", "processing"]),
   label: z.string().trim().min(1).max(100),
   modelId: z.string().max(100).nullable().optional(),
   dataTypeId: z.enum(["text", "image", "audio"]).nullable().optional(),
@@ -92,11 +93,18 @@ export function validateWorkflowDefinition(definition: WorkflowDefinition, catal
       }
       contracts.set(node.id, { modelId: "", name: node.label, modality: "image", inputs: [], inputGroups: [],
         outputs: [{ direction: "output", portKey: "output", dataTypeId: type, dataTypeLabel: type, mediaType: type === "text" ? "text/plain" : `${type}/*`, label: type, transport: null, minCount: 1, maxCount: 1, sortOrder: 0 }] });
-    } else {
+    } else if (node.kind === "model") {
       const contract = catalogById.get(node.modelId ?? "");
       if (!contract || node.dataTypeId || node.artifactId || node.inputText) return { ok: false, error: "invalid_model_contract" };
       const parameterSchema = contract.modality === "video" ? videoModelParametersSchema : contract.modality === "audio" ? audioModelParametersSchema : imageModelParametersSchema;
       const parsed = parameterSchema.safeParse({ ...node.parameters, modelId: node.modelId });
+      if (!parsed.success) return { ok: false, error: "invalid_parameters" };
+      parameters = parsed.data;
+      contracts.set(node.id, contract);
+    } else {
+      const contract = processingContract(node.parameters ?? {});
+      if (!contract || node.modelId || node.dataTypeId || node.artifactId || node.inputText) return { ok: false, error: "invalid_model_contract" };
+      const parsed = textOverlaySettingsSchema.safeParse(node.parameters ?? {});
       if (!parsed.success) return { ok: false, error: "invalid_parameters" };
       parameters = parsed.data;
       contracts.set(node.id, contract);

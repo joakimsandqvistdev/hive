@@ -14,6 +14,7 @@ import type { ModelIoContract } from "../modelIoTypes";
 import type { DataType, Definition, Workflow, WorkflowNode, WorkflowNodeData } from "./workflowTypes";
 import { addWorkflowNode, toIonodesGraph, toWorkflowDefinition, toWorkflowNode, validateWorkflowConnection } from "./ionodesWorkflowAdapter";
 import "ionodes/style.css";
+import { textOverlayDefaults } from "./processingNodeTypes";
 
 export function WorkflowEditor({ workflowId, onClose, onNavigate }: { workflowId: string; onClose: () => void; onNavigate: (view: AppView) => void }) {
   const [workflow, setWorkflow] = useState<Workflow | null>(null);
@@ -55,6 +56,7 @@ export function WorkflowEditor({ workflowId, onClose, onNavigate }: { workflowId
   }, [workflowId]);
   const options = useMemo(() => [
     { group: "Inputs", items: types.filter((type) => ["text", "image", "audio"].includes(type.id)).map((type) => ({ value: `input:${type.id}`, label: `${type.label} input` })) },
+    { group: "Processing", items: [{ value: "processing:text-overlay", label: "Text Overlay" }] },
     { group: "Downloaded models", items: contracts.filter((model) => downloaded.modelIds.has(model.modelId)).map((model) => ({ value: `model:${model.modelId}`, label: model.name })) },
   ], [types, contracts, downloaded.modelIds]);
   function update(patch: Partial<WorkflowNodeData>) {
@@ -66,20 +68,21 @@ export function WorkflowEditor({ workflowId, onClose, onNavigate }: { workflowId
       const nextLabel = label ?? node.title;
       const currentInputText = inputText ?? selected.data.inputText;
       const currentArtifactId = artifactId ?? selected.data.artifactId;
-      const description = selected.data.kind === "input" ? currentInputText || (currentArtifactId ? "File uploaded" : "Input not set") : selected.data.contract?.name ?? "Model";
+      const description = selected.data.kind === "input" ? currentInputText || (currentArtifactId ? "File uploaded" : "Input not set") : selected.data.kind === "processing" ? "Processing · Text Overlay" : selected.data.contract?.name ?? "Model";
       return { ...node, title: nextLabel, description, metadata };
     }) })); setDirty(true);
   }
   function addNode() {
     if (!choice) return;
-    const [kind, id] = choice.split(":") as ["input" | "model", string];
+    const [kind, id] = choice.split(":") as ["input" | "model" | "processing", string];
     const model = contracts.find((item) => item.modelId === id);
     const dataType = types.find((item) => item.id === id);
     let parameters: Record<string, unknown> = {};
     if (model?.modality === "video") parameters = { ...defaultVideoModelParameters(id as VideoModelParameters["modelId"]) };
     else if (model?.modality === "audio") parameters = { ...defaultAudioModelParameters, modelId: "kokoro-82m" };
     else if (model) parameters = { ...defaultImageModelParameters, modelId: id, steps: imageModelDefaultSteps(id as ImageModelParameters["modelId"]), guidanceScale: id === "flux2-klein-4b" ? 1 : ["sana-sprint-06b", "sd35-medium"].includes(id) ? 4.5 : 7.5 };
-    const node: Definition["nodes"][number] = { id: createId("node"), kind, label: model?.name ?? `${dataType?.label ?? id} input`, modelId: model?.modelId ?? null, dataTypeId: kind === "input" ? id : null, inputText: "", artifactId: null, parameters,
+    if (kind === "processing" && id === "text-overlay") parameters = { ...textOverlayDefaults };
+    const node: Definition["nodes"][number] = { id: createId("node"), kind, label: model?.name ?? (kind === "processing" ? "Text Overlay" : `${dataType?.label ?? id} input`), modelId: model?.modelId ?? null, dataTypeId: kind === "input" ? id : null, inputText: "", artifactId: null, parameters,
       position: { x: 90 + (graph.nodes.length % 3) * 280, y: 90 + Math.floor(graph.nodes.length / 3) * 190 } };
     setGraph((current) => addWorkflowNode(current, node, contracts, types)); setSelectedNodeId(node.id); setSelectedConnectionId(null); setDirty(true); setPickerOpen(false); setChoice(null);
   }

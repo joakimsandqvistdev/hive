@@ -20,3 +20,21 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+Sharp
+Copyright (c) 2013-2025, Lovell Fuller and contributors
+The Sharp Node.js package is licensed under the Apache License, Version 2.0:
+https://www.apache.org/licenses/LICENSE-2.0
+Source: https://github.com/lovell/sharp
+
+Sharp platform binaries and libvips
+The platform runtime packages include libvips and third-party components under
+additional licenses, including LGPL-3.0-or-later, MIT, BSD, and MPL terms.
+See the exact upstream third-party notice list:
+https://github.com/lovell/sharp-libvips/blob/main/THIRD-PARTY-NOTICES.md
+
+Liberation Fonts
+Copyright (c) 2012 Red Hat, Inc. with Reserved Font Name Liberation.
+Licensed under the SIL Open Font License, Version 1.1.
+License text: https://github.com/liberationfonts/liberation-fonts/blob/main/LICENSE
+Source: https://github.com/liberationfonts/liberation-fonts
