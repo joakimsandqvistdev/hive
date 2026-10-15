@@ -86,6 +86,23 @@ export function WorkflowEditor({ workflowId, onClose, onNavigate }: { workflowId
       position: { x: 90 + (graph.nodes.length % 3) * 280, y: 90 + Math.floor(graph.nodes.length / 3) * 190 } };
     setGraph((current) => addWorkflowNode(current, node, contracts, types)); setSelectedNodeId(node.id); setSelectedConnectionId(null); setDirty(true); setPickerOpen(false); setChoice(null);
   }
+  function duplicateSelectedNode() {
+    if (!selectedGraphNode || !selected) return;
+    const nodeId = createId("node");
+    const nodeDefinition: Definition["nodes"][number] = {
+      id: nodeId,
+      kind: selected.data.kind,
+      label: `${selected.data.label.slice(0, 94)} copy`,
+      modelId: selected.data.modelId,
+      dataTypeId: selected.data.dataTypeId,
+      inputText: selected.data.inputText,
+      artifactId: selected.data.artifactId,
+      parameters: structuredClone(selected.data.parameters),
+      position: { x: Math.min(selected.position.x + 48, 999_900), y: Math.min(selected.position.y + 48, 999_900) },
+    };
+    const next = addWorkflowNode(graph, nodeDefinition, contracts, types);
+    setGraph(next); setSelectedNodeId(nodeId); setSelectedConnectionId(null); setDirty(true); setError(null);
+  }
   async function upload(file: File | null) {
     if (!file || !selected) return;
     const nodeId = selected.id;
@@ -127,7 +144,7 @@ export function WorkflowEditor({ workflowId, onClose, onNavigate }: { workflowId
     <header className="workflow-editor-header"><Group justify="space-between" className="workflow-editor-header-row"><Group className="workflow-header-leading" gap="sm"><Button variant="subtle" onClick={() => { if (!dirty || window.confirm("Discard unsaved workflow changes?")) onClose(); }}>Back</Button>{error && <Alert className="workflow-header-error" color="hiveError" variant="light" radius="sm" p="xs" role="alert">{error}</Alert>}</Group><Group><Button variant="subtle" onClick={() => setDetailsOpen(true)}>Edit details</Button><Button variant="light" onClick={() => void run()} loading={running} disabled={dirty || !graph.nodes.length || loading || saving || uploading}>Run workflow</Button><Button onClick={() => void save()} loading={saving} disabled={!dirty || uploading}>Save workflow</Button></Group></Group></header>
     {loading ? <Group justify="center" className="workflow-editor-loading"><Loader /><Text>Loading workflow…</Text></Group> : workflow && <div className="workflow-editor-body">
       <section className="workflow-editor-canvas" aria-label="Workflow canvas"><GraphEditor graph={graph} graphTitle={workflow?.name ?? "Workflow"} onChange={(next) => { setGraph(next); setDirty(true); setError(null); }} onSelectionChange={({ nodeIds, connectionIds }) => { setSelectedNodeId(nodeIds[0] ?? null); setSelectedConnectionId(connectionIds[0] ?? null); }} validateConnection={validateWorkflowConnection} showConnectionWarnings={false} showEmptyState={false} showPalette={false} showInspector={false} showStatusBar={false} className="hive-ionodes" theme={{ "--ionodes-bg": "var(--mantine-color-gray-0)" }} canvas={{ hideAttribution: true, backgroundColor: "#d6dde5", miniMapMaskColor: "rgba(124, 135, 148, 0.16)", miniMapNodeColor: (_node, invalid) => invalid ? "var(--mantine-color-hiveError-6)" : "var(--mantine-color-hiveSky-6)" }} /></section>
-      <aside className="workflow-config-panel" aria-label="Node configuration"><Group grow mb="lg"><Button variant="light" onClick={() => { void downloaded.refresh(); setPickerOpen(true); }}>Add node</Button><Button variant="light" color="hiveError" disabled={(!selected && !selectedConnectionId) || uploading} onClick={() => { if (selected) setRemoveOpen(true); else if (selectedConnectionId) { setGraph((current) => removeConnection(current, selectedConnectionId)); setSelectedConnectionId(null); setDirty(true); } }}>Remove selected</Button></Group>
+      <aside className="workflow-config-panel" aria-label="Node configuration"><div className="workflow-node-actions"><Button size="sm" variant="light" leftSection={<AddNodeIcon />} onClick={() => { void downloaded.refresh(); setPickerOpen(true); }}>Add node</Button><Button size="sm" variant="light" color="hiveSky" leftSection={<DuplicateIcon />} aria-label="Duplicate selected node" disabled={!selected || uploading} onClick={duplicateSelectedNode}>Duplicate</Button><Button size="sm" variant="light" color="hiveError" leftSection={<RemoveIcon />} className="workflow-node-actions-remove" disabled={(!selected && !selectedConnectionId) || uploading} onClick={() => { if (selected) setRemoveOpen(true); else if (selectedConnectionId) { setGraph((current) => removeConnection(current, selectedConnectionId)); setSelectedConnectionId(null); setDirty(true); } }}>Remove selected</Button></div>
         <WorkflowNodeConfiguration selected={selected} types={types} downloadedModelIds={downloaded.modelIds} uploading={uploading} onUpdate={update} onUpload={(file) => void upload(file)} />
       </aside></div>}
     <Modal opened={pickerOpen} onClose={() => setPickerOpen(false)} title="Add node" centered><Stack><Select label="Node" placeholder="Choose an input or downloaded model" data={options} value={choice} onChange={setChoice} searchable /><Text size="xs" c="dimmed">Only downloaded models are available here. Download additional models from Models.</Text>{downloaded.status === "unavailable" && <Alert color="hiveWarning">Could not check model downloads. Input nodes remain available.</Alert>}<Button onClick={addNode} disabled={!choice}>Add node</Button></Stack></Modal>
@@ -137,3 +154,7 @@ export function WorkflowEditor({ workflowId, onClose, onNavigate }: { workflowId
     <Modal opened={detailsOpen} onClose={() => setDetailsOpen(false)} title="Workflow details" centered>{workflow && <Stack><TextInput label="Name" value={workflow.name} maxLength={100} onChange={(event) => { setWorkflow({ ...workflow, name: event.currentTarget.value }); setDirty(true); }} /><Textarea label="Description" value={workflow.description} maxLength={1000} onChange={(event) => { setWorkflow({ ...workflow, description: event.currentTarget.value }); setDirty(true); }} /><Button onClick={() => setDetailsOpen(false)}>Done</Button></Stack>}</Modal>
   </div>;
 }
+
+function AddNodeIcon() { return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" /></svg>; }
+function DuplicateIcon() { return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2" stroke="currentColor" strokeWidth="1.7"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"/></svg>; }
+function RemoveIcon() { return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3m3 0-.8 12.2a1 1 0 0 1-1 .8H7.8a1 1 0 0 1-1-.8L6 7m4 4v5m4-5v5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" /></svg>; }

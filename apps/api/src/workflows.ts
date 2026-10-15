@@ -1,4 +1,4 @@
-import { and, count, eq, inArray, sql, asc } from "drizzle-orm";
+import { and, count, eq, inArray, sql, asc, isNull } from "drizzle-orm";
 import { Router } from "express";
 import { db } from "./db.js";
 import { artifacts, runs, workflowEdges, workflowJobs, workflowNodes, workflows } from "./schema.js";
@@ -43,6 +43,31 @@ router.post("/", async (req, res, next) => {
       return created;
     });
     res.status(201).json({ workflow });
+  } catch (error) { next(error); }
+});
+
+router.post("/:id/duplicate", async (req, res, next) => {
+  if (req.get("origin") !== (process.env.WEB_ORIGIN ?? "http://localhost:5173")) { res.status(403).json({ error: "invalid_origin" }); return; }
+  const ownerId = userId(res);
+  try {
+    const duplicate = await db.transaction(async (tx) => {
+      const [source] = await tx.select().from(workflows).where(and(eq(workflows.id, req.params.id), eq(workflows.userId, ownerId), isNull(workflows.archivedAt))).limit(1).for("share");
+      if (!source) return null;
+      const [copy] = await tx.insert(workflows).values({
+        userId: ownerId,
+        name: `${source.name.slice(0, 94)} copy`,
+        description: source.description,
+      }).returning();
+      const [nodes, edges] = await Promise.all([
+        tx.select().from(workflowNodes).where(eq(workflowNodes.workflowId, source.id)),
+        tx.select().from(workflowEdges).where(eq(workflowEdges.workflowId, source.id)),
+      ]);
+      if (nodes.length) await tx.insert(workflowNodes).values(nodes.map((node) => ({ ...node, workflowId: copy!.id })));
+      if (edges.length) await tx.insert(workflowEdges).values(edges.map((edge) => ({ ...edge, workflowId: copy!.id })));
+      return { ...copy!, nodeCount: nodes.length, activeRunCount: 0 };
+    });
+    if (!duplicate) { res.status(404).json({ error: "workflow_not_found" }); return; }
+    res.status(201).json({ workflow: duplicate });
   } catch (error) { next(error); }
 });
 

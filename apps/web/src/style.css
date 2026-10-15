@@ -79,6 +79,9 @@ body { color: var(--mantine-color-text); background: var(--mantine-color-gray-0)
 .workflow-editor-canvas .hive-ionodes .ionodes-canvas .react-flow__minimap { border-color: var(--mantine-color-gray-2); border-radius: var(--mantine-radius-sm); background: var(--mantine-color-white); box-shadow: var(--mantine-shadow-sm); }
 .workflow-editor-canvas .hive-ionodes .ionodes-toolbar { display: none; }
 .workflow-config-panel { min-height: 0; overflow-y: auto; padding: 20px 18px; border-left: 1px solid var(--mantine-color-gray-2); background: var(--mantine-color-white); }
+.workflow-node-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--mantine-spacing-xs); margin-bottom: var(--mantine-spacing-lg); }
+.workflow-node-actions .mantine-Button-root { min-width: 0; }
+.workflow-node-actions-remove { grid-column: 1 / -1; }
 .workflow-node-summary { padding: 12px; border-color: var(--mantine-color-gray-2); background: var(--mantine-color-gray-0); }
 .workflow-editor-loading { flex: 1; }
 .sign-in-required { min-height: 230px; display: flex; align-items: center; }
