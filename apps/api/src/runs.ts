@@ -1,7 +1,7 @@
 import { and, count, desc, eq } from "drizzle-orm";
 import { Router } from "express";
 import { db, pool } from "./db.js";
-import { artifacts, runNodes, runs } from "./schema.js";
+import { artifacts, runDeletions, runNodes, runs } from "./schema.js";
 import { workflowExecutionOrder } from "./workflowExecutionOrder.js";
 import { parsePagination, totalPages } from "./pagination.js";
 
@@ -36,22 +36,89 @@ router.post("/:id/cancel", async (req, res, next) => {
   } finally { client.release(); }
 });
 
+router.delete("/:id", async (req, res, next) => {
+  if (req.get("origin") !== (process.env.WEB_ORIGIN ?? "http://localhost:5173")) { res.status(403).json({ error: "invalid_origin" }); return; }
+  const ownerId = res.locals.userId as string;
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const selected = await client.query<{ status: string }>("SELECT status FROM runs WHERE id=$1 AND user_id=$2 FOR UPDATE", [req.params.id, ownerId]);
+    const status = selected.rows[0]?.status;
+    if (!status) {
+      await client.query("ROLLBACK");
+      res.status(404).json({ error: "run_not_found" });
+      return;
+    }
+    if (["queued", "running", "cancel_requested"].includes(status)) {
+      await client.query("ROLLBACK");
+      res.status(409).json({ error: "run_active" });
+      return;
+    }
+    await client.query("INSERT INTO run_deletions (run_id, user_id, storage_keys, candidate_upload_ids) " +
+      "SELECT $1, $2, " +
+      "COALESCE((SELECT array_agg(storage_key) FROM artifacts WHERE run_id=$1 AND user_id=$2), ARRAY[]::text[]), " +
+      "COALESCE((SELECT array_agg(DISTINCT input_artifact_id) FROM run_nodes WHERE run_id=$1 AND user_id=$2 AND input_artifact_id IS NOT NULL), ARRAY[]::uuid[]) " +
+      "ON CONFLICT (run_id) DO NOTHING", [req.params.id, ownerId]);
+    await client.query("COMMIT");
+    res.status(202).json({ status: "deleting" });
+  } catch (error) {
+    await client.query("ROLLBACK");
+    next(error);
+  } finally { client.release(); }
+});
+
+router.post("/:id/delete/retry", async (req, res, next) => {
+  if (req.get("origin") !== (process.env.WEB_ORIGIN ?? "http://localhost:5173")) { res.status(403).json({ error: "invalid_origin" }); return; }
+  const ownerId = res.locals.userId as string;
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const selected = await client.query<{ processing: boolean }>(
+      "SELECT claimed_by IS NOT NULL AND lease_expires_at > now() AS processing FROM run_deletions WHERE run_id=$1 AND user_id=$2 FOR UPDATE", [req.params.id, ownerId],
+    );
+    if (!selected.rows.length) {
+      await client.query("ROLLBACK");
+      res.status(404).json({ error: "deletion_not_found" });
+      return;
+    }
+    if (selected.rows[0]!.processing) {
+      await client.query("ROLLBACK");
+      res.status(409).json({ error: "cleanup_in_progress" });
+      return;
+    }
+    await client.query("UPDATE run_deletions SET claimed_by=NULL, lease_expires_at=NULL, last_error=NULL, next_attempt_at=now() WHERE run_id=$1 AND user_id=$2", [req.params.id, ownerId]);
+    await client.query("COMMIT");
+    res.status(202).json({ status: "deleting" });
+  } catch (error) {
+    await client.query("ROLLBACK");
+    next(error);
+  } finally { client.release(); }
+});
+
 router.get("/", async (req, res, next) => {
   const ownerId = res.locals.userId as string;
   const { page, pageSize, offset } = parsePagination(req);
   try {
-    const [items, totals] = await Promise.all([
-      db.select().from(runs).where(eq(runs.userId, ownerId))
+    const [rows, totals] = await Promise.all([
+      db.select({ run: runs, deletion: runDeletions }).from(runs)
+        .leftJoin(runDeletions, eq(runDeletions.runId, runs.id))
+        .where(eq(runs.userId, ownerId))
         .orderBy(desc(runs.createdAt), desc(runs.id)).limit(pageSize).offset(offset),
       db.select({ total: count() }).from(runs).where(eq(runs.userId, ownerId)),
     ]);
     const total = totals[0]?.total ?? 0;
+    const items = rows.map(({ run, deletion }) => ({
+      ...run,
+      deletion: deletion ? { attemptCount: deletion.attemptCount, lastError: deletion.lastError, processing: Boolean(deletion.claimedBy && deletion.leaseExpiresAt && deletion.leaseExpiresAt > new Date()) } : null,
+    }));
     res.json({ items, page, pageSize, total, totalPages: totalPages(total, pageSize) });
   } catch (error) { next(error); }
 });
 
 router.get("/:id", async (req, res, next) => {
   try {
+    const [deletion] = await db.select({ runId: runDeletions.runId }).from(runDeletions).where(and(eq(runDeletions.runId, req.params.id), eq(runDeletions.userId, res.locals.userId as string))).limit(1);
+    if (deletion) { res.status(404).json({ error: "run_not_found" }); return; }
     const [run] = await db.select().from(runs)
       .where(and(eq(runs.id, req.params.id), eq(runs.userId, res.locals.userId as string))).limit(1);
     if (!run) { res.status(404).json({ error: "run_not_found" }); return; }

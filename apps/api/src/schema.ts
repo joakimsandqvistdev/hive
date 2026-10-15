@@ -174,6 +174,22 @@ export const runNodes = pgTable("run_nodes", {
   foreignKey({ columns: [table.runId, table.userId], foreignColumns: [runs.id, runs.userId], name: "run_nodes_run_owner_fk" }).onDelete("cascade"),
 ]);
 
+export const runDeletions = pgTable("run_deletions", {
+  runId: uuid("run_id").primaryKey(),
+  userId: uuid("user_id").notNull(),
+  storageKeys: text("storage_keys").array().notNull().default(sql`'{}'::text[]`),
+  candidateUploadIds: uuid("candidate_upload_ids").array().notNull().default(sql`'{}'::uuid[]`),
+  attemptCount: integer("attempt_count").notNull().default(0),
+  lastError: text("last_error"),
+  claimedBy: text("claimed_by"),
+  leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+  nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }).notNull().defaultNow(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table): PgTableExtraConfigValue[] => [
+  foreignKey({ columns: [table.runId, table.userId], foreignColumns: [runs.id, runs.userId], name: "run_deletions_run_owner_fk" }).onDelete("cascade"),
+  index("run_deletions_queue_idx").on(table.nextAttemptAt, table.leaseExpiresAt),
+]);
+
 export const artifacts = pgTable("artifacts", {
   id: uuid("id").defaultRandom().primaryKey(),
   userId: uuid("user_id").notNull(),

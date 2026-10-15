@@ -134,6 +134,20 @@
       "when": 1791980424635,
       "tag": "0018_kokoro_catalog",
       "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1792060555962,
+      "tag": "0019_unique_thundra",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1792060785767,
+      "tag": "0020_thick_firebrand",
+      "breakpoints": true
     }
   ]
 }

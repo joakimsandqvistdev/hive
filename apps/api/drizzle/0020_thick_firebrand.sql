@@ -1,0 +1,1 @@
+ALTER TABLE "run_deletions" ADD COLUMN "candidate_upload_ids" uuid[] DEFAULT '{}'::uuid[] NOT NULL;
