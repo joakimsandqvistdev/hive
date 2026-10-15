@@ -1,11 +1,10 @@
 import { and, count, eq, inArray, sql, asc } from "drizzle-orm";
 import { Router } from "express";
 import { db } from "./db.js";
-import { artifacts, runNodes, runs, workflowEdges, workflowNodes, workflows } from "./schema.js";
-import { createWorkflowSchema, saveWorkflowSchema, startRunSchema, validateWorkflowDefinition } from "./workflowDefinition.js";
-import { buildWorkflowRunSnapshot } from "./workflowRunSnapshot.js";
-import { forwardRunnerRequest } from "./models.js";
+import { artifacts, runs, workflowEdges, workflowJobs, workflowNodes, workflows } from "./schema.js";
+import { createWorkflowSchema, saveWorkflowSchema, validateWorkflowDefinition } from "./workflowDefinition.js";
 import { loadDataTypes, loadModelIoContracts } from "./modelContracts.js";
+import { createWorkflowRunInTransaction, definitionFor, workflowRunErrorMessage } from "./workflowRunService.js";
 import { parsePagination, totalPages } from "./pagination.js";
 
 const router = Router();
@@ -47,13 +46,6 @@ router.post("/", async (req, res, next) => {
   } catch (error) { next(error); }
 });
 
-
-function definitionFor(nodes: typeof workflowNodes.$inferSelect[], edges: typeof workflowEdges.$inferSelect[]) {
-  return { nodes: nodes.map(({ nodeId, kind, label, modelId, dataTypeId, inputText, artifactId, parameters, positionX, positionY }) => ({
-    id: nodeId, kind: kind as "input" | "model", label, modelId, dataTypeId: dataTypeId as "text" | "image" | "audio" | null,
-    inputText, artifactId, parameters, position: { x: positionX, y: positionY } })),
-    edges: edges.map((edge) => ({ id: edge.edgeId, source: edge.sourceNodeId, target: edge.targetNodeId, sourceHandle: edge.sourceHandle, targetHandle: edge.targetHandle })) };
-}
 
 router.get("/:id", async (req, res, next) => {
   try {
@@ -106,29 +98,12 @@ router.post("/:id/runs", async (req, res, next) => {
   const ownerId = userId(res);
   try {
     const [contracts, types] = await Promise.all([loadModelIoContracts(), loadDataTypes()]);
-    const result = await db.transaction(async (tx) => {
-      const [workflow] = await tx.select().from(workflows).where(and(eq(workflows.id, req.params.id), eq(workflows.userId, ownerId))).limit(1).for("share");
-      if (!workflow) return null;
-      const nodes = await tx.select().from(workflowNodes).where(eq(workflowNodes.workflowId, workflow.id));
-      if (!nodes.length) return "workflow_has_no_nodes";
-      const edges = await tx.select().from(workflowEdges).where(eq(workflowEdges.workflowId, workflow.id)).orderBy(asc(workflowEdges.edgeId));
-      const ids = nodes.flatMap((node) => node.artifactId ? [node.artifactId] : []);
-      const uploads = ids.length ? await tx.select().from(artifacts).where(and(eq(artifacts.userId, ownerId), inArray(artifacts.id, ids))) : [];
-      const validation = validateWorkflowDefinition(definitionFor(nodes, edges), contracts, uploads, types.map((type) => type.id));
-      if (!validation.ok) return validation.error;
-      if (nodes.some((node) => node.kind === "model")) {
-        const { response, body } = await forwardRunnerRequest("/models");
-        const available = new Set(((body as { models?: Array<{ id: string; status: string }> }).models ?? []).filter((model) => model.status === "downloaded").map((model) => model.id));
-        if (!response.ok || nodes.some((node) => node.kind === "model" && !available.has(node.modelId ?? ""))) return "model_not_downloaded";
-      }
-      const snapshot = buildWorkflowRunSnapshot(workflow, { nodes: validation.nodes, edges: validation.edges }, contracts);
-      const [run] = await tx.insert(runs).values({ userId: ownerId, workflowId: workflow.id, status: "queued", inputJson: {}, workflowSnapshotJson: snapshot.workflowSnapshot }).returning();
-      await tx.insert(runNodes).values(snapshot.runNodes.map((node) => ({ ...node, runId: run.id, userId: ownerId, status: "queued" as const })));
-      return run;
-    });
-    if (!result) { res.status(404).json({ error: "workflow_not_found" }); return; }
-    if (typeof result === "string") { res.status(result === "model_not_downloaded" ? 409 : 400).json({ error: result }); return; }
-    res.status(202).json({ run: result });
+    const result = await db.transaction((tx) => createWorkflowRunInTransaction(tx, req.params.id, ownerId, contracts, types));
+    if (!result.ok) {
+      const status = result.error === "workflow_not_found" ? 404 : result.error === "model_not_downloaded" ? 409 : 400;
+      res.status(status).json({ error: result.error, message: workflowRunErrorMessage(result.error) }); return;
+    }
+    res.status(202).json({ run: result.run });
   } catch (error) { next(error); }
 });
 
@@ -142,11 +117,15 @@ router.delete("/:id", async (req, res, next) => {
       const [usage] = await tx.select({ total: sql<number>`count(*)` }).from(runs)
         .where(and(eq(runs.workflowId, workflow.id), inArray(runs.status, ["queued", "running", "cancel_requested"])));
       if ((usage?.total ?? 0) > 0) return { kind: "in_use" as const, activeRunCount: usage.total };
+      const [jobUsage] = await tx.select({ total: sql<number>`count(*)` }).from(workflowJobs)
+        .where(and(eq(workflowJobs.workflowId, workflow.id), inArray(workflowJobs.status, ["active", "paused"])));
+      if ((jobUsage?.total ?? 0) > 0) return { kind: "jobs_in_use" as const, activeJobCount: jobUsage.total };
       await tx.delete(workflows).where(and(eq(workflows.id, workflow.id), eq(workflows.userId, userId(res))));
       return { kind: "deleted" as const };
     });
     if (result.kind === "not_found") { res.status(404).json({ error: "workflow_not_found" }); return; }
     if (result.kind === "in_use") { res.status(409).json({ error: "workflow_in_use", activeRunCount: result.activeRunCount }); return; }
+    if (result.kind === "jobs_in_use") { res.status(409).json({ error: "workflow_has_jobs", activeJobCount: result.activeJobCount }); return; }
     res.status(204).end();
   } catch (error) { next(error); }
 });

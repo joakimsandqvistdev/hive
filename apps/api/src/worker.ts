@@ -9,6 +9,7 @@ import { workflowExecutionOrder } from "./workflowExecutionOrder.js";
 import { modelRunnerRejection, modelRunnerTransportFailure } from "./modelRunnerErrors.js";
 import { createModelRunnerClient } from "./modelRunnerClient.js";
 import { bindModelInputs, buildRunnerInput, object, resolveModelSettings, type NodeOutput, type SnapshotEdge, type SnapshotNode } from "./runInputResolver.js";
+import { processWorkflowJobTick } from "./workflowJobScheduler.js";
 
 const workerId = `${hostname()}:${process.pid}`;
 const modelRunnerUrl = (process.env.MODEL_RUNNER_URL ?? "http://127.0.0.1:8188").replace(/\/$/, "");
@@ -134,6 +135,14 @@ async function processRunDeletion(): Promise<boolean> {
 }
 
 console.log(`Hive worker ${workerId} polling PostgreSQL; model runner: ${modelRunnerUrl}`);
+let jobSchedulerBusy = false;
+const jobScheduler = setInterval(() => {
+  if (jobSchedulerBusy) return;
+  jobSchedulerBusy = true;
+  void processWorkflowJobTick().catch((error) => console.error("Workflow job scheduler failed", error instanceof Error ? error.name : "UnknownError")).finally(() => { jobSchedulerBusy = false; });
+}, 1000);
+jobScheduler.unref();
+void processWorkflowJobTick().catch((error) => console.error("Workflow job scheduler failed", error instanceof Error ? error.name : "UnknownError"));
 try {
   while (true) {
     if (await processRunDeletion()) continue;
@@ -142,6 +151,7 @@ try {
     await processRun(run);
   }
 } finally {
+  clearInterval(jobScheduler);
   await modelRunner.close();
   await pool.end();
 }
