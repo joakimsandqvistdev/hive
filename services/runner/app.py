@@ -13,6 +13,7 @@ from model_catalog import MODEL_REPOSITORIES
 from model_downloads import kokoro_english_model_path, model_is_downloaded, router as model_downloads_router
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import StreamingResponse
+from fastapi.responses import PlainTextResponse
 from PIL import Image
 from audio_generation import generation_worker as run_audio_generation_worker
 from generation_process import GenerationProcessError, run_generation_process
@@ -21,6 +22,7 @@ from image_generation import generation_worker as run_image_generation_worker
 from image_generation import load_pipeline as load_image_pipeline
 from image_generation import load_reference_images
 from video_generation import generation_worker as run_video_generation_worker
+from text_generation import generation_worker as run_text_generation_worker
 
 
 PIPELINE = None
@@ -101,6 +103,14 @@ def audio_generation_worker(sender, model_key, prompt, voice, speed):
     return run_audio_generation_worker(
         sender, model_key, prompt, voice, speed, repositories=MODEL_REPOSITORIES,
         english_model_path=kokoro_english_model_path(),
+        report_failure_fn=report_generation_failure, release_pipeline_fn=release_pipeline,
+    )
+
+
+def text_generation_worker(sender, model_key, instruction, prompt, max_new_tokens, temperature):
+    return run_text_generation_worker(
+        sender, model_key, instruction, prompt, max_new_tokens, temperature,
+        repositories=MODEL_REPOSITORIES, device=DEVICE,
         report_failure_fn=report_generation_failure, release_pipeline_fn=release_pipeline,
     )
 
@@ -263,3 +273,36 @@ async def generate_audio(
         finally:
             release_pipeline()
     return StreamingResponse(io.BytesIO(encoded), media_type="audio/wav")
+
+
+@app.post("/generate-text")
+async def generate_text(
+    request: Request,
+    prompt: str = Form(min_length=1, max_length=8000),
+    instruction: str = Form(min_length=1, max_length=3000),
+    model_id: Literal["qwen3-0.6b", "qwen3-1.7b"] = Form(),
+    max_new_tokens: int = Form(default=256, ge=16, le=1024),
+    temperature: float = Form(default=0.8, ge=0, le=2),
+) -> PlainTextResponse:
+    global CURRENT_MODEL_KEY
+    if not await asyncio.to_thread(model_is_downloaded, model_id):
+        raise HTTPException(status_code=409, detail={"code": "model_not_downloaded"})
+
+    async with GENERATION_LOCK:
+        try:
+            CURRENT_MODEL_KEY = model_id
+            generated = await run_generation_process(
+                text_generation_worker,
+                (model_id, instruction.strip(), prompt.strip(), max_new_tokens, temperature),
+                request.is_disconnected,
+            )
+        except GenerationProcessError as error:
+            status_code = 499 if error.code == "request_cancelled" else 504 if error.code == "generation_timeout" else 500
+            raise HTTPException(status_code=status_code, detail={"code": error.code}) from None
+        except Exception as error:
+            code = report_generation_failure(error, model_id)
+            error.__traceback__ = None
+            raise HTTPException(status_code=500, detail={"code": code}) from None
+        finally:
+            release_pipeline()
+    return PlainTextResponse(generated)

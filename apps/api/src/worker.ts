@@ -104,6 +104,14 @@ async function execute(run: ClaimedRun, signal: AbortSignal): Promise<void> {
     if (!response.headers.get("content-type")?.toLowerCase().startsWith(runnerInput.mediaType)) throw new Error("Model returned an unsupported output format.");
     if (Number(response.headers.get("content-length") ?? 0) > runnerInput.maxOutputBytes) throw new Error("Model output exceeds the size limit.");
     const bytes = Buffer.from(await response.arrayBuffer().catch((error) => { throw new Error(modelRunnerTransportFailure(error, runnerInput.modality)); }));
+    if (runnerInput.modality === "text") {
+      const text = bytes.toString("utf8").trim();
+      if (!text || text.length > 128_000) throw new Error("Text model returned empty text or exceeded the output limit.");
+      const output = { dataTypeId: "text", text };
+      if (!await finishRunNode(run.id, node.id, workerId, output)) throw new Error("Worker lease was lost after text generation.");
+      outputs.set(node.id, output);
+      continue;
+    }
     const stored = runnerInput.modality === "video" ? await saveMp4(bytes) : runnerInput.modality === "audio" ? await saveWav(bytes) : await savePng(bytes);
     let inserted = false;
     try {

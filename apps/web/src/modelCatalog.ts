@@ -1,4 +1,5 @@
 const modelGroupDetails = [
+  { id: "text-to-text", title: "Text-to-text models", description: "Generate and transform text from connected text inputs." },
   { id: "text-to-image", title: "Text-to-image models", description: "Generate an image directly from a text prompt." },
   { id: "image-to-image", title: "Image-to-image and editing models", description: "Use one or more input images from connected workflow nodes to edit or inpaint an image." },
   { id: "text-to-video", title: "Text-to-video models", description: "Generate short videos from text prompts. These models do not accept image inputs in Hive workflows." },
@@ -6,6 +7,8 @@ const modelGroupDetails = [
 ] as const;
 
 export const modelCatalog = [
+  { id: "qwen3-0.6b", groupId: "text-to-text", name: "Qwen3-0.6B", summary: "Lightweight instruction-following text generation for short captions, poems, and other writing tasks.", sizeBytes: 1_200_000_000, requirements: ["GPU: 2 GB VRAM recommended; CPU inference supported", "System RAM: 8 GB recommended", "Disk: 2 GB free for model files"], source: "https://huggingface.co/Qwen/Qwen3-0.6B" },
+  { id: "qwen3-1.7b", groupId: "text-to-text", name: "Qwen3-1.7B", summary: "Instruction-following text generation for captions, poems, and other writing tasks, with a larger model for stronger output quality.", sizeBytes: 3_450_000_000, requirements: ["GPU: 6 GB VRAM recommended; CPU inference supported", "System RAM: 12 GB recommended", "Disk: 5 GB free for model files"], source: "https://huggingface.co/Qwen/Qwen3-1.7B" },
   { id: "z-image-turbo", groupId: "text-to-image", name: "Z-Image-Turbo", summary: "Creates images from text prompts, with photorealistic results and English or Chinese text rendering.", sizeBytes: 32_900_000_000, requirements: ["GPU: 16 GB VRAM recommended", "System RAM: 32 GB recommended", "Disk: 40 GB free for model files"], source: "https://huggingface.co/Tongyi-MAI/Z-Image-Turbo" },
   { id: "qwen-image-edit-2511", groupId: "image-to-image", name: "Qwen-Image-Edit-2511", summary: "Edits one or more reference images from text instructions while aiming to preserve subject identity and visual consistency.", sizeBytes: 57_700_000_000, requirements: ["GPU: 48 GB VRAM recommended; lower-memory offload is unverified", "System RAM: 64 GB recommended", "Disk: 70 GB free for model files"], source: "https://huggingface.co/Qwen/Qwen-Image-Edit-2511" },
   { id: "instruct-pix2pix", groupId: "image-to-image", name: "InstructPix2Pix", summary: "Applies text instructions to one connected source image.", sizeBytes: 5_000_000_000, requirements: ["GPU: 8 GB VRAM recommended", "System RAM: 16 GB recommended", "Disk: 8 GB free"], source: "https://huggingface.co/timbrooks/instruct-pix2pix" },

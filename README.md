@@ -1,6 +1,6 @@
 # Hive
 
-Hive is a self-hosted application for building and running workflows with typed text, image, and audio inputs, downloadable AI models, and built-in processing operations such as Text Overlay. Publish generated Instagram posts and Reels automatically or review and edit captions first. Run workflows on demand or schedule them as Jobs, then track run progress and preview generated media.
+Hive is a self-hosted application for building and running workflows with typed text, image, and audio inputs, downloadable text and media generation models, and built-in processing operations such as Text Overlay. Publish generated Instagram posts and Reels automatically or review and edit captions first. Run workflows on demand or schedule them as Jobs, then track run progress and preview generated media.
 
 Built with React, TypeScript, Node.js, Express, PostgreSQL, Drizzle ORM, and Docker Compose.
 
@@ -103,7 +103,7 @@ In development mode, only app-role users and eligible testers can authorize. Bef
 
 For tracked schema changes, update `apps/api/src/schema.ts`, generate a migration with `npm run db:generate -w @hive/api`, then apply it with `npm run db:migrate -w @hive/api`.
 
-Workflows combine typed Text/Image/Audio inputs, downloaded model nodes, and built-in **Processing** operations. **Text Overlay** composites connected text onto a connected image with configurable font, weight, color, placement, alignment, margin, and line spacing. It runs locally without an AI model or model download. Processing is designed to accommodate other algorithmic nodes, such as cropping and logic operations. Duplicate selected nodes to reuse their settings and input data without copying connections, or duplicate a workflow to create a separate copy of its nodes and connections; run and Job history is not copied. Connect matching datatypes, save, then run; runs can start manually, through a Job, or continue to Instagram publishing.
+Workflows combine typed Text/Image/Audio inputs, downloaded model nodes, and built-in **Processing** operations. In **Models**, the **Text-to-text models** category includes **Qwen3-0.6B** and **Qwen3-1.7B**. Their workflow nodes appear in the existing **Models** group and generate text from a connected text input using configurable instructions, for example poems or Instagram captions. Generated text can connect to later nodes and is shown in run details. **Text Overlay** composites connected text onto a connected image with configurable typography and runs locally without an AI model. Duplicate selected nodes to reuse their settings and input data without copying connections, or duplicate a workflow to create a separate copy of its nodes and connections; run and Job history is not copied. Connect matching datatypes, save, then run; runs can start manually, through a Job, or continue to Instagram publishing.
 
 ## Schedule workflow jobs
 

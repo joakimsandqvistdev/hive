@@ -190,6 +190,20 @@
       "when": 1792092684004,
       "tag": "0026_stormy_shiva",
       "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1792099743469,
+      "tag": "0027_nosy_morlocks",
+      "breakpoints": true
+    },
+    {
+      "idx": 28,
+      "version": "7",
+      "when": 1792099744469,
+      "tag": "0028_add_qwen_text_models",
+      "breakpoints": true
     }
   ]
 }

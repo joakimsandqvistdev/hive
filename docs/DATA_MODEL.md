@@ -17,7 +17,7 @@ Use `apps/api/src/schema.ts` as the implemented schema reference.
 - `artifacts`: immutable uploaded inputs or generated outputs with canonical datatype, owner, media type, byte count, checksum, display name, and opaque storage key. Uploads have null run/node references; generated outputs reference their producing run node. Workflow and run-node references protect uploads still in use.
 - `run_deletions`: durable cleanup outbox containing the owner, run-generated artifact keys, candidate input uploads, retry state, and worker lease. Run deletion removes run-owned outputs and uploaded inputs that no workflow or other run still references; shared inputs and model caches are preserved.
 
-Current model modalities include image, video, and audio. Kokoro-82M has one required text input on its `prompt` port and one audio output. Audio is also available for uploaded inputs and future models.
+Current model modalities include text, image, video, and audio. Qwen3 text-generation models accept one required Text input on their `prompt` port and produce Text output; node settings hold the instruction, maximum output tokens, and temperature. Kokoro-82M has one required text input on its `prompt` port and one audio output. Audio is also available for uploaded inputs and future models.
 
 `GET /api/models/contracts` returns the model contracts and canonical datatype catalog. Built-in processing contracts are defined by the API and do not appear in the downloadable model catalog. Save/run validation requires compatible port datatypes, cardinalities, no cycles, configured inputs, and owner-accessible uploads. Download state is checked before model execution is queued.
 

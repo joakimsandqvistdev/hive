@@ -3,6 +3,7 @@ import { FormData } from "undici";
 import { audioModelParametersSchema } from "./audioModelParameters.js";
 import { imageModelParametersSchema } from "./modelParameters.js";
 import { videoModelParametersSchema } from "./videoModelParameters.js";
+import { textModelParametersSchema } from "./textModelParameters.js";
 
 export type SnapshotNode = {
   id: string; kind: "input" | "model" | "processing" | "publishing"; label: string; modelId?: string; dataTypeId?: string;
@@ -13,13 +14,13 @@ export type SnapshotNode = {
 export type SnapshotEdge = { source: string; sourceHandle: string; target: string; targetHandle: string };
 export type NodeOutput = { dataTypeId: string; text?: string; artifactId?: string };
 export type BoundModelInput = { port: { portKey: string; dataTypeId: string; sortOrder: number }; output: NodeOutput };
-export type ResolvedModelSettings = { modality: "image" | "video" | "audio"; parameters: Record<string, unknown> };
+export type ResolvedModelSettings = { modality: "image" | "video" | "audio" | "text"; parameters: Record<string, unknown> };
 export type RunnerInput = {
-  modality: "image" | "video" | "audio";
+  modality: "image" | "video" | "audio" | "text";
   form: FormData;
-  outputDataTypeId: "image" | "video" | "audio";
-  mediaType: "image/png" | "video/mp4" | "audio/wav";
-  extension: "png" | "mp4" | "wav";
+  outputDataTypeId: "image" | "video" | "audio" | "text";
+  mediaType: "image/png" | "video/mp4" | "audio/wav" | "text/plain; charset=utf-8";
+  extension: "png" | "mp4" | "wav" | "txt";
   maxOutputBytes: number;
 };
 export type ResolvedArtifact = {
@@ -54,12 +55,12 @@ export function bindModelInputs(
 
 export function resolveModelSettings(node: SnapshotNode): ResolvedModelSettings {
   const modality = node.modelIoContract?.modality;
-  if (modality !== "image" && modality !== "video" && modality !== "audio") throw new Error("Model input/output contract is missing.");
-  const parameterSchema = modality === "video" ? videoModelParametersSchema : modality === "audio" ? audioModelParametersSchema : imageModelParametersSchema;
+  if (modality !== "image" && modality !== "video" && modality !== "audio" && modality !== "text") throw new Error("Model input/output contract is missing.");
+  const parameterSchema = modality === "text" ? textModelParametersSchema : modality === "video" ? videoModelParametersSchema : modality === "audio" ? audioModelParametersSchema : imageModelParametersSchema;
   const parsed = parameterSchema.safeParse({ ...node.parameters, modelId: node.modelId });
   if (!parsed.success) throw new Error("Model settings are invalid. Edit and save the workflow again.");
   const configured = parsed.data as Record<string, unknown>;
-  if (modality === "audio") return { modality, parameters: configured };
+  if (modality === "audio" || modality === "text") return { modality, parameters: configured };
   if (typeof configured.resolution !== "string" || typeof configured.seed !== "number" || typeof configured.randomizeSeed !== "boolean") {
     throw new Error("Model settings are invalid. Edit and save the workflow again.");
   }
@@ -81,7 +82,11 @@ export async function buildRunnerInput(
   const form = new FormData();
   form.set("model_id", String(settings.modelId));
   form.set("prompt", prompt);
-  if (modality === "audio") {
+  if (modality === "text") {
+    form.set("instruction", String(settings.instruction));
+    form.set("max_new_tokens", String(settings.maxNewTokens));
+    form.set("temperature", String(settings.temperature));
+  } else if (modality === "audio") {
     form.set("voice", String(settings.voice));
     form.set("speed", String(settings.speed));
   } else {
@@ -117,7 +122,8 @@ export async function buildRunnerInput(
     form.append("images", new Blob([buffer], { type: artifact.mediaType }), artifact.displayName);
   }
 
-  const output = modality === "video" ? { outputDataTypeId: "video", mediaType: "video/mp4", extension: "mp4", maxOutputBytes: 50 * 1024 * 1024 }
+  const output = modality === "text" ? { outputDataTypeId: "text", mediaType: "text/plain; charset=utf-8", extension: "txt", maxOutputBytes: 128 * 1024 }
+    : modality === "video" ? { outputDataTypeId: "video", mediaType: "video/mp4", extension: "mp4", maxOutputBytes: 50 * 1024 * 1024 }
     : modality === "audio" ? { outputDataTypeId: "audio", mediaType: "audio/wav", extension: "wav", maxOutputBytes: 25 * 1024 * 1024 }
       : { outputDataTypeId: "image", mediaType: "image/png", extension: "png", maxOutputBytes: 25 * 1024 * 1024 };
   return { modality, form, ...output } as RunnerInput;

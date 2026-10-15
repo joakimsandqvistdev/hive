@@ -1,7 +1,7 @@
-export type RunnerModality = "image" | "video" | "audio";
+export type RunnerModality = "image" | "video" | "audio" | "text";
 
 function modalityLabel(modality: RunnerModality): string {
-  return modality === "image" ? "Image" : modality === "video" ? "Video" : "Audio";
+  return modality === "image" ? "Image" : modality === "video" ? "Video" : modality === "audio" ? "Audio" : "Text";
 }
 
 export function modelRunnerTransportFailure(error: unknown, modality: RunnerModality = "image"): string {
