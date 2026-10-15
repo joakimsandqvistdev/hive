@@ -7,6 +7,10 @@ from generation_process import GenerationProcessError
 
 
 class RunnerTests(unittest.IsolatedAsyncioTestCase):
+    def test_cogvideox_t5_tokenizer_backend_is_installed(self):
+        from transformers import T5Tokenizer
+        self.assertTrue(callable(T5Tokenizer.from_pretrained))
+
     def test_selected_dimensions_reach_both_pipelines(self):
         for model_key in app.MODEL_REPOSITORIES:
             for width, height in ((128, 128), (256, 256), (512, 512), (768, 768), (1024, 1024), (512, 768), (768, 512)):
