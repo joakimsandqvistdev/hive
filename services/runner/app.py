@@ -137,7 +137,7 @@ async def generate(
     prompt: str = Form(min_length=1, max_length=8000),
     model_id: Literal["z-image-turbo", "qwen-image-edit-2511", "instruct-pix2pix", "sd15-inpainting", "longcat-image-edit-turbo", "flux2-klein-4b", "sd15-base", "sdxl-base-1.0", "sd35-medium", "sdxl-turbo", "sana-sprint-06b"] = Form(default="z-image-turbo"),
     width: int = Form(default=512, ge=128, le=1024),
-    height: int = Form(default=512, ge=128, le=1024),
+    height: int = Form(default=512, ge=128, le=1360),
     seed: int = Form(default=42, ge=0, le=2**63 - 1),
     num_inference_steps: int = Form(default=9, ge=1, le=50),
     true_cfg_scale: float = Form(default=4.0, ge=0, le=10),
@@ -147,7 +147,7 @@ async def generate(
     images: list[UploadFile] = File(default=[]),
 ) -> StreamingResponse:
     global CURRENT_MODEL_KEY
-    if (width, height) not in {(128, 128), (256, 256), (512, 512), (768, 768), (1024, 1024), (512, 768), (768, 512)}:
+    if (width, height) not in {(128, 128), (256, 256), (512, 512), (768, 768), (1024, 1024), (512, 768), (768, 512), (1024, 1280), (768, 1360)}:
         raise HTTPException(status_code=422, detail="Unsupported image dimensions")
     if model_id == "qwen-image-edit-2511" and not 1 <= len(images) <= 10:
         raise HTTPException(status_code=422, detail="Qwen-Image-Edit-2511 requires 1 to 10 reference images")

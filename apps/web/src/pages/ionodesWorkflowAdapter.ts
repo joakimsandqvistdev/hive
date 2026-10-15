@@ -1,7 +1,7 @@
 import { addNode, createGraph, type CompatibilityRule, type GraphDocument, type GraphNode as IonodesNode } from "ionodes";
 import type { ModelIoContract } from "../modelIoTypes";
 import type { DataType, Definition, NodeDefinition, WorkflowNode } from "./workflowTypes";
-import { textOverlayContract } from "./processingNodeTypes";
+import { instagramPublishingContract, textOverlayContract } from "./processingNodeTypes";
 
 type PortMetadata = {
   portKey: string;
@@ -40,9 +40,10 @@ function colorForDatatype(dataTypeId: string) {
 function portsForNode(node: NodeDefinition, contracts: ModelIoContract[], types: DataType[]) {
   const contract = contracts.find((item) => item.modelId === node.modelId);
   const processing = node.kind === "processing" && node.parameters.operationId === "text-overlay" ? textOverlayContract : undefined;
+  const publishing = node.kind === "publishing" ? instagramPublishingContract(String(node.parameters.operationId ?? "")) : undefined;
   const dataType = types.find((item) => item.id === node.dataTypeId);
-  const inputs = node.kind === "model" ? contract?.inputs ?? [] : node.kind === "processing" ? processing?.inputs ?? [] : [];
-  const outputs = node.kind === "model" ? contract?.outputs ?? [] : node.kind === "processing" ? processing?.outputs ?? [] : dataType ? [{
+  const inputs = node.kind === "model" ? contract?.inputs ?? [] : node.kind === "processing" ? processing?.inputs ?? [] : node.kind === "publishing" ? publishing?.inputs ?? [] : [];
+  const outputs = node.kind === "model" ? contract?.outputs ?? [] : node.kind === "processing" ? processing?.outputs ?? [] : node.kind === "publishing" ? publishing?.outputs ?? [] : dataType ? [{
     direction: "output" as const,
     portKey: "output",
     dataTypeId: dataType.id,
@@ -54,14 +55,14 @@ function portsForNode(node: NodeDefinition, contracts: ModelIoContract[], types:
     maxCount: 1,
     sortOrder: 0,
   }] : [];
-  return { inputs, outputs, contract: contract ?? processing };
+  return { inputs, outputs, contract: contract ?? processing ?? publishing };
 }
 
 function toIonodesNode(node: NodeDefinition, contracts: ModelIoContract[], types: DataType[]): IonodesNode {
   const { inputs, outputs, contract } = portsForNode(node, contracts, types);
   const description = node.kind === "input"
     ? node.inputText || (node.artifactId ? "File uploaded" : "Input not set")
-    : node.kind === "processing" ? "Processing · Text Overlay" : contract?.name ?? "Model";
+    : node.kind === "processing" ? "Processing · Text Overlay" : node.kind === "publishing" ? `Publishing · ${contract?.name ?? "Instagram"}` : contract?.name ?? "Model";
   return {
     id: node.id,
     title: node.label,
@@ -140,7 +141,7 @@ export function toIonodesGraph(definition: Definition, contracts: ModelIoContrac
 
 function workflowMetadata(node: IonodesNode): WorkflowMetadata {
   const metadata = node.metadata as Partial<WorkflowMetadata> | undefined;
-  if ((metadata?.kind !== "input" && metadata?.kind !== "model" && metadata?.kind !== "processing") || typeof metadata.parameters !== "object" || metadata.parameters === null) {
+  if ((metadata?.kind !== "input" && metadata?.kind !== "model" && metadata?.kind !== "processing" && metadata?.kind !== "publishing") || typeof metadata.parameters !== "object" || metadata.parameters === null) {
     throw new Error(`Node “${node.title}” is missing Hive workflow data.`);
   }
   return {

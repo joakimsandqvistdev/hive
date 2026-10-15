@@ -3,11 +3,11 @@ import { imageModelParametersSchema } from "./modelParameters.js";
 import { videoModelParametersSchema } from "./videoModelParameters.js";
 import { audioModelParametersSchema } from "./audioModelParameters.js";
 import type { ModelIoContract } from "./modelContracts.js";
-import { processingContract, textOverlaySettingsSchema } from "./processingNodes.js";
+import { instagramPublishingContract, instagramPublishingSettingsSchema, processingContract, textOverlaySettingsSchema } from "./processingNodes.js";
 
 const nodeSchema = z.object({
   id: z.string().min(1).max(100),
-  kind: z.enum(["input", "model", "processing"]),
+  kind: z.enum(["input", "model", "processing", "publishing"]),
   label: z.string().trim().min(1).max(100),
   modelId: z.string().max(100).nullable().optional(),
   dataTypeId: z.enum(["text", "image", "audio"]).nullable().optional(),
@@ -101,11 +101,18 @@ export function validateWorkflowDefinition(definition: WorkflowDefinition, catal
       if (!parsed.success) return { ok: false, error: "invalid_parameters" };
       parameters = parsed.data;
       contracts.set(node.id, contract);
-    } else {
+    } else if (node.kind === "processing") {
       const contract = processingContract(node.parameters ?? {});
       if (!contract || node.modelId || node.dataTypeId || node.artifactId || node.inputText) return { ok: false, error: "invalid_model_contract" };
       const parsed = textOverlaySettingsSchema.safeParse(node.parameters ?? {});
       if (!parsed.success) return { ok: false, error: "invalid_parameters" };
+      parameters = parsed.data;
+      contracts.set(node.id, contract);
+    } else {
+      const contract = instagramPublishingContract(node.parameters ?? {});
+      const parsed = instagramPublishingSettingsSchema.safeParse(node.parameters ?? {});
+      if (!contract || !parsed.success || node.modelId || node.dataTypeId || node.artifactId || node.inputText) return { ok: false, error: "invalid_model_contract" };
+      if (definition.nodes.filter((item) => item.kind === "publishing").length > 1) return { ok: false, error: "invalid_input_counts" };
       parameters = parsed.data;
       contracts.set(node.id, contract);
     }

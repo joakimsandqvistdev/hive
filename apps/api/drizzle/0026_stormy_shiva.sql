@@ -1,0 +1,1 @@
+ALTER TABLE "instagram_accounts" DROP COLUMN "bio_draft";

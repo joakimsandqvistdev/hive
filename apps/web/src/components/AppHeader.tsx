@@ -8,6 +8,7 @@ const viewTitles: Record<AppView, string> = {
   jobs: "Jobs",
   runs: "Runs",
   models: "Models",
+  accounts: "Accounts",
   licenses: "Open-source licenses",
 };
 

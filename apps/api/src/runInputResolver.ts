@@ -5,7 +5,7 @@ import { imageModelParametersSchema } from "./modelParameters.js";
 import { videoModelParametersSchema } from "./videoModelParameters.js";
 
 export type SnapshotNode = {
-  id: string; kind: "input" | "model" | "processing"; label: string; modelId?: string; dataTypeId?: string;
+  id: string; kind: "input" | "model" | "processing" | "publishing"; label: string; modelId?: string; dataTypeId?: string;
   inputText?: string; artifactId?: string; parameters?: Record<string, unknown>;
   position?: { x?: number; y?: number };
   modelIoContract?: { modality: string; inputs: Array<{ portKey: string; dataTypeId: string; sortOrder: number }>; outputs: Array<{ portKey: string; dataTypeId: string }> };

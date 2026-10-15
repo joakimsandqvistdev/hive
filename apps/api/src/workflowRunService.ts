@@ -1,6 +1,6 @@
 import { and, asc, eq, inArray } from "drizzle-orm";
 import { db } from "./db.js";
-import { artifacts, runNodes, runs, workflowEdges, workflowNodes, workflows } from "./schema.js";
+import { artifacts, instagramAccounts, runNodes, runs, workflowEdges, workflowNodes, workflows } from "./schema.js";
 import { forwardRunnerRequest } from "./models.js";
 import { loadDataTypes, loadModelIoContracts } from "./modelContracts.js";
 import { buildWorkflowRunSnapshot } from "./workflowRunSnapshot.js";
@@ -11,7 +11,7 @@ export type WorkflowRunCreation = { ok: true; run: typeof runs.$inferSelect } | 
 
 export function definitionFor(nodes: typeof workflowNodes.$inferSelect[], edges: typeof workflowEdges.$inferSelect[]) {
   return { nodes: nodes.map(({ nodeId, kind, label, modelId, dataTypeId, inputText, artifactId, parameters, positionX, positionY }) => ({
-    id: nodeId, kind: kind as "input" | "model" | "processing", label, modelId, dataTypeId: dataTypeId as "text" | "image" | "audio" | null,
+    id: nodeId, kind: kind as "input" | "model" | "processing" | "publishing", label, modelId, dataTypeId: dataTypeId as "text" | "image" | "audio" | null,
     inputText, artifactId, parameters, position: { x: positionX, y: positionY } })),
     edges: edges.map((edge) => ({ id: edge.edgeId, source: edge.sourceNodeId, target: edge.targetNodeId, sourceHandle: edge.sourceHandle, targetHandle: edge.targetHandle })) };
 }
@@ -33,6 +33,16 @@ export async function createWorkflowRunInTransaction(
   const uploads = ids.length ? await tx.select().from(artifacts).where(and(eq(artifacts.userId, ownerId), inArray(artifacts.id, ids))) : [];
   const validation = validateWorkflowDefinition(definitionFor(nodes, edges), contracts, uploads, dataTypes.map((type) => type.id));
   if (!validation.ok) return { ok: false, error: validation.error };
+  for (const node of validation.nodes.filter((item) => item.kind === "publishing")) {
+    const [account] = await tx.select({ id: instagramAccounts.id }).from(instagramAccounts)
+      .where(and(eq(instagramAccounts.id, String(node.parameters.accountId)), eq(instagramAccounts.userId, ownerId))).limit(1);
+    if (!account) return { ok: false, error: "instagram_account_not_connected" };
+  }
+  if (validation.nodes.some((item) => item.kind === "publishing")) {
+    const encryptionKey = Buffer.from(process.env.INSTAGRAM_TOKEN_ENCRYPTION_KEY ?? "", "base64");
+    const publicApiUrl = process.env.INSTAGRAM_PUBLIC_API_URL ?? "";
+    if (!process.env.INSTAGRAM_APP_ID || !process.env.INSTAGRAM_APP_SECRET || encryptionKey.length !== 32 || !publicApiUrl.startsWith("https://")) return { ok: false, error: "instagram_not_configured" };
+  }
   if (nodes.some((node) => node.kind === "model")) {
     const { response, body } = await forwardRunnerRequest("/models");
     const available = new Set(((body as { models?: Array<{ id: string; status: string }> }).models ?? []).filter((model) => model.status === "downloaded").map((model) => model.id));
@@ -62,6 +72,8 @@ export function workflowRunErrorMessage(error: string): string {
     invalid_input_counts: "Connect all required model inputs and check connection limits.",
     incompatible_data_types: "Connect ports with matching datatypes.",
     model_not_downloaded: "Download every model used by this workflow from Models before running.",
+    instagram_account_not_connected: "Connect the Instagram account selected by the publishing node before saving or running this workflow.",
+    instagram_not_configured: "Configure Instagram app credentials, token encryption, and a public HTTPS API URL before running this workflow.",
   };
   return messages[error] ?? "Could not start workflow.";
 }

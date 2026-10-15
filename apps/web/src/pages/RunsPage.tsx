@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
-import { ActionIcon, Alert, Badge, Button, Group, Image, Loader, Modal, Paper, SimpleGrid, Stack, Table, Text, Title, Tooltip } from "@mantine/core";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { ActionIcon, Alert, Badge, Button, Group, Image, Loader, Modal, Paper, SimpleGrid, Stack, Table, Text, Textarea, Title, Tooltip } from "@mantine/core";
 import { apiFetch, apiUrl } from "../apiClient";
 import { ConfirmActionModal } from "../components/ConfirmActionModal";
 import { PaginatedTableFooter } from "../components/PaginatedTableFooter";
@@ -8,15 +8,16 @@ import type { AppView } from "../navigation/navigationState";
 
 function nodeTypeLabel(modality?: string, modelId?: unknown) { return typeof modelId === "string" ? modelId : modality ?? "Input"; }
 const PAGE_SIZE = 10;
-type RunStatus = "queued" | "running" | "succeeded" | "failed" | "cancel_requested" | "cancelled";
+type RunStatus = "queued" | "running" | "awaiting_publish" | "succeeded" | "failed" | "cancel_requested" | "cancelled";
 type Run = { id: string; workflowId: string | null; jobId: string | null; scheduledFor: string | null; status: RunStatus; workflowSnapshotJson: { name?: string }; errorSummary: string | null; createdAt: string; startedAt: string | null; finishedAt: string | null; deletion?: { attemptCount: number; lastError: string | null; processing: boolean } | null };
 type RunNode = { nodeId: string; status: string; startedAt: string | null; finishedAt: string | null; nodeSnapshotJson: { name?: string; modality?: string; kind?: string; dataTypeId?: string; parameters?: { modelId?: string } }; parameters?: { modelId?: string }; outputJson?: { dataTypeId?: string; text?: string; artifactId?: string }; errorSummary: string | null };
 type Artifact = { id: string; runNodeId: string; displayName: string; mediaType: string; byteSize: number; createdAt: string };
 type PageResult = { items: Run[]; page: number; pageSize: number; total: number; totalPages: number };
-type Detail = { run: Run; nodes: RunNode[]; artifacts: Artifact[] };
+type Publication = { id: string; status: string; mediaKind: string; mode: string; caption: string; artifactId: string; errorSummary: string | null; instagramMediaId: string | null };
+type Detail = { run: Run; nodes: RunNode[]; artifacts: Artifact[]; publication: Publication | null };
 
 function date(value: string | null) { return value ? new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "medium" }).format(new Date(value)) : "—"; }
-function statusColor(status: RunStatus | string) { return status === "succeeded" ? "hiveSuccess" : status === "failed" ? "hiveError" : status === "running" ? "hiveSky" : status === "queued" ? "hiveWarning" : "gray"; }
+function statusColor(status: RunStatus | string) { return status === "succeeded" || status === "published" ? "hiveSuccess" : status === "failed" ? "hiveError" : status === "running" ? "hiveSky" : status === "queued" || status === "awaiting_publish" || status === "awaiting_review" ? "hiveWarning" : "gray"; }
 function active(status: RunStatus) { return status === "queued" || status === "running" || status === "cancel_requested"; }
 function timingLabel(startedAt: string | null, finishedAt: string | null, now: number) {
   if (!startedAt) return finishedAt ? `Not started · Finished ${date(finishedAt)}` : "Waiting to start";
@@ -72,6 +73,7 @@ export function RunsPage({ onNavigate }: { onNavigate: (view: AppView) => void }
   const [error, setError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detail, setDetail] = useState<Detail | null>(null);
+  const captionDirty = useRef(false);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [downloadError, setDownloadError] = useState<string | null>(null);
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
@@ -116,8 +118,19 @@ export function RunsPage({ onNavigate }: { onNavigate: (view: AppView) => void }
       const response = await apiFetch(`/api/runs/${id}`);
       const body = await response.json() as Detail;
       if (!response.ok) throw new Error("Could not load run details.");
-      setDetail(body);
-      return active(body.run.status) || body.nodes.some((node) => node.status === "queued" || node.status === "running");
+      setDetail((current) => {
+        const previous = current?.publication;
+        const incoming = body.publication;
+        if (captionDirty.current && previous && incoming && previous.id === incoming.id &&
+            previous.status === "awaiting_review" && incoming.status === "awaiting_review") {
+          if (previous.caption === incoming.caption) captionDirty.current = false;
+          else return { ...body, publication: { ...incoming, caption: previous.caption } };
+        } else if (!incoming || !previous || previous.id !== incoming.id || incoming.status !== "awaiting_review") {
+          captionDirty.current = false;
+        }
+        return body;
+      });
+      return active(body.run.status) || body.run.status === "awaiting_publish" || body.nodes.some((node) => node.status === "queued" || node.status === "running");
     } catch (cause) { setDetailError(cause instanceof Error ? cause.message : "Could not load run details."); return false; }
   }, []);
 
@@ -152,7 +165,7 @@ export function RunsPage({ onNavigate }: { onNavigate: (view: AppView) => void }
     setDeletingId(target.id); setDeleteError(null);
     try {
       const response = await apiFetch("/api/runs/" + target.id, { method: "DELETE" });
-      if (!response.ok) throw new Error(response.status === 409 ? "Stop the run and wait for it to finish before deleting it." : response.status === 404 ? "This run could not be found." : "Could not delete this run. Please try again.");
+        if (!response.ok) throw new Error(response.status === 409 ? "This run is active, awaiting publication, or its generated image is selected as your Instagram profile photo. Resolve that first." : response.status === 404 ? "This run could not be found." : "Could not delete this run. Please try again.");
       setDeleteTarget(null);
       if (selectedId === target.id) setSelectedId(null);
       await loadRuns(page);
@@ -170,8 +183,28 @@ export function RunsPage({ onNavigate }: { onNavigate: (view: AppView) => void }
     finally { setRetryingDeletionId(null); }
   };
 
+  const updatePublication = async (action: "save" | "publish" | "discard") => {
+    const publication = detail?.publication;
+    if (!publication) return;
+    try {
+      if (action === "save") {
+        const response = await apiFetch(`/api/instagram/publications/${publication.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ caption: publication.caption }) });
+        if (!response.ok) throw new Error("Could not save the caption.");
+      } else {
+          if (action === "publish") {
+            const captionResponse = await apiFetch(`/api/instagram/publications/${publication.id}`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ caption: publication.caption }) });
+            if (!captionResponse.ok) throw new Error("Could not save the edited caption.");
+          }
+        const response = await apiFetch(`/api/instagram/publications/${publication.id}/${action}`, { method: "POST" });
+        if (!response.ok) throw new Error(action === "publish" ? "Could not queue this publication." : "Could not discard this publication.");
+      }
+      await loadDetail(detail.run.id); await loadRuns(page);
+    } catch (cause) { setDetailError(cause instanceof Error ? cause.message : "Could not update publication."); }
+  };
+
   useEffect(() => {
     setDetail(null);
+    captionDirty.current = false;
     if (!selectedId) return;
     let disposed = false;
     let timer: number | undefined;
@@ -193,7 +226,7 @@ export function RunsPage({ onNavigate }: { onNavigate: (view: AppView) => void }
       {run.deletion ? run.deletion.lastError
         ? <Tooltip label="Cleanup failed. Retry removing generated media"><ActionIcon color="hiveError" variant="subtle" aria-label="Retry run cleanup" loading={retryingDeletionId === run.id} onClick={() => void retryDeletion(run.id)}><RetryIcon /></ActionIcon></Tooltip>
         : <Badge color="hiveSky" variant="light">Removing…</Badge>
-        : <Tooltip label={run.status === "queued" ? "Cancel and delete queued run" : active(run.status) ? "Stop the run before deleting it" : "Delete run and generated media"}><ActionIcon color="hiveError" variant="subtle" aria-label={"Delete run for " + (run.workflowSnapshotJson?.name ?? "workflow")} disabled={active(run.status) && run.status !== "queued"} loading={deletingId === run.id} onClick={() => { setDeleteError(null); setDeleteTarget(run); }}><TrashIcon /></ActionIcon></Tooltip>}
+        : <Tooltip label={run.status === "queued" ? "Cancel and delete queued run" : run.status === "awaiting_publish" ? "Publish or discard the pending publication first" : active(run.status) ? "Stop the run before deleting it" : "Delete run and generated media"}><ActionIcon color="hiveError" variant="subtle" aria-label={"Delete run for " + (run.workflowSnapshotJson?.name ?? "workflow")} disabled={run.status === "awaiting_publish" || active(run.status) && run.status !== "queued"} loading={deletingId === run.id} onClick={() => { setDeleteError(null); setDeleteTarget(run); }}><TrashIcon /></ActionIcon></Tooltip>}
     </Group></Table.Td>
   </Table.Tr>);
 
@@ -213,6 +246,9 @@ export function RunsPage({ onNavigate }: { onNavigate: (view: AppView) => void }
       {!detail && !detailError ? <Group justify="center" p="xl"><Loader size="sm" /></Group> : detailError ? <Alert color="hiveError" title="Could not load run">{detailError}</Alert> : detail && <Stack gap="md">
         <Group justify="space-between"><div><Text fw={650}>{detail.run.workflowSnapshotJson?.name ?? "Workflow"}</Text><Text size="xs" c="dimmed">Created {date(detail.run.createdAt)}</Text><Text size="xs" c="dimmed" mt={3}>{timingLabel(detail.run.startedAt, detail.run.finishedAt, now)}</Text></div><Group><Badge variant="light" color={statusColor(detail.run.status)}>{detail.run.status.replaceAll("_", " ")}</Badge>{active(detail.run.status) && <Button color="hiveError" variant="light" loading={cancellingId === detail.run.id} disabled={detail.run.status === "cancel_requested"} onClick={() => void stopRun(detail.run.id)}>Stop run</Button>}</Group></Group>
         {detail.run.errorSummary && <Alert color={detail.run.status === "cancelled" ? "gray" : "hiveError"} title={detail.run.status === "cancelled" ? "Run stopped" : "Run failed"}>{detail.run.errorSummary}</Alert>}
+        {detail.publication && <Paper withBorder p="md"><Stack><Group justify="space-between"><Text fw={600}>{detail.publication.mediaKind === "video" ? "Instagram Reel" : "Instagram Post"}</Text><Badge color={statusColor(detail.publication.status)} variant="light">{detail.publication.status.replaceAll("_", " ")}</Badge></Group><ArtifactPreview artifactId={detail.publication.artifactId} label="Instagram media" mediaType={detail.publication.mediaKind === "video" ? "video/mp4" : "image/jpeg"} />
+          {detail.publication.status === "awaiting_review" ? <>{detail.publication.errorSummary && <Alert color="hiveError" title="Publication needs review">{detail.publication.errorSummary} Check Instagram before retrying in case the post was accepted but the response was lost.</Alert>}<Textarea label="Caption" maxLength={2200} autosize minRows={3} value={detail.publication.caption} onChange={(event) => { captionDirty.current = true; const caption = event.currentTarget.value; setDetail((current) => current?.publication ? { ...current, publication: { ...current.publication, caption } } : current); }} /><Group justify="flex-end"><Button variant="default" onClick={() => void updatePublication("save")}>Save caption</Button><Button color="hiveError" variant="light" onClick={() => void updatePublication("discard")}>Discard</Button><Button onClick={() => void updatePublication("publish")}>Publish now</Button></Group></> : detail.publication.status === "published" ? <Text size="sm" c="dimmed">Published successfully.</Text> : detail.publication.status === "discarded" ? <Text size="sm" c="dimmed">Publication discarded.</Text> : <Text size="sm" c="dimmed">Waiting for Instagram to finish publishing. Repeating Jobs wait until this publication is published or discarded.</Text>}
+        </Stack></Paper>}
         <div><Text fw={600} mb="xs">Node steps</Text>{detail.nodes.length ? <Stack gap="xs">{detail.nodes.map((node) => {
           const label = node.nodeSnapshotJson?.name ?? node.nodeId;
           const producedArtifact = node.outputJson?.artifactId

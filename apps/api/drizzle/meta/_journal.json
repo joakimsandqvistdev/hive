@@ -176,6 +176,20 @@
       "when": 1792077728618,
       "tag": "0024_add_processing_node_kind",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1792087487959,
+      "tag": "0025_pretty_photon",
+      "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1792092684004,
+      "tag": "0026_stormy_shiva",
+      "breakpoints": true
     }
   ]
 }

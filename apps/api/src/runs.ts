@@ -1,7 +1,7 @@
 import { and, count, desc, eq } from "drizzle-orm";
 import { Router } from "express";
 import { db, pool } from "./db.js";
-import { artifacts, runDeletions, runNodes, runs } from "./schema.js";
+import { artifacts, instagramPublications, runDeletions, runNodes, runs } from "./schema.js";
 import { workflowExecutionOrder } from "./workflowExecutionOrder.js";
 import { parsePagination, totalPages } from "./pagination.js";
 
@@ -49,12 +49,14 @@ router.delete("/:id", async (req, res, next) => {
       res.status(404).json({ error: "run_not_found" });
       return;
     }
+    const protectedProfilePhoto = await client.query("SELECT 1 FROM artifacts a JOIN instagram_accounts i ON i.profile_image_artifact_id=a.id WHERE a.run_id=$1 AND i.user_id=$2 LIMIT 1", [req.params.id, ownerId]);
+    if (protectedProfilePhoto.rowCount) { await client.query("ROLLBACK"); res.status(409).json({ error: "profile_asset_in_use" }); return; }
     if (status === "queued") {
       // Cancel under the same row lock as deletion so the worker cannot claim this run
       // between a separate cancel request and the cleanup request.
       await client.query("UPDATE runs SET status='cancelled',cancel_requested_at=COALESCE(cancel_requested_at,now()),finished_at=now(),error_summary='Run stopped by user.' WHERE id=$1 AND status='queued'", [req.params.id]);
       await client.query("UPDATE run_nodes SET status='cancelled',error_code='run_cancelled',error_summary='Step cancelled because the run was stopped.',finished_at=COALESCE(finished_at,now()) WHERE run_id=$1 AND status='queued'", [req.params.id]);
-    } else if (["running", "cancel_requested"].includes(status)) {
+    } else if (["running", "cancel_requested", "awaiting_publish"].includes(status)) {
       await client.query("ROLLBACK");
       res.status(409).json({ error: "run_active" });
       return;
@@ -138,7 +140,8 @@ router.get("/:id", async (req, res, next) => {
       .sort((left, right) => rank(left.nodeId) - rank(right.nodeId));
     const outputs = (await db.select().from(artifacts).where(and(eq(artifacts.runId, run.id), eq(artifacts.userId, run.userId))))
       .sort((left, right) => rank(left.runNodeId ?? "") - rank(right.runNodeId ?? ""));
-    res.json({ run, nodes, artifacts: outputs });
+    const [publication] = await db.select().from(instagramPublications).where(and(eq(instagramPublications.runId, run.id), eq(instagramPublications.userId, run.userId))).limit(1);
+    res.json({ run, nodes, artifacts: outputs, publication: publication ?? null });
   } catch (error) { next(error); }
 });
 

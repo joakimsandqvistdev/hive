@@ -1,4 +1,4 @@
-export type AppView = "home" | "workflows" | "jobs" | "runs" | "models" | "licenses";
+export type AppView = "home" | "workflows" | "jobs" | "runs" | "models" | "accounts" | "licenses";
 
 export type NavigationState = {
   view: AppView;
@@ -9,7 +9,8 @@ export type NavigationState = {
 
 export function appViewFromHash(hash: string): AppView {
   const view = hash.replace(/^#/, "").split("/")[0];
-  return view === "workflows" || view === "jobs" || view === "runs" || view === "models" || view === "licenses" ? view : "home";
+  const normalized = view?.split("?")[0];
+  return normalized === "workflows" || normalized === "jobs" || normalized === "runs" || normalized === "models" || normalized === "accounts" || normalized === "licenses" ? normalized : "home";
 }
 
 export function isWorkflowEditorHash(hash: string): boolean {

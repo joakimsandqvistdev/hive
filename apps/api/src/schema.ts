@@ -4,7 +4,7 @@ import { sql } from "drizzle-orm";
 export const modelModality = pgEnum("model_modality", ["image", "video", "audio"]);
 export const modelDataDirection = pgEnum("model_data_direction", ["input", "output"]);
 export const modelInputTransport = pgEnum("model_input_transport", ["prompt", "connection"]);
-export const runStatus = pgEnum("run_status", ["queued", "running", "succeeded", "failed", "cancel_requested", "cancelled"]);
+export type RunStatus = "queued" | "running" | "awaiting_publish" | "succeeded" | "failed" | "cancel_requested" | "cancelled";
 export const runNodeStatus = pgEnum("run_node_status", ["queued", "running", "succeeded", "failed", "skipped", "cancelled"]);
 export const workflowJobStatus = pgEnum("workflow_job_status", ["active", "paused", "completed", "failed", "removed"]);
 
@@ -34,6 +34,24 @@ export const dataTypes = pgTable("data_types", {
   label: text("label").notNull(),
   description: text("description").notNull().default(""),
   mediaType: text("media_type").notNull(),
+});
+
+export const instagramAccounts = pgTable("instagram_accounts", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  userId: uuid("user_id").notNull().unique().references(() => users.id, { onDelete: "cascade" }),
+  instagramUserId: text("instagram_user_id").notNull().unique(),
+  username: text("username").notNull(),
+  encryptedAccessToken: text("encrypted_access_token").notNull(),
+  tokenExpiresAt: timestamp("token_expires_at", { withTimezone: true }),
+  profileImageArtifactId: uuid("profile_image_artifact_id"),
+  connectedAt: timestamp("connected_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const instagramOauthStates = pgTable("instagram_oauth_states", {
+  stateHash: text("state_hash").primaryKey(),
+  userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
 });
 
 export const models = pgTable("models", {
@@ -134,7 +152,7 @@ export const workflowNodes = pgTable("workflow_nodes", {
   positionY: real("position_y").notNull().default(0),
 }, (table): PgTableExtraConfigValue[] => [
   primaryKey({ columns: [table.workflowId, table.nodeId], name: "workflow_nodes_pk" }),
-  check("workflow_nodes_kind_check", sql`kind in ('input', 'model', 'processing')`),
+  check("workflow_nodes_kind_check", sql`kind in ('input', 'model', 'processing', 'publishing')`),
   foreignKey({ columns: [table.workflowId, table.userId], foreignColumns: [workflows.id, workflows.userId], name: "workflow_nodes_workflow_owner_fk" }).onDelete("cascade"),
   foreignKey({ columns: [table.artifactId, table.userId], foreignColumns: [artifacts.id, artifacts.userId], name: "workflow_nodes_artifact_owner_fk" }).onDelete("restrict"),
 ]);
@@ -160,7 +178,7 @@ export const runs = pgTable("runs", {
   workflowId: uuid("workflow_id").references(() => workflows.id, { onDelete: "set null" }),
   jobId: uuid("job_id").references(() => workflowJobs.id, { onDelete: "set null" }),
   scheduledFor: timestamp("scheduled_for", { withTimezone: true }),
-  status: runStatus("status").notNull().default("queued"),
+  status: text("status").$type<RunStatus>().notNull().default("queued"),
   inputJson: jsonb("input_json").$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
   workflowSnapshotJson: jsonb("workflow_snapshot_json").$type<Record<string, unknown>>().notNull(),
   errorSummary: text("error_summary"),
@@ -177,7 +195,8 @@ export const runs = pgTable("runs", {
   index("runs_queue_idx").on(table.status, table.createdAt, table.leaseExpiresAt),
   uniqueIndex("runs_id_user_unique").on(table.id, table.userId),
   uniqueIndex("runs_job_scheduled_unique").on(table.jobId, table.scheduledFor).where(sql`${table.jobId} IS NOT NULL`),
-  uniqueIndex("runs_one_active_job_run_unique").on(table.jobId).where(sql`${table.jobId} IS NOT NULL AND status IN ('queued', 'running', 'cancel_requested')`),
+  uniqueIndex("runs_one_active_job_run_unique").on(table.jobId).where(sql`${table.jobId} IS NOT NULL AND status IN ('queued', 'running', 'awaiting_publish', 'cancel_requested')`),
+  check("runs_status_check", sql`${table.status} IN ('queued', 'running', 'awaiting_publish', 'succeeded', 'failed', 'cancel_requested', 'cancelled')`),
 ]);
 
 export const runNodes = pgTable("run_nodes", {
@@ -236,4 +255,27 @@ export const artifacts = pgTable("artifacts", {
   foreignKey({ columns: [table.userId], foreignColumns: [users.id], name: "artifacts_user_fk" }).onDelete("cascade"),
   foreignKey({ columns: [table.runId, table.userId], foreignColumns: [runs.id, runs.userId], name: "artifacts_run_owner_fk" }).onDelete("cascade"),
   foreignKey({ columns: [table.runId, table.runNodeId], foreignColumns: [runNodes.runId, runNodes.nodeId], name: "artifacts_run_node_fk" }).onDelete("cascade"),
+]);
+
+export const instagramPublications = pgTable("instagram_publications", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  runId: uuid("run_id").notNull().references(() => runs.id, { onDelete: "cascade" }),
+  nodeId: text("node_id").notNull(),
+  accountId: uuid("account_id").notNull().references(() => instagramAccounts.id, { onDelete: "restrict" }),
+  artifactId: uuid("artifact_id").notNull().references(() => artifacts.id, { onDelete: "restrict" }),
+  mediaKind: text("media_kind").notNull(),
+  mode: text("mode").notNull(),
+  shareToFeed: boolean("share_to_feed").notNull().default(true),
+  status: text("status").notNull().default("queued"),
+  caption: text("caption").notNull(),
+  containerId: text("container_id"),
+  instagramMediaId: text("instagram_media_id"),
+  errorSummary: text("error_summary"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  publishedAt: timestamp("published_at", { withTimezone: true }),
+}, (table): PgTableExtraConfigValue[] => [
+  uniqueIndex("instagram_publications_run_node_unique").on(table.runId, table.nodeId),
+  index("instagram_publications_queue_idx").on(table.status, table.createdAt),
 ]);
