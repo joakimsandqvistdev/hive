@@ -37,6 +37,7 @@ Treat the existing codebase as the source of truth for implemented behavior. Tre
 - Preserve authentication, authorization, tenant boundaries, and data integrity.
 - Never expose secrets or bypass security controls.
 - Do not perform destructive database or production operations without explicit approval.
+- When adding a feature or making a substantial change to an existing feature, update both `README.md` and the signed-in/public home page description (`apps/web/src/pages/HomePage.tsx`) so they accurately reflect current capabilities. Keep the copy concise and consistent with implemented behavior.
 
 ## UI and Design System
 

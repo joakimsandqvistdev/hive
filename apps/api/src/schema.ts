@@ -134,7 +134,7 @@ export const workflowNodes = pgTable("workflow_nodes", {
   positionY: real("position_y").notNull().default(0),
 }, (table): PgTableExtraConfigValue[] => [
   primaryKey({ columns: [table.workflowId, table.nodeId], name: "workflow_nodes_pk" }),
-  check("workflow_nodes_kind_check", sql`kind in ('input', 'model')`),
+  check("workflow_nodes_kind_check", sql`kind in ('input', 'model', 'processing')`),
   foreignKey({ columns: [table.workflowId, table.userId], foreignColumns: [workflows.id, workflows.userId], name: "workflow_nodes_workflow_owner_fk" }).onDelete("cascade"),
   foreignKey({ columns: [table.artifactId, table.userId], foreignColumns: [artifacts.id, artifacts.userId], name: "workflow_nodes_artifact_owner_fk" }).onDelete("restrict"),
 ]);

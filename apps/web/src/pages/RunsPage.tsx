@@ -219,10 +219,10 @@ export function RunsPage({ onNavigate }: { onNavigate: (view: AppView) => void }
             ? detail.artifacts.find((artifact) => artifact.id === node.outputJson?.artifactId)
             : undefined;
           return <Paper key={node.nodeId} withBorder p="sm">
-            <Group justify="space-between"><div><Text size="sm" fw={600}>{label}</Text><Text size="xs" c="dimmed">{nodeTypeLabel(node.nodeSnapshotJson?.modality ?? "input", node.parameters?.modelId ?? node.nodeSnapshotJson?.parameters?.modelId)}</Text><Text size="xs" c="dimmed" mt={3}>{timingLabel(node.startedAt, node.finishedAt, now)}</Text></div><Badge variant="light" color={statusColor(node.status)}>{node.status}</Badge></Group>
+            <Group justify="space-between"><div><Text size="sm" fw={600}>{label}</Text><Text size="xs" c="dimmed">{node.nodeSnapshotJson?.kind === "processing" ? "Text Overlay" : nodeTypeLabel(node.nodeSnapshotJson?.modality ?? "input", node.parameters?.modelId ?? node.nodeSnapshotJson?.parameters?.modelId)}</Text><Text size="xs" c="dimmed" mt={3}>{timingLabel(node.startedAt, node.finishedAt, now)}</Text></div><Badge variant="light" color={statusColor(node.status)}>{node.status}</Badge></Group>
             {node.nodeSnapshotJson?.kind === "input" && node.outputJson?.text && <Text size="sm" mt="xs" style={{ whiteSpace: "pre-wrap" }}>{node.outputJson.text}</Text>}
             {node.nodeSnapshotJson?.kind === "input" && node.outputJson?.artifactId && <ArtifactPreview artifactId={node.outputJson.artifactId} label={label} mediaType={`${node.outputJson.dataTypeId}/unknown`} />}
-            {node.nodeSnapshotJson?.kind === "model" && producedArtifact && <ArtifactPreview artifactId={producedArtifact.id} label={label} mediaType={producedArtifact.mediaType} />}
+            {(node.nodeSnapshotJson?.kind === "model" || node.nodeSnapshotJson?.kind === "processing") && producedArtifact && <ArtifactPreview artifactId={producedArtifact.id} label={label} mediaType={producedArtifact.mediaType} />}
             {node.errorSummary && <Text size="xs" c="hiveError.7" mt="xs">{node.errorSummary}</Text>}
           </Paper>;
         })}</Stack> : <Text size="sm" c="dimmed">No node steps recorded.</Text>}</div>

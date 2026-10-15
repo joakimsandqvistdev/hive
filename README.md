@@ -81,7 +81,7 @@ The API exposes `GET /api/health`. The web page calls the API to show its databa
 
 For tracked schema changes, update `apps/api/src/schema.ts`, generate a migration with `npm run db:generate -w @hive/api`, then apply it with `npm run db:migrate -w @hive/api`.
 
-Workflows contain Text/Image/Audio input nodes and downloaded model nodes. Use Add node, connect matching datatypes (including text to Prompt), save, then run. Model data inputs are supplied only through connections. Runs can be started manually or by a Job.
+Workflows combine typed Text/Image/Audio inputs, downloaded model nodes, and built-in **Processing** operations. **Text Overlay** composites connected text onto a connected image with configurable font, weight, color, placement, alignment, margin, and line spacing. It runs locally without an AI model or model download. Processing is designed to accommodate other algorithmic nodes, such as cropping and logic operations. Connect matching datatypes, save, then run; runs can start manually or through a Job.
 
 ## Schedule workflow jobs
 

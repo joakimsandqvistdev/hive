@@ -7,7 +7,7 @@ Use `apps/api/src/schema.ts` as the implemented schema reference.
 - `model_input_groups` and `model_input_group_ports`: cross-port constraints such as alternatives, in addition to per-port counts.
 - `workflows`: owner-scoped metadata for one current saved definition.
 - `workflow_jobs`: owner-scoped one-time or interval-repeat instructions for a workflow. Stores the first and next eligible times, repeat limit, completed occurrence count, pause/failure state, and the current run ID. A job is soft-removed to stop future runs while preserving run attribution.
-- `workflow_nodes`: kind, label, model ID or input datatype, input text or uploaded-artifact ID, inference parameters, and canvas position. Composite foreign keys preserve workflow and upload ownership.
+- `workflow_nodes`: kind (`input`, `model`, or `processing`), label, model ID or input datatype, input text or uploaded-artifact ID, node settings, and canvas position. Composite foreign keys preserve workflow and upload ownership.
 - `workflow_edges`: explicit source and target node/port keys. Both nodes must belong to the same workflow.
 - `runs`: durable queue status, immutable workflow snapshot, optional originating job and scheduled occurrence time, attempt counts, worker lease/heartbeat, and cancellation state. A partial unique index allows at most one queued or active run per job.
 - `run_nodes`: node snapshots, input-file reference, resolved inference parameters, typed output JSON, status/errors/timestamps. There are no reusable-definition references or inline model prompts.
@@ -16,7 +16,7 @@ Use `apps/api/src/schema.ts` as the implemented schema reference.
 
 Current model modalities include image, video, and audio. Kokoro-82M has one required text input on its `prompt` port and one audio output. Audio is also available for uploaded inputs and future models.
 
-`GET /api/models/contracts` returns the model contracts and canonical datatype catalog. Save/run validation requires compatible port datatypes, cardinalities, no cycles, configured inputs, and owner-accessible uploads. Download state is checked before model execution is queued.
+`GET /api/models/contracts` returns the model contracts and canonical datatype catalog. Built-in processing contracts are defined by the API and do not appear in the downloadable model catalog. Save/run validation requires compatible port datatypes, cardinalities, no cycles, configured inputs, and owner-accessible uploads. Download state is checked before model execution is queued.
 
 The worker also polls due workflow jobs. It creates only the current run and snapshots the workflow at queue time. After that run reaches a terminal state, it sets the next eligible time to the finish time plus the configured interval. Repeating jobs therefore do not overlap or populate the run queue with future runs.
 
