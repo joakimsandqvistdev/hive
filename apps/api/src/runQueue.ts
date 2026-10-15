@@ -52,6 +52,16 @@ export async function claimNextRun(workerId: string, leaseSeconds = 120): Promis
     throw new Error("leaseSeconds must be an integer from 10 to 3600.");
   }
 
+  await pool.query(`WITH abandoned_cancellations AS (
+      UPDATE runs SET status='cancelled', error_summary='Run stopped by user.', finished_at=now(), claimed_by=NULL, lease_expires_at=NULL
+      WHERE status='cancel_requested' AND lease_expires_at < now()
+      RETURNING id
+    )
+    UPDATE run_nodes AS node
+    SET status='cancelled', error_code='run_cancelled',
+        error_summary='Step cancelled because the run was stopped.', finished_at=COALESCE(node.finished_at, now())
+    FROM abandoned_cancellations AS run
+    WHERE node.run_id=run.id AND node.status IN ('queued','running')`);
   await pool.query(`WITH exhausted_runs AS (
       UPDATE runs SET status = 'failed', error_summary = 'Run exceeded the retry limit after worker interruption.', finished_at = now(), claimed_by = NULL, lease_expires_at = NULL
       WHERE status = 'running' AND lease_expires_at < now() AND attempt_count >= 3
