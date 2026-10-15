@@ -4,7 +4,7 @@ import React from "react";
 import { MantineProvider } from "@mantine/core";
 import { renderToStaticMarkup } from "react-dom/server";
 import { defaultImageModelParameters, imageModelDefaultSteps, imageResolutionOptions, ImageModelParametersFields } from "../src/components/ImageModelParametersFields.tsx";
-import { modelGroups } from "../src/modelGroups.ts";
+import { modelGroups } from "../src/modelCatalog.ts";
 
 test("128 and 256 square are available in model node forms for both image models", () => {
   assert.ok(imageResolutionOptions.some((option) => option.value === "128x128"));

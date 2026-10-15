@@ -11,7 +11,7 @@ import { createModelRunnerClient } from "./modelRunnerClient.js";
 import { bindModelInputs, buildRunnerInput, object, resolveModelSettings, type NodeOutput, type SnapshotEdge, type SnapshotNode } from "./runInputResolver.js";
 
 const workerId = `${hostname()}:${process.pid}`;
-const modelRunnerUrl = (process.env.MODEL_RUNNER_URL ?? process.env.IMAGE_RUNNER_URL ?? "http://127.0.0.1:8188").replace(/\/$/, "");
+const modelRunnerUrl = (process.env.MODEL_RUNNER_URL ?? "http://127.0.0.1:8188").replace(/\/$/, "");
 const modelRunner = createModelRunnerClient(modelRunnerUrl);
 
 async function execute(run: ClaimedRun, signal: AbortSignal): Promise<void> {

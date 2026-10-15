@@ -8,6 +8,7 @@ import { defaultVideoModelParameters, type VideoModelParameters } from "../compo
 import { defaultAudioModelParameters } from "../components/AudioModelParametersFields";
 import { WorkflowNodeConfiguration } from "./WorkflowNodeConfiguration";
 import { ConfirmActionModal } from "../components/ConfirmActionModal";
+import { startWorkflowRun } from "./startWorkflowRun";
 import type { AppView } from "../navigation/navigationState";
 import type { ModelIoContract } from "../modelIoTypes";
 import type { DataType, Definition, Workflow, WorkflowNode, WorkflowNodeData } from "./workflowTypes";
@@ -114,9 +115,7 @@ export function WorkflowEditor({ workflowId, onClose, onNavigate }: { workflowId
   async function run() {
     setRunning(true); setError(null);
     try {
-      const response = await apiFetch(`/api/workflows/${workflowId}/runs`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
-      const body = await response.json();
-      if (!response.ok) throw new Error(body.error === "model_not_downloaded" ? "Download every model used by this workflow from Models before running." : "Could not start workflow.");
+      await startWorkflowRun(workflowId);
       onNavigate("runs");
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not start workflow."); }
     finally { setRunning(false); }

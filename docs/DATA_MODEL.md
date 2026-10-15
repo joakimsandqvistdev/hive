@@ -17,4 +17,4 @@ Current model modalities include image, video, and audio. Kokoro-82M has one req
 
 `GET /api/models/contracts` returns the model contracts and canonical datatype catalog. Save/run validation requires compatible port datatypes, cardinalities, no cycles, configured inputs, and owner-accessible uploads. Download state is checked before model execution is queued.
 
-Migration `0016_model_input_workflows` performs the explicitly authorized discard of old workflow/run data and installs this schema. Existing users, sessions, model catalog, and weight cache are preserved. Binary files from discarded historical runs are not served through the API after their metadata is removed.
+Migration `0016_model_input_workflows` performs the explicitly authorized discard of old workflow/run data and begins the current workflow schema. Later migrations add model contracts, audio support, media cleanup, and catalog updates. Existing users, sessions, model catalog, and weight cache are preserved. Binary files from discarded historical runs are not served through the API after their metadata is removed.

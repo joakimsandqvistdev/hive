@@ -18,7 +18,7 @@ const runner = createServer(async (req, res) => {
 });
 await new Promise<void>((resolve) => runner.listen(0, "127.0.0.1", resolve));
 const runnerAddress = runner.address(); assert.ok(runnerAddress && typeof runnerAddress !== "string");
-process.env.IMAGE_RUNNER_URL = `http://127.0.0.1:${runnerAddress.port}`;
+process.env.MODEL_RUNNER_URL = `http://127.0.0.1:${runnerAddress.port}`;
 const { db, pool } = await import("../src/db.js");
 const { users, artifacts, workflows, runs, runNodes, runDeletions } = await import("../src/schema.js");
 const { workflowsRouter } = await import("../src/workflows.js");
@@ -33,7 +33,7 @@ const server = app.listen(0, "127.0.0.1"); await new Promise<void>((resolve) => 
 const address = server.address(); assert.ok(address && typeof address !== "string");
 const base = `http://127.0.0.1:${address.port}`;
 const origin = process.env.WEB_ORIGIN ?? "http://localhost:5173";
-const worker = spawn(process.execPath, ["apps/api/dist/worker.js"], { cwd: new URL("../../../", import.meta.url), env: process.env, stdio: "ignore" });
+const worker = spawn(process.execPath, ["node_modules/tsx/dist/cli.mjs", "apps/api/src/worker.ts"], { cwd: new URL("../../../", import.meta.url), env: process.env, stdio: "ignore" });
 async function request(path: string, method = "GET", body?: unknown, user = owner) {
   return fetch(`${base}${path}`, { method, headers: { origin, "test-user": user, "content-type": "application/json" }, ...(body !== undefined ? { body: JSON.stringify(body) } : {}) });
 }
