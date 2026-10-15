@@ -8,3 +8,4 @@ dist/
 .DS_Store
 *.log
 *.tsbuildinfo
+docs/working/*.local.md

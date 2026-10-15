@@ -2,6 +2,14 @@
 
 A full-stack starter using React, TypeScript, Node.js, Express, PostgreSQL, Drizzle ORM, and Docker Compose.
 
+## Clone the repository
+
+```bash
+git clone https://github.com/joakimsandqvistdev/hive.git
+cd hive
+```
+
+
 The GitHub Actions workflow runs local-launcher tests, TypeScript checks, and the production build on pushes and pull requests to `main`.
 
 ## Requirements

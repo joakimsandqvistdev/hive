@@ -13,7 +13,7 @@ async function fixture(t, env) {
     assert.ok(basename(target).startsWith('hive-local-test-'));
     await rm(target, { recursive: true, force: true });
   });
-  await writeFile(join(root, '.env.example'), 'DATABASE_URL=postgres://hive:hive_dev_password@localhost:5432/hive\nPOSTGRES_PASSWORD=hive_dev_password\nGOOGLE_CLIENT_ID=\nGOOGLE_CLIENT_SECRET=\n');
+  await writeFile(join(root, '.env.example'), 'DATABASE_URL=postgres://hive:local-only-replace-me@localhost:5432/hive\nPOSTGRES_PASSWORD=local-only-replace-me\nGOOGLE_CLIENT_ID=\nGOOGLE_CLIENT_SECRET=\n');
   if (env !== undefined) await writeFile(join(root, '.env'), env);
   return root;
 }

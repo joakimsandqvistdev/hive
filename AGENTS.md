@@ -6,23 +6,27 @@ This repository contains an existing web application with authentication, a data
 
 Treat the existing codebase as the source of truth for implemented behavior. Treat product and architecture documentation as the source of truth for intended behavior and agreed decisions.
 
-## Image generation
+## Asset policy
 
-- Generate or add image assets only when the user explicitly asks for image generation or image creation.
-- Do not generate images merely because a visual asset could improve a design; use existing assets or code-based graphics unless the user explicitly requests a generated image.
+- Add raster assets only when a task or product requirement calls for them. Prefer existing assets or code-based graphics when appropriate.
 
-## ionodes maintenance feedback
+## Dependency integration
 
-- When integrating `ionodes`, consider whether a limitation is better fixed in the library than worked around in Hive.
-- If a library-level change would make the integration simpler, more correct, or more reusable, tell the user what should change in `ionodes` and why.
+- Prefer improvements to reusable dependency APIs over application-specific workarounds when the improvement is generally useful. Describe proposed upstream changes and their benefits.
 
 ## Before making changes
 
 - Inspect the relevant implementation, tests, and existing patterns.
 - Read the relevant documentation when a task touches its area.
-- Check `docs/working/CURRENT.md` when resuming ongoing work or when the task depends on recent progress.
+- Check `docs/working/CURRENT.local.md` when resuming ongoing local work or when the task depends on recent progress. This file is local-only.
 - Do not assume previous chat history is available.
 - Distinguish confirmed requirements from assumptions.
+
+## Public repository hygiene
+
+- Keep real credentials, personal filesystem paths, local database contents, and machine-specific operational notes out of tracked files.
+- Use clearly fake local-only values in examples; never copy values from a real environment file.
+- Review documentation, examples, and generated artifacts for private data before publishing.
 
 ## Engineering rules
 
@@ -58,7 +62,7 @@ Treat the existing codebase as the source of truth for implemented behavior. Tre
 
 ## Session continuity
 
-- Update `docs/working/CURRENT.md` at the end of a meaningful work session.
+- Update `docs/working/CURRENT.local.md` at the end of a meaningful work session. Never commit local work notes, machine-specific details, credentials, or environment snapshots.
 - Record durable decisions in their proper documentation under `docs/decisions/`, not only in the session notes.
 - Keep the current-work notes concise, factual, and actionable.
 - Never overwrite unrelated user changes.
