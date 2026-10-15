@@ -1,7 +1,7 @@
 import { addNode, createGraph, type CompatibilityRule, type GraphDocument, type GraphNode as IonodesNode } from "ionodes";
 import type { ModelIoContract } from "../modelIoTypes";
 import type { DataType, Definition, NodeDefinition, WorkflowNode } from "./workflowTypes";
-import { instagramPublishingContract, textOverlayContract } from "./processingNodeTypes";
+import { instagramPublishingContract, stillImageVideoContract, textOverlayContract } from "./processingNodeTypes";
 
 type PortMetadata = {
   portKey: string;
@@ -39,7 +39,7 @@ function colorForDatatype(dataTypeId: string) {
 
 function portsForNode(node: NodeDefinition, contracts: ModelIoContract[], types: DataType[]) {
   const contract = contracts.find((item) => item.modelId === node.modelId);
-  const processing = node.kind === "processing" && node.parameters.operationId === "text-overlay" ? textOverlayContract : undefined;
+  const processing = node.kind === "processing" ? node.parameters.operationId === "still-image-video" ? stillImageVideoContract : node.parameters.operationId === "text-overlay" ? textOverlayContract : undefined : undefined;
   const publishing = node.kind === "publishing" ? instagramPublishingContract(String(node.parameters.operationId ?? "")) : undefined;
   const dataType = types.find((item) => item.id === node.dataTypeId);
   const inputs = node.kind === "model" ? contract?.inputs ?? [] : node.kind === "processing" ? processing?.inputs ?? [] : node.kind === "publishing" ? publishing?.inputs ?? [] : [];
@@ -61,8 +61,8 @@ function portsForNode(node: NodeDefinition, contracts: ModelIoContract[], types:
 function toIonodesNode(node: NodeDefinition, contracts: ModelIoContract[], types: DataType[]): IonodesNode {
   const { inputs, outputs, contract } = portsForNode(node, contracts, types);
   const description = node.kind === "input"
-    ? node.inputText || (node.artifactId ? "File uploaded" : "Input not set")
-    : node.kind === "processing" ? "Processing · Text Overlay" : node.kind === "publishing" ? `Publishing · ${contract?.name ?? "Instagram"}` : contract?.name ?? "Model";
+    ? node.dataTypeId === "text" ? "Text input" : node.artifactId ? "Media selected" : "Input not set"
+    : node.kind === "processing" ? `Processing · ${contract?.name ?? "Operation"}` : node.kind === "publishing" ? `Publishing · ${contract?.name ?? "Instagram"}` : contract?.name ?? "Model";
   return {
     id: node.id,
     title: node.label,

@@ -204,6 +204,13 @@
       "when": 1792099744469,
       "tag": "0028_add_qwen_text_models",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1792105874677,
+      "tag": "0029_unique_black_queen",
+      "breakpoints": true
     }
   ]
 }

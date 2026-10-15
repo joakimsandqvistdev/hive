@@ -46,7 +46,8 @@ export async function removeArtifact(storageKey: string): Promise<void> {
 }
 
 export function detectUpload(bytes: Buffer, dataTypeId: string) {
-  if (!bytes.length || bytes.length > (dataTypeId === "image" ? 10 : 25) * 1024 * 1024) throw new Error("Upload is empty or exceeds its size limit.");
+  const maxBytes = dataTypeId === "image" ? 10 : dataTypeId === "video" ? 50 : 25;
+  if (!bytes.length || bytes.length > maxBytes * 1024 * 1024) throw new Error(`Upload is empty or exceeds the ${maxBytes} MB limit.`);
   const ascii = (start: number, end: number) => bytes.subarray(start, end).toString("ascii");
   if (dataTypeId === "image") {
     if (bytes.subarray(0, 8).toString("hex") === "89504e470d0a1a0a") return { mediaType: "image/png", extension: "png" };
@@ -57,8 +58,10 @@ export function detectUpload(bytes: Buffer, dataTypeId: string) {
     if (ascii(0, 3) === "ID3" || (bytes[0] === 255 && (bytes[1]! & 224) === 224)) return { mediaType: "audio/mpeg", extension: "mp3" };
     if (ascii(0, 4) === "OggS") return { mediaType: "audio/ogg", extension: "ogg" };
     if (ascii(0, 4) === "fLaC") return { mediaType: "audio/flac", extension: "flac" };
+  } else if (dataTypeId === "video") {
+    if (bytes.length >= 12 && ascii(4, 8) === "ftyp") return { mediaType: "video/mp4", extension: "mp4" };
   }
-  throw new Error("Unsupported file content. Use PNG, JPEG, WebP, WAV, MP3, Ogg, or FLAC.");
+  throw new Error("Unsupported file content. Use PNG, JPEG, WebP, WAV, MP3, Ogg, FLAC, or MP4 video.");
 }
 
 export async function saveUpload(bytes: Buffer, dataTypeId: string) {

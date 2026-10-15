@@ -10,6 +10,7 @@ import { LicensesPage } from "./pages/LicensesPage";
 import { ModelsPage } from "./pages/ModelsPage";
 import { JobsPage } from "./pages/JobsPage";
 import { AccountsPage } from "./pages/AccountsPage";
+import { MediaLibraryPage } from "./pages/MediaLibraryPage";
 import { useAppNavigation } from "./navigation/useAppNavigation";
 import type { AppView } from "./navigation/navigationState";
 
@@ -33,7 +34,7 @@ function AppContent({ view, onNavigate, sidebarCollapsed, workflowEditorActive, 
   onToggleNavigation: () => void;
 }) {
   const { user, loading } = useAuth();
-  const isProtectedView = view === "workflows" || view === "jobs" || view === "runs" || view === "models" || view === "accounts";
+  const isProtectedView = view === "workflows" || view === "jobs" || view === "runs" || view === "models" || view === "accounts" || view === "media";
   return (
     <AppLayout view={view} onNavigate={onNavigate} workflowEditorActive={workflowEditorActive} sidebarCollapsed={sidebarCollapsed} onToggleNavigation={onToggleNavigation}>
       {isProtectedView && loading ? <SignInRequiredPage loading />
@@ -43,6 +44,7 @@ function AppContent({ view, onNavigate, sidebarCollapsed, workflowEditorActive, 
                 : view === "jobs" ? <JobsPage onNavigate={onNavigate} />
                 : view === "models" ? <ModelsPage />
                 : view === "accounts" ? <AccountsPage />
+                : view === "media" ? <MediaLibraryPage />
                 : view === "licenses" ? <LicensesPage />
                   : <HomePage onNavigate={onNavigate} />}
     </AppLayout>

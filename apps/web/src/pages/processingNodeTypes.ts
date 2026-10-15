@@ -12,6 +12,18 @@ export const textOverlayDefaults = {
   lineSpacing: 1.2,
 } as const;
 
+export const stillImageVideoDefaults = { operationId: "still-image-video", durationSeconds: 10, audioVolume: 100 } as const;
+
+export const stillImageVideoContract: ModelIoContract = {
+  modelId: "still-image-video", name: "Still Image Video", modality: "video",
+  inputs: [
+    { direction: "input", portKey: "image", dataTypeId: "image", dataTypeLabel: "Image", mediaType: "image/*", label: "Image", transport: "connection", minCount: 1, maxCount: 1, sortOrder: 0 },
+    { direction: "input", portKey: "audio", dataTypeId: "audio", dataTypeLabel: "Audio", mediaType: "audio/*", label: "Audio (optional)", transport: "connection", minCount: 0, maxCount: 1, sortOrder: 1 },
+  ],
+  outputs: [{ direction: "output", portKey: "video", dataTypeId: "video", dataTypeLabel: "Video", mediaType: "video/mp4", label: "Video", transport: null, minCount: 1, maxCount: 1, sortOrder: 0 }],
+  inputGroups: [],
+};
+
 export const textOverlayContract: ModelIoContract = {
   modelId: "text-overlay",
   name: "Text Overlay",
