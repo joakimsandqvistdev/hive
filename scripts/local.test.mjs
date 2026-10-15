@@ -1,11 +1,11 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises';
+import { mkdtemp, writeFile, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { resolve, join, basename } from 'node:path';
 import { ensureEnvironment, parseArguments, composeArguments, localDatabaseUrl, runLocal } from './local.mjs';
 
-async function fixture(t, env, withIonodes = true) {
+async function fixture(t, env) {
   const root = await mkdtemp(join(tmpdir(), 'hive-local-test-'));
   t.after(async () => {
     const target = resolve(root);
@@ -14,10 +14,6 @@ async function fixture(t, env, withIonodes = true) {
     await rm(target, { recursive: true, force: true });
   });
   await writeFile(join(root, '.env.example'), 'DATABASE_URL=postgres://hive:hive_dev_password@localhost:5432/hive\nPOSTGRES_PASSWORD=hive_dev_password\nGOOGLE_CLIENT_ID=\nGOOGLE_CLIENT_SECRET=\n');
-  if (withIonodes) {
-    await mkdir(join(root, 'packages', 'ionodes'), { recursive: true });
-    await writeFile(join(root, 'packages', 'ionodes', 'package.json'), '{"name":"ionodes"}');
-  }
   if (env !== undefined) await writeFile(join(root, '.env'), env);
   return root;
 }
@@ -96,19 +92,6 @@ test('Docker unavailability fails before writing config or starting services', a
   let calls = 0;
   await assert.rejects(runLocal(['start'], { root, environment: {}, log: () => {}, run: async () => ++calls === 1 ? 0 : 1 }), /Start Docker/);
   assert.equal(calls, 2);
-  await assert.rejects(readFile(join(root, '.env')), { code: 'ENOENT' });
-});
-
-test('startup explains how to initialize ionodes when its submodule is missing', async t => {
-  const root = await fixture(t, undefined, false);
-  let calls = 0;
-  await assert.rejects(runLocal(['start'], {
-    root,
-    environment: {},
-    log: () => {},
-    run: async () => { calls += 1; return 0; },
-  }), /git submodule update --init --recursive/);
-  assert.equal(calls, 0);
   await assert.rejects(readFile(join(root, '.env')), { code: 'ENOENT' });
 });
 

@@ -1,41 +1,17 @@
-import { Anchor, Badge, Code, Paper, Stack, Text, Title } from "@mantine/core";
-
-const mitTerms = `MIT License
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.`;
-
-function LicenseNotice({ copyright }: { copyright: string }) {
-  return <Code className="license-text" block>{`Copyright (c) ${copyright}\n\n${mitTerms}`}</Code>;
-}
+import { Anchor, Badge, Paper, Stack, Text, Title } from "@mantine/core";
 
 export function LicensesPage() {
   return (
     <Stack className="workspace-page" gap="lg">
       <Stack gap={3}><Text className="page-eyebrow">About this app</Text><Title order={1} className="page-title">Open-source licenses</Title></Stack>
-      <Text c="dimmed" maw={760}>This page lists third-party software and model weights used by Hive, with links to their sources and license terms.</Text>
+      <Text c="dimmed" maw={760}>This page lists third-party software and model weights used by Hive, with links to their sources and license terms. <Anchor href="/THIRD-PARTY-NOTICES.txt" target="_blank" rel="noreferrer">View bundled dependency notices</Anchor>.</Text>
       <Paper className="license-card" withBorder>
         <Stack gap="sm">
           <div><Badge variant="light" color="hiveSky">Apache 2.0</Badge></div>
           <Title order={2} size="h4">ionodes</Title>
           <Text size="sm" c="dimmed">Reusable React node graph editor used to build and edit Hive workflows.</Text>
           <Text size="sm">Source: <Anchor href="https://github.com/joakimsandqvistdev/ionodes" target="_blank" rel="noreferrer">joakimsandqvistdev/ionodes</Anchor></Text>
-          <Text size="sm">License: <Anchor href="https://github.com/joakimsandqvistdev/ionodes/blob/v0.1.0/LICENSE" target="_blank" rel="noreferrer">Apache License, Version 2.0</Anchor></Text>
+          <Text size="sm">License: <Anchor href="https://github.com/joakimsandqvistdev/ionodes/blob/v0.1.1/LICENSE" target="_blank" rel="noreferrer">Apache License, Version 2.0</Anchor></Text>
         </Stack>
       </Paper>
       <ModelLicense title="InstructPix2Pix model weights" license="CreativeML Open RAIL-M" source="https://huggingface.co/timbrooks/instruct-pix2pix" licenseUrl="https://huggingface.co/spaces/timbrooks/instruct-pix2pix/blob/main/LICENSE" description="Instruction-based image editing. The repository carries MIT metadata for some material, but its license file notes that model checkpoints derive from Stable Diffusion and may be subject to additional restrictions; review the checkpoint license before use." />
@@ -69,15 +45,6 @@ export function LicensesPage() {
           <Text size="sm" c="dimmed">By the Qwen Team. Hive does not bundle the weights; download the model from the Models view to the local Docker runner.</Text>
           <Text size="sm">Model source: <Anchor href="https://huggingface.co/Qwen/Qwen-Image-Edit-2511" target="_blank" rel="noreferrer">Qwen/Qwen-Image-Edit-2511</Anchor></Text>
           <Text size="sm">License: <Anchor href="https://www.apache.org/licenses/LICENSE-2.0" target="_blank" rel="noreferrer">Apache License, Version 2.0</Anchor></Text>
-        </Stack>
-      </Paper>
-      <Paper className="license-card" withBorder>
-        <Stack gap="sm">
-          <div><Badge variant="light" color="hiveSky">MIT</Badge></div>
-          <Title order={2} size="h4">React Flow (@xyflow/react)</Title>
-          <Text size="sm" c="dimmed">The node-based editor library used to render and connect workflow nodes. Copyright (c) 2019–2025 webkid GmbH.</Text>
-          <Text size="sm">Source: <Anchor href="https://github.com/xyflow/xyflow" target="_blank" rel="noreferrer">xyflow/xyflow</Anchor></Text>
-          <LicenseNotice copyright="2019-2025 webkid GmbH" />
         </Stack>
       </Paper>
     </Stack>

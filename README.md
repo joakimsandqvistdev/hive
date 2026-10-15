@@ -2,7 +2,7 @@
 
 A full-stack starter using React, TypeScript, Node.js, Express, PostgreSQL, Drizzle ORM, and Docker Compose.
 
-The GitHub Actions workflow runs local-launcher tests and checks/builds the API on pushes and pull requests to `main`. Web typechecking and building are temporarily skipped in CI because Hive currently consumes `ionodes` as a private submodule; restore those checks when the project moves to the published npm package.
+The GitHub Actions workflow runs local-launcher tests, TypeScript checks, and the production build on pushes and pull requests to `main`.
 
 ## Requirements
 
@@ -15,7 +15,7 @@ The GitHub Actions workflow runs local-launcher tests and checks/builds the API 
 
 With Node.js 22+, Docker Compose 2.24.4+ (included in recent Docker Desktop versions), and Docker running in Linux-container mode, run these commands from the repository root:
 
-Hive includes `ionodes` as a Git submodule and npm workspace. Clone Hive with `git clone --recurse-submodules https://github.com/joakimsandqvistdev/hive.git`, or initialize the submodule in an existing checkout with `git submodule update --init --recursive`. GitHub access to `ionodes` is required when cloning or updating it. Docker builds use the checked-out local source and do not need GitHub credentials.
+Hive installs `ionodes` from the public npm registry as a web workspace dependency. Docker and CI builds use the package-lock-pinned registry package; no submodule checkout or GitHub access to the ionodes repository is required.
 
 ```powershell
 npm run local
@@ -39,7 +39,7 @@ Stopping preserves the database volume, downloaded model cache, and generated pi
 - A fresh computer has a fresh database, artifact folder, and model cache; Git does not transfer these. If reusing an existing database volume, keep its original database password.
 - The launcher applies migrations only to the Compose PostgreSQL service, even if `.env` contains a different `DATABASE_URL`. It does not migrate an external database. A failed startup may leave partial services running; use `npm run local:stop` before retrying if needed.
 
-To develop `ionodes` alongside Hive, edit files under `packages/ionodes`. Commit library changes in the submodule first, then commit the updated submodule pointer in Hive.
+To develop `ionodes` itself, work in its standalone repository. Hive consumes the published npm release; install a new release in `apps/web` when it is ready.
 
 Inspect service logs in Docker Desktop. All published ports in the local launcher are bound to localhost.
 
