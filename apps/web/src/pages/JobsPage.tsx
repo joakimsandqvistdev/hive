@@ -29,7 +29,7 @@ function intervalLabel(seconds: number) {
   return "every " + amount + " " + label + (amount === 1 ? "" : "s") + " after the previous run finishes";
 }
 function currentActivity(job: Job) {
-  return job.currentRunStatus === "queued" ? "Run queued" : job.currentRunStatus === "running" ? "Run in progress" : job.currentRunStatus === "cancel_requested" ? "Stopping run" : null;
+  return job.currentRunStatus === "queued" ? "Run queued" : job.currentRunStatus === "running" ? "Run in progress" : job.currentRunStatus === "awaiting_publish" ? "Waiting for Instagram publication" : job.currentRunStatus === "cancel_requested" ? "Stopping run" : null;
 }
 
 export function JobsPage({ onNavigate }: { onNavigate: (view: AppView) => void }) {
@@ -170,7 +170,7 @@ export function JobsPage({ onNavigate }: { onNavigate: (view: AppView) => void }
       </Stack></form>
     </Modal>
     <Modal opened={confirmRemove !== null} onClose={() => setConfirmRemove(null)} title="Remove job?" centered>
-      <Stack gap="md"><Text>Remove <strong>{confirmRemove?.name}</strong>? No future runs will be queued. Any queued run will be cancelled; a run already in progress will finish. Existing run history and generated media will remain in Runs.</Text><Group justify="flex-end"><Button variant="default" onClick={() => setConfirmRemove(null)}>Keep job</Button><Button color="hiveError" loading={mutatingId !== null} onClick={() => void removeJob()}>Remove job</Button></Group></Stack>
+      <Stack gap="md"><Text>Remove <strong>{confirmRemove?.name}</strong>? No future runs will be queued. Any queued run will be cancelled; a run already in progress will finish. If it is waiting for an Instagram publication, that publication stays in Runs and must still be published or discarded. Existing run history and generated media will remain in Runs.</Text><Group justify="flex-end"><Button variant="default" onClick={() => setConfirmRemove(null)}>Keep job</Button><Button color="hiveError" loading={mutatingId !== null} onClick={() => void removeJob()}>Remove job</Button></Group></Stack>
     </Modal>
   </Stack>;
 }

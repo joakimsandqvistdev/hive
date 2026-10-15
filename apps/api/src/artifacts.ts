@@ -5,9 +5,16 @@ import { Router, raw } from "express";
 import { artifactPath, readArtifact, removeArtifact, saveUpload } from "./artifactStore.js";
 import { parseArtifactByteRange } from "./artifactRange.js";
 import { db } from "./db.js";
-import { artifacts, runDeletions, workflowNodes, runNodes } from "./schema.js";
+import { artifacts, instagramAccounts, runDeletions, workflowNodes, runNodes } from "./schema.js";
 
 const router = Router();
+router.get("/", async (_req, res, next) => {
+  try {
+    const items = await db.select({ id: artifacts.id, displayName: artifacts.displayName, mediaType: artifacts.mediaType, createdAt: artifacts.createdAt, runId: artifacts.runId }).from(artifacts)
+      .where(and(eq(artifacts.userId, res.locals.userId as string), eq(artifacts.dataTypeId, "image"))).orderBy(sql`${artifacts.createdAt} desc`).limit(200);
+    res.json({ items });
+  } catch (error) { next(error); }
+});
 router.delete("/:id", async (req, res, next) => {
   if (req.get("origin") !== (process.env.WEB_ORIGIN ?? "http://localhost:5173")) { res.status(403).json({ error: "invalid_origin" }); return; }
   try {
@@ -16,7 +23,8 @@ router.delete("/:id", async (req, res, next) => {
       if (!file || file.runId !== null) return { status: 404 as const };
       const workflowUse = await tx.select({ count: sql<number>`count(*)` }).from(workflowNodes).where(eq(workflowNodes.artifactId, file.id));
       const runUse = await tx.select({ count: sql<number>`count(*)` }).from(runNodes).where(eq(runNodes.inputArtifactId, file.id));
-      if (Number(workflowUse[0]?.count) || Number(runUse[0]?.count)) return { status: 409 as const };
+      const profileUse = await tx.select({ count: sql<number>`count(*)` }).from(instagramAccounts).where(eq(instagramAccounts.profileImageArtifactId, file.id));
+      if (Number(workflowUse[0]?.count) || Number(runUse[0]?.count) || Number(profileUse[0]?.count)) return { status: 409 as const };
       await tx.delete(artifacts).where(eq(artifacts.id, file.id));
       return { status: 204 as const, storageKey: file.storageKey };
     });

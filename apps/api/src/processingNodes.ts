@@ -15,6 +15,30 @@ export const textOverlaySettingsSchema = z.object({
 
 export type TextOverlaySettings = z.infer<typeof textOverlaySettingsSchema>;
 
+export const instagramPublishingSettingsSchema = z.object({
+  operationId: z.enum(["instagram-post", "instagram-reel"]),
+  accountId: z.string().uuid(),
+  mode: z.enum(["automatic", "manual"]).default("manual"),
+  shareToFeed: z.boolean().default(true),
+}).strict();
+
+export function instagramPublishingContract(parameters: Record<string, unknown>): ModelIoContract | undefined {
+  const parsed = instagramPublishingSettingsSchema.safeParse(parameters);
+  if (!parsed.success) return undefined;
+  const reel = parsed.data.operationId === "instagram-reel";
+  return {
+    modelId: parsed.data.operationId,
+    name: reel ? "Instagram Reel" : "Instagram Post",
+    modality: reel ? "video" : "image",
+    inputs: [
+      { direction: "input", portKey: reel ? "video" : "image", dataTypeId: reel ? "video" : "image", dataTypeLabel: reel ? "Video" : "Image", mediaType: reel ? "video/mp4" : "image/*", label: reel ? "Video" : "Image", transport: "connection", minCount: 1, maxCount: 1, sortOrder: 0 },
+      { direction: "input", portKey: "caption", dataTypeId: "text", dataTypeLabel: "Text", mediaType: "text/plain", label: "Caption", transport: "connection", minCount: 1, maxCount: 1, sortOrder: 1 },
+    ],
+    outputs: [],
+    inputGroups: [],
+  };
+}
+
 export const textOverlayContract: ModelIoContract = {
   modelId: "text-overlay",
   name: "Text Overlay",

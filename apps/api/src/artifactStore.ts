@@ -6,7 +6,7 @@ const root = resolve(process.env.ARTIFACT_ROOT ?? resolve(import.meta.dirname, "
 const MAX_ARTIFACT_BYTES = 25 * 1024 * 1024;
 const MAX_VIDEO_BYTES = 50 * 1024 * 1024;
 
-async function saveGenerated(bytes: Buffer, extension: "png" | "mp4" | "wav", maxBytes: number, minimumBytes: number, formatIsValid: (data: Buffer) => boolean, sizeError: string, formatError: string) {
+async function saveGenerated(bytes: Buffer, extension: "png" | "jpg" | "mp4" | "wav", maxBytes: number, minimumBytes: number, formatIsValid: (data: Buffer) => boolean, sizeError: string, formatError: string) {
   if (bytes.length < minimumBytes || bytes.length > maxBytes) throw new Error(sizeError);
   if (!formatIsValid(bytes)) throw new Error(formatError);
   const id = randomUUID();
@@ -14,6 +14,10 @@ async function saveGenerated(bytes: Buffer, extension: "png" | "mp4" | "wav", ma
   await mkdir(root, { recursive: true });
   await writeFile(resolve(root, storageKey), bytes, { flag: "wx", mode: 0o600 });
   return { id, storageKey, byteSize: bytes.length, checksum: createHash("sha256").update(bytes).digest("hex") };
+}
+
+export async function saveJpeg(bytes: Buffer) {
+  return saveGenerated(bytes, "jpg", MAX_ARTIFACT_BYTES, 4, (data) => data.subarray(0, 3).toString("hex") === "ffd8ff", "Image output is empty or exceeds the 25 MB limit.", "Image conversion returned an invalid JPEG.");
 }
 
 export function artifactPath(storageKey: string): string {

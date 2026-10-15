@@ -3,7 +3,7 @@ import { RandomSeedFields } from "./RandomSeedFields";
 
 export type ImageModelParameters = {
   modelId: "z-image-turbo" | "qwen-image-edit-2511" | "instruct-pix2pix" | "sd15-inpainting" | "longcat-image-edit-turbo" | "flux2-klein-4b" | "sd15-base" | "sdxl-base-1.0" | "sd35-medium" | "sdxl-turbo" | "sana-sprint-06b";
-  resolution: "128x128" | "256x256" | "512x512" | "768x768" | "1024x1024" | "512x768" | "768x512";
+  resolution: "128x128" | "256x256" | "512x512" | "768x768" | "1024x1024" | "512x768" | "768x512" | "1024x1280" | "768x1360";
   seed: number;
   randomizeSeed: boolean;
   steps: number;
@@ -57,6 +57,8 @@ export const imageResolutionOptions = [
   { value: "1024x1024", label: "1024 × 1024" },
   { value: "512x768", label: "512 × 768 · portrait" },
   { value: "768x512", label: "768 × 512 · landscape" },
+  { value: "1024x1280", label: "1024 × 1280 · Instagram portrait 4:5" },
+  { value: "768x1360", label: "768 × 1360 · Instagram Reel 9:16" },
 ];
 
 export function ImageModelParametersFields({ value, onChange, showModelSelect = true }: {

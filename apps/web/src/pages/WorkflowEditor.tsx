@@ -20,6 +20,7 @@ export function WorkflowEditor({ workflowId, onClose, onNavigate }: { workflowId
   const [workflow, setWorkflow] = useState<Workflow | null>(null);
   const [contracts, setContracts] = useState<ModelIoContract[]>([]);
   const [types, setTypes] = useState<DataType[]>([]);
+  const [instagramAccounts, setInstagramAccounts] = useState<Array<{ id: string; username: string }>>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
@@ -42,13 +43,15 @@ export function WorkflowEditor({ workflowId, onClose, onNavigate }: { workflowId
   const selected: WorkflowNode | undefined = selectedGraphNode ? toWorkflowNode(selectedGraphNode, contracts) : undefined;
   useEffect(() => {
     let cancelled = false;
-    void Promise.all([apiFetch(`/api/workflows/${workflowId}`), apiFetch("/api/models/contracts")])
-      .then(async ([flowResponse, catalogResponse]) => {
-        if (!flowResponse.ok || !catalogResponse.ok) throw new Error("Could not load workflow and model definitions.");
+    void Promise.all([apiFetch(`/api/workflows/${workflowId}`), apiFetch("/api/models/contracts"), apiFetch("/api/instagram/account")])
+      .then(async ([flowResponse, catalogResponse, accountResponse]) => {
+        if (!flowResponse.ok || !catalogResponse.ok || !accountResponse.ok) throw new Error("Could not load workflow and model definitions.");
         const flow = await flowResponse.json() as { workflow: Workflow; definition: Definition };
         const catalog = await catalogResponse.json() as { models: ModelIoContract[]; dataTypes: DataType[] };
+        const accountBody = await accountResponse.json() as { account: { id: string; username: string } | null };
         if (cancelled) return;
         setWorkflow(flow.workflow); setContracts(catalog.models); setTypes(catalog.dataTypes);
+        setInstagramAccounts(accountBody.account ? [accountBody.account] : []);
         setGraph(toIonodesGraph(flow.definition, catalog.models, catalog.dataTypes, workflowId));
       }).catch((cause) => { if (!cancelled) setError(cause instanceof Error ? cause.message : "Could not open workflow."); })
       .finally(() => { if (!cancelled) setLoading(false); });
@@ -57,6 +60,7 @@ export function WorkflowEditor({ workflowId, onClose, onNavigate }: { workflowId
   const options = useMemo(() => [
     { group: "Inputs", items: types.filter((type) => ["text", "image", "audio"].includes(type.id)).map((type) => ({ value: `input:${type.id}`, label: `${type.label} input` })) },
     { group: "Processing", items: [{ value: "processing:text-overlay", label: "Text Overlay" }] },
+    { group: "Publishing", items: [{ value: "publishing:instagram-post", label: "Instagram Post" }, { value: "publishing:instagram-reel", label: "Instagram Reel" }] },
     { group: "Downloaded models", items: contracts.filter((model) => downloaded.modelIds.has(model.modelId)).map((model) => ({ value: `model:${model.modelId}`, label: model.name })) },
   ], [types, contracts, downloaded.modelIds]);
   function update(patch: Partial<WorkflowNodeData>) {
@@ -74,7 +78,7 @@ export function WorkflowEditor({ workflowId, onClose, onNavigate }: { workflowId
   }
   function addNode() {
     if (!choice) return;
-    const [kind, id] = choice.split(":") as ["input" | "model" | "processing", string];
+    const [kind, id] = choice.split(":") as ["input" | "model" | "processing" | "publishing", string];
     const model = contracts.find((item) => item.modelId === id);
     const dataType = types.find((item) => item.id === id);
     let parameters: Record<string, unknown> = {};
@@ -82,7 +86,8 @@ export function WorkflowEditor({ workflowId, onClose, onNavigate }: { workflowId
     else if (model?.modality === "audio") parameters = { ...defaultAudioModelParameters, modelId: "kokoro-82m" };
     else if (model) parameters = { ...defaultImageModelParameters, modelId: id, steps: imageModelDefaultSteps(id as ImageModelParameters["modelId"]), guidanceScale: id === "flux2-klein-4b" ? 1 : ["sana-sprint-06b", "sd35-medium"].includes(id) ? 4.5 : 7.5 };
     if (kind === "processing" && id === "text-overlay") parameters = { ...textOverlayDefaults };
-    const node: Definition["nodes"][number] = { id: createId("node"), kind, label: model?.name ?? (kind === "processing" ? "Text Overlay" : `${dataType?.label ?? id} input`), modelId: model?.modelId ?? null, dataTypeId: kind === "input" ? id : null, inputText: "", artifactId: null, parameters,
+    if (kind === "publishing") parameters = { operationId: id, accountId: instagramAccounts[0]?.id ?? "00000000-0000-4000-8000-000000000000", mode: "manual", shareToFeed: true };
+    const node: Definition["nodes"][number] = { id: createId("node"), kind, label: model?.name ?? (kind === "processing" ? "Text Overlay" : kind === "publishing" ? (id === "instagram-reel" ? "Instagram Reel" : "Instagram Post") : `${dataType?.label ?? id} input`), modelId: model?.modelId ?? null, dataTypeId: kind === "input" ? id : null, inputText: "", artifactId: null, parameters,
       position: { x: 90 + (graph.nodes.length % 3) * 280, y: 90 + Math.floor(graph.nodes.length / 3) * 190 } };
     setGraph((current) => addWorkflowNode(current, node, contracts, types)); setSelectedNodeId(node.id); setSelectedConnectionId(null); setDirty(true); setPickerOpen(false); setChoice(null);
   }
@@ -145,7 +150,7 @@ export function WorkflowEditor({ workflowId, onClose, onNavigate }: { workflowId
     {loading ? <Group justify="center" className="workflow-editor-loading"><Loader /><Text>Loading workflow…</Text></Group> : workflow && <div className="workflow-editor-body">
       <section className="workflow-editor-canvas" aria-label="Workflow canvas"><GraphEditor graph={graph} graphTitle={workflow?.name ?? "Workflow"} onChange={(next) => { setGraph(next); setDirty(true); setError(null); }} onSelectionChange={({ nodeIds, connectionIds }) => { setSelectedNodeId(nodeIds[0] ?? null); setSelectedConnectionId(connectionIds[0] ?? null); }} validateConnection={validateWorkflowConnection} showConnectionWarnings={false} showEmptyState={false} showPalette={false} showInspector={false} showStatusBar={false} className="hive-ionodes" theme={{ "--ionodes-bg": "var(--mantine-color-gray-0)" }} canvas={{ hideAttribution: true, backgroundColor: "#d6dde5", miniMapMaskColor: "rgba(124, 135, 148, 0.16)", miniMapNodeColor: (_node, invalid) => invalid ? "var(--mantine-color-hiveError-6)" : "var(--mantine-color-hiveSky-6)" }} /></section>
       <aside className="workflow-config-panel" aria-label="Node configuration"><div className="workflow-node-actions"><Button size="sm" variant="light" leftSection={<AddNodeIcon />} onClick={() => { void downloaded.refresh(); setPickerOpen(true); }}>Add node</Button><Button size="sm" variant="light" color="hiveSky" leftSection={<DuplicateIcon />} aria-label="Duplicate selected node" disabled={!selected || uploading} onClick={duplicateSelectedNode}>Duplicate</Button><Button size="sm" variant="light" color="hiveError" leftSection={<RemoveIcon />} className="workflow-node-actions-remove" disabled={(!selected && !selectedConnectionId) || uploading} onClick={() => { if (selected) setRemoveOpen(true); else if (selectedConnectionId) { setGraph((current) => removeConnection(current, selectedConnectionId)); setSelectedConnectionId(null); setDirty(true); } }}>Remove selected</Button></div>
-        <WorkflowNodeConfiguration selected={selected} types={types} downloadedModelIds={downloaded.modelIds} uploading={uploading} onUpdate={update} onUpload={(file) => void upload(file)} />
+        <WorkflowNodeConfiguration selected={selected} types={types} instagramAccounts={instagramAccounts} downloadedModelIds={downloaded.modelIds} uploading={uploading} onUpdate={update} onUpload={(file) => void upload(file)} />
       </aside></div>}
     <Modal opened={pickerOpen} onClose={() => setPickerOpen(false)} title="Add node" centered><Stack><Select label="Node" placeholder="Choose an input or downloaded model" data={options} value={choice} onChange={setChoice} searchable /><Text size="xs" c="dimmed">Only downloaded models are available here. Download additional models from Models.</Text>{downloaded.status === "unavailable" && <Alert color="hiveWarning">Could not check model downloads. Input nodes remain available.</Alert>}<Button onClick={addNode} disabled={!choice}>Add node</Button></Stack></Modal>
     <ConfirmActionModal opened={removeOpen} onClose={() => setRemoveOpen(false)} title="Remove node" confirmLabel="Remove node" onConfirm={() => { if (!selected) return; setGraph((current) => removeNode(current, selected.id)); setSelectedNodeId(null); setSelectedConnectionId(null); setDirty(true); setRemoveOpen(false); }}>

@@ -1,6 +1,6 @@
 # Hive
 
-Hive is a self-hosted application for building and running workflows with typed text, image, and audio inputs, downloadable AI models, and built-in processing operations such as Text Overlay. Run workflows on demand or schedule them as Jobs, then track run progress and preview generated media.
+Hive is a self-hosted application for building and running workflows with typed text, image, and audio inputs, downloadable AI models, and built-in processing operations such as Text Overlay. Publish generated Instagram posts and Reels automatically or review and edit captions first. Run workflows on demand or schedule them as Jobs, then track run progress and preview generated media.
 
 Built with React, TypeScript, Node.js, Express, PostgreSQL, Drizzle ORM, and Docker Compose.
 
@@ -81,13 +81,33 @@ For a deployed environment, register that environment's exact HTTPS callback URI
 
 The API exposes `GET /api/health`. The web page calls the API to show its database connection status.
 
+## Instagram publishing setup
+
+Instagram publishing requires a Meta developer app and one professional Instagram **Business** or **Creator** account. Hive uses Instagram Login (no Facebook Page is required) with the `instagram_business_basic` and `instagram_business_content_publish` permissions.
+
+1. Create a Meta developer app at [Meta for Developers](https://developers.facebook.com/) and add the Instagram API product/use case with Instagram Login (also labeled Business Login for Instagram in some dashboards).
+2. Add your own Instagram account as an app-role user/tester while the app is in development mode.
+3. Start an HTTPS tunnel to the API on port `3001` (for example, with Cloudflare Tunnel). In **Instagram Business Login settings**, register the exact callback URL `<your-public-https-url>/api/instagram/oauth/callback`; set that same URL as `INSTAGRAM_REDIRECT_URI`. The OAuth callback must be publicly reachable over HTTPS and match Meta's registered URL exactly, including the path. The webhook callback setting is separate and is not used for this login flow.
+4. Set `INSTAGRAM_APP_ID` and `INSTAGRAM_APP_SECRET` in `.env` from the Meta app dashboard. Keep both server-side; never use `VITE_` variables or commit these values.
+5. Generate a 32-byte base64 key for encrypted token storage:
+
+   ```powershell
+   node -e "console.log(require('crypto').randomBytes(32).toString('base64'))"
+   ```
+
+   Put the result in `INSTAGRAM_TOKEN_ENCRYPTION_KEY` and back it up securely. Existing saved tokens cannot be decrypted if this key changes.
+6. Set `INSTAGRAM_PUBLIC_API_URL` to the same public HTTPS base URL (without the callback path). Instagram must be able to fetch generated media from this address; a container-only address or `localhost` will not work. For local tests, the tunnel must route requests to the API and remain available while Instagram fetches media.
+7. Restart/rebuild Hive, open **Accounts**, and connect your professional account. Create an Instagram Post/Reel publishing node, select an account, and choose automatic publishing or manual review. With manual review, edit the caption in the run details before publishing, or discard the publication. Repeating Jobs wait for the current publication to be published or discarded before scheduling their next run.
+
+In development mode, only app-role users and eligible testers can authorize. Before allowing general users to connect, request Meta App Review/Advanced Access for the permissions and satisfy any current business verification requirements. Instagram API access and review requirements are managed by Meta and can change.
+
 For tracked schema changes, update `apps/api/src/schema.ts`, generate a migration with `npm run db:generate -w @hive/api`, then apply it with `npm run db:migrate -w @hive/api`.
 
-Workflows combine typed Text/Image/Audio inputs, downloaded model nodes, and built-in **Processing** operations. **Text Overlay** composites connected text onto a connected image with configurable font, weight, color, placement, alignment, margin, and line spacing. It runs locally without an AI model or model download. Processing is designed to accommodate other algorithmic nodes, such as cropping and logic operations. Duplicate selected nodes to reuse their settings and input data without copying connections, or duplicate a workflow to create a separate copy of its nodes and connections; run and Job history is not copied. Connect matching datatypes, save, then run; runs can start manually or through a Job.
+Workflows combine typed Text/Image/Audio inputs, downloaded model nodes, and built-in **Processing** operations. **Text Overlay** composites connected text onto a connected image with configurable font, weight, color, placement, alignment, margin, and line spacing. It runs locally without an AI model or model download. Processing is designed to accommodate other algorithmic nodes, such as cropping and logic operations. Duplicate selected nodes to reuse their settings and input data without copying connections, or duplicate a workflow to create a separate copy of its nodes and connections; run and Job history is not copied. Connect matching datatypes, save, then run; runs can start manually, through a Job, or continue to Instagram publishing.
 
 ## Schedule workflow jobs
 
-Sign in and open **Jobs** in the side navigation. Create a job by choosing a saved workflow, naming the job, and setting the first run time. A job can run once, repeat a chosen total number of times, or repeat indefinitely. Repeating jobs use intervals from one minute to 365 days, measured from when the previous run finishes.
+Sign in and open **Jobs** in the side navigation. Create a job by choosing a saved workflow, naming the job, and setting the first run time. A job can run once, repeat a chosen total number of times, or repeat indefinitely. Repeating jobs use intervals from one minute to 365 days, measured from when the previous run finishes. Workflows with a manual Instagram publication wait for that publication to be published or discarded before the next run is scheduled.
 
 Jobs queue only their current run. They do not create future run records in advance, and the next run is scheduled only after the previous run reaches a terminal state. This prevents overlapping runs from the same job. Pause a job to stop future queueing; an already queued or running run is allowed to finish. Removing a job cancels its queued run, lets an in-progress run finish, and preserves existing run history and generated media.
 

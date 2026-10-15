@@ -23,3 +23,19 @@ export const textOverlayContract: ModelIoContract = {
   outputs: [{ direction: "output", portKey: "image", dataTypeId: "image", dataTypeLabel: "Image", mediaType: "image/png", label: "Image", transport: null, minCount: 1, maxCount: 1, sortOrder: 0 }],
   inputGroups: [],
 };
+
+export function instagramPublishingContract(operationId: string): ModelIoContract | undefined {
+  const reel = operationId === "instagram-reel";
+  if (!reel && operationId !== "instagram-post") return undefined;
+  return {
+    modelId: operationId,
+    name: reel ? "Instagram Reel" : "Instagram Post",
+    modality: reel ? "video" : "image",
+    inputs: [
+      { direction: "input", portKey: reel ? "video" : "image", dataTypeId: reel ? "video" : "image", dataTypeLabel: reel ? "Video" : "Image", mediaType: reel ? "video/mp4" : "image/*", label: reel ? "Video" : "Image", transport: "connection", minCount: 1, maxCount: 1, sortOrder: 0 },
+      { direction: "input", portKey: "caption", dataTypeId: "text", dataTypeLabel: "Text", mediaType: "text/plain", label: "Caption", transport: "connection", minCount: 1, maxCount: 1, sortOrder: 1 },
+    ],
+    outputs: [],
+    inputGroups: [],
+  };
+}

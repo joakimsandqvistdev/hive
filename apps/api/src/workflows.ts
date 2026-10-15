@@ -1,7 +1,7 @@
 import { and, count, eq, inArray, sql, asc, isNull } from "drizzle-orm";
 import { Router } from "express";
 import { db } from "./db.js";
-import { artifacts, runs, workflowEdges, workflowJobs, workflowNodes, workflows } from "./schema.js";
+import { artifacts, instagramAccounts, runs, workflowEdges, workflowJobs, workflowNodes, workflows } from "./schema.js";
 import { createWorkflowSchema, saveWorkflowSchema, validateWorkflowDefinition } from "./workflowDefinition.js";
 import { loadDataTypes, loadModelIoContracts } from "./modelContracts.js";
 import { createWorkflowRunInTransaction, definitionFor, workflowRunErrorMessage } from "./workflowRunService.js";
@@ -25,7 +25,7 @@ router.get("/", async (req, res, next) => {
     const counts = new Map<string, number>();
     for (const node of nodeRows) counts.set(node.workflowId, (counts.get(node.workflowId) ?? 0) + 1);
     const activeRunRows = items.length ? await db.select({ workflowId: runs.workflowId, runCount: sql<number>`count(*)` }).from(runs)
-      .where(and(inArray(runs.workflowId, items.map((workflow) => workflow.id)), inArray(runs.status, ["queued", "running", "cancel_requested"])))
+        .where(and(inArray(runs.workflowId, items.map((workflow) => workflow.id)), inArray(runs.status, ["queued", "running", "awaiting_publish", "cancel_requested"])))
       .groupBy(runs.workflowId) : [];
     const activeRuns = new Map<string, number>();
     for (const run of activeRunRows) if (run.workflowId) activeRuns.set(run.workflowId, run.runCount);
@@ -98,6 +98,11 @@ router.put("/:id", async (req, res, next) => {
       const uploads = ids.length ? await tx.select().from(artifacts).where(and(eq(artifacts.userId, ownerId), inArray(artifacts.id, ids))) : [];
       const validation = validateWorkflowDefinition(parsed.data.definition, contracts, uploads, types.map((type) => type.id));
       if (!validation.ok) return validation.error;
+      for (const node of validation.nodes.filter((item) => item.kind === "publishing")) {
+        const [account] = await tx.select({ id: instagramAccounts.id }).from(instagramAccounts)
+          .where(and(eq(instagramAccounts.id, String(node.parameters.accountId)), eq(instagramAccounts.userId, ownerId))).limit(1);
+        if (!account) return "instagram_account_not_connected";
+      }
       const [updated] = await tx.update(workflows).set({ name: parsed.data.name, description: parsed.data.description, updatedAt: new Date() }).where(eq(workflows.id, existing.id)).returning();
       await tx.delete(workflowEdges).where(eq(workflowEdges.workflowId, existing.id));
       await tx.delete(workflowNodes).where(eq(workflowNodes.workflowId, existing.id));

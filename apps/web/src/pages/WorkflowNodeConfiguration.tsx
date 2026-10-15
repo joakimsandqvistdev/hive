@@ -7,9 +7,10 @@ import { formatModelPortCardinality } from "../modelIoTypes";
 import type { DataType, WorkflowNode, WorkflowNodeData } from "./workflowTypes";
 import { textOverlayDefaults } from "./processingNodeTypes";
 
-export function WorkflowNodeConfiguration({ selected, types, downloadedModelIds, uploading, onUpdate, onUpload }: {
+export function WorkflowNodeConfiguration({ selected, types, instagramAccounts, downloadedModelIds, uploading, onUpdate, onUpload }: {
   selected?: WorkflowNode;
   types: DataType[];
+  instagramAccounts: Array<{ id: string; username: string }>;
   downloadedModelIds: Set<string>;
   uploading: boolean;
   onUpdate: (patch: Partial<WorkflowNodeData>) => void;
@@ -17,7 +18,7 @@ export function WorkflowNodeConfiguration({ selected, types, downloadedModelIds,
 }) {
   if (!selected) return <Text size="sm" c="dimmed">Select a node to edit its data or model settings. Connect outputs to matching model input datatypes.</Text>;
   return <Stack>
-    <Title order={2} size="h4">{selected.data.kind === "input" ? "Input node" : selected.data.kind === "processing" ? "Processing node" : "Model node"}</Title>
+    <Title order={2} size="h4">{selected.data.kind === "input" ? "Input node" : selected.data.kind === "processing" ? "Processing node" : selected.data.kind === "publishing" ? "Publishing node" : "Model node"}</Title>
     <TextInput label="Node name" value={selected.data.label} maxLength={100} onChange={(event) => onUpdate({ label: event.currentTarget.value })} />
     {selected.data.kind === "input" ? <>
       <Text size="sm">Datatype: {types.find((type) => type.id === selected.data.dataTypeId)?.label}</Text>
@@ -43,6 +44,14 @@ export function WorkflowNodeConfiguration({ selected, types, downloadedModelIds,
       <NumberInput label="Margin" description="Percent of the shorter image dimension" min={0} max={30} value={Number(selected.data.parameters.margin ?? textOverlayDefaults.margin)} onChange={(margin) => typeof margin === "number" && onUpdate({ parameters: { ...selected.data.parameters, margin } })} />
       <NumberInput label="Line spacing" min={1} max={2} step={0.1} decimalScale={1} value={Number(selected.data.parameters.lineSpacing ?? textOverlayDefaults.lineSpacing)} onChange={(lineSpacing) => typeof lineSpacing === "number" && onUpdate({ parameters: { ...selected.data.parameters, lineSpacing } })} />
       {selected.data.inputPorts.map((port) => <Text key={port.portKey} size="sm">{port.label}: {port.dataTypeLabel}</Text>)}
+    </> : selected.data.kind === "publishing" ? <>
+      <Text fw={600}>{selected.data.parameters.operationId === "instagram-reel" ? "Instagram Reel" : "Instagram Post"}</Text>
+      <Text size="sm" c="dimmed">Connect generated media and a caption. Publishing runs after generation.</Text>
+      <Select label="Instagram account" placeholder="Connect an account in Accounts" data={instagramAccounts.map((account) => ({ value: account.id, label: `@${account.username}` }))} value={String(selected.data.parameters.accountId ?? "")} onChange={(accountId) => accountId && onUpdate({ parameters: { ...selected.data.parameters, accountId } })} />
+      <Select label="After generation" data={[{ value: "manual", label: "Review and publish manually" }, { value: "automatic", label: "Publish automatically" }]} value={String(selected.data.parameters.mode ?? "manual")} onChange={(mode) => mode && onUpdate({ parameters: { ...selected.data.parameters, mode } })} />
+      {selected.data.parameters.operationId === "instagram-reel" && <Select label="Also share to feed" data={[{ value: "true", label: "Yes" }, { value: "false", label: "No" }]} value={String(selected.data.parameters.shareToFeed !== false)} onChange={(value) => value && onUpdate({ parameters: { ...selected.data.parameters, shareToFeed: value === "true" } })} />}
+      {instagramAccounts.length === 0 && <Alert color="hiveWarning">Connect a professional Instagram account from Accounts before saving this node.</Alert>}
+      {selected.data.inputPorts.map((port) => <Text key={port.portKey} size="sm">{port.label}: {port.dataTypeLabel} · required</Text>)}
     </> : <>
       <Text fw={600}>{selected.data.contract?.name ?? selected.data.modelId}</Text>
       {!downloadedModelIds.has(selected.data.modelId ?? "") && <Alert color="hiveWarning">This model is not downloaded. Download it from Models before running.</Alert>}
