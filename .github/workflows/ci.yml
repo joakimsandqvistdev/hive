@@ -29,8 +29,8 @@ jobs:
       - name: Check local launcher
         run: npm run test:local
 
-      - name: Check API TypeScript
-        run: npm run typecheck -w @hive/api
+      - name: Check TypeScript
+        run: npm run typecheck
 
-      - name: Build API
-        run: npm run build -w @hive/api
+      - name: Build application
+        run: npm run build

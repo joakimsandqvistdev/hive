@@ -487,3 +487,11 @@
 - Darkened the workflow canvas zoom/fit SVG icons by setting their inherited `color` to gray-9 (including hover state); React Flow's SVG paths use `fill: currentColor`.
 - Moved workflow validation and operation errors into a compact inline alert beside Back in the editor header; added responsive width constraints so long messages remain readable without covering the canvas.
 - Temporarily limited Hive CI to launcher tests and API typecheck/build because CI cannot fetch the private ionodes submodule. Web typecheck/build should be restored when Hive switches to the published ionodes npm package.
+
+## 2026-10-15 — Install ionodes from npm
+
+- Replaced Hive's local `packages/ionodes` workspace/submodule dependency with the public `ionodes@0.1.1` package and updated the lockfile. Removed submodule-specific Docker copy and local-startup checks.
+- Restored CI's full typecheck and production build now that ionodes is fetched from npm; no GitHub submodule access is needed.
+- Removed the standalone React Flow license card from the licenses page. Kept its full MIT notice in `apps/web/public/THIRD-PARTY-NOTICES.txt` and linked it from the page.
+- Launcher tests (8/8), full API + web typecheck, web tests (9/9), web Vite production build, and `git diff --check` passed. API integration tests could not connect to PostgreSQL; the full root build hit a Windows `EPERM` while writing API `dist` output. Web production bundle built successfully into a separate verification directory.
+- The ionodes gitlink is deinitialized and `.gitmodules` is removed. Git does not include the gitlink deletion in the unstaged diff; when ready to stage the Hive changes, record its removal with `git rm --cached packages/ionodes`.
