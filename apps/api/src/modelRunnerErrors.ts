@@ -40,9 +40,7 @@ export async function modelRunnerRejection(response: { status: number; json: () 
     try {
       const body = await response.json() as { detail?: { code?: unknown } };
       if (body.detail?.code === "out_of_memory") {
-        return modality === "image"
-          ? "Image runner ran out of GPU or system memory. Qwen-Image-Edit-2511 may exceed this host's capacity even with CPU offload; use a host with more memory or fewer/smaller reference images."
-          : `${runner} ran out of GPU or system memory. Try a smaller model or use a machine with more memory.`;
+        return `${runner} ran out of GPU or system memory. Try fewer inference steps or use a machine with more memory.`;
       }
       if (body.detail?.code === "generation_failed") {
         return modality === "image"
