@@ -211,6 +211,20 @@
       "when": 1792105874677,
       "tag": "0029_unique_black_queen",
       "breakpoints": true
+    },
+    {
+      "idx": 30,
+      "version": "7",
+      "when": 1792146129970,
+      "tag": "0030_previous_overlord",
+      "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1792147693082,
+      "tag": "0031_gifted_beast",
+      "breakpoints": true
     }
   ]
 }

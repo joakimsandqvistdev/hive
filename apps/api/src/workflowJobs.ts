@@ -37,9 +37,10 @@ router.post("/", async (req, res, next) => {
   const owner = ownerId(res);
   try {
     const result = await db.transaction(async (tx) => {
-      const [workflow] = await tx.select({ id: workflows.id }).from(workflows)
-        .where(and(eq(workflows.id, parsed.data.workflowId), eq(workflows.userId, owner), isNull(workflows.archivedAt))).limit(1);
+      const [workflow] = await tx.select({ id: workflows.id, needsAttention: workflows.needsAttention, isCustomNode: workflows.isCustomNode }).from(workflows)
+        .where(and(eq(workflows.id, parsed.data.workflowId), eq(workflows.userId, owner), eq(workflows.isCustomNode, false), isNull(workflows.archivedAt))).limit(1);
       if (!workflow) return null;
+      if (workflow.needsAttention) return "workflow_needs_attention";
       const [job] = await tx.insert(workflowJobs).values({
         userId: owner, workflowId: workflow.id, name: parsed.data.name, status: "active",
         firstRunAt: new Date(parsed.data.firstRunAt), nextRunAt: new Date(parsed.data.firstRunAt),
@@ -48,6 +49,7 @@ router.post("/", async (req, res, next) => {
       return job;
     });
     if (!result) { res.status(404).json({ error: "workflow_not_found" }); return; }
+    if (result === "workflow_needs_attention") { res.status(409).json({ error: result }); return; }
     res.status(201).json({ job: result });
   } catch (error) { next(error); }
 });

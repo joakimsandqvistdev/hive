@@ -1,0 +1,1 @@
+ALTER TABLE "workflows" ADD COLUMN "interface_selection" jsonb;

@@ -106,6 +106,9 @@ export const workflows = pgTable("workflows", {
   userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   name: text("name").notNull(),
   description: text("description").notNull().default(""),
+  isCustomNode: boolean("is_custom_node").notNull().default(false),
+  interfaceSelection: jsonb("interface_selection").$type<{ inputs: Array<{ nodeId: string; portKey: string; label?: string }>; outputs: Array<{ nodeId: string; portKey: string; label?: string }> } | null>(),
+  needsAttention: boolean("needs_attention").notNull().default(false),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   archivedAt: timestamp("archived_at", { withTimezone: true }),
@@ -152,7 +155,7 @@ export const workflowNodes = pgTable("workflow_nodes", {
   positionY: real("position_y").notNull().default(0),
 }, (table): PgTableExtraConfigValue[] => [
   primaryKey({ columns: [table.workflowId, table.nodeId], name: "workflow_nodes_pk" }),
-  check("workflow_nodes_kind_check", sql`kind in ('input', 'model', 'processing', 'publishing')`),
+  check("workflow_nodes_kind_check", sql`kind in ('input', 'model', 'processing', 'publishing', 'custom')`),
   foreignKey({ columns: [table.workflowId, table.userId], foreignColumns: [workflows.id, workflows.userId], name: "workflow_nodes_workflow_owner_fk" }).onDelete("cascade"),
   foreignKey({ columns: [table.artifactId, table.userId], foreignColumns: [artifacts.id, artifacts.userId], name: "workflow_nodes_artifact_owner_fk" }).onDelete("restrict"),
 ]);

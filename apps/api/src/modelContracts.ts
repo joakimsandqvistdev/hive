@@ -19,7 +19,7 @@ export type ModelInputGroup = { key: string; label: string; minCount: number; ma
 export type ModelIoContract = {
   modelId: string;
   name: string;
-  modality: "image" | "video" | "audio" | "text";
+  modality: "image" | "video" | "audio" | "text" | "custom";
   inputs: ModelIoPort[];
   outputs: ModelIoPort[];
   inputGroups: ModelInputGroup[];
