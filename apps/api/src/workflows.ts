@@ -1,8 +1,9 @@
 import { and, count, eq, inArray, sql, asc, isNull } from "drizzle-orm";
+import { randomUUID } from "node:crypto";
 import { Router } from "express";
 import { db } from "./db.js";
 import { artifacts, instagramAccounts, runs, workflowEdges, workflowJobs, workflowNodes, workflows } from "./schema.js";
-import { createWorkflowSchema, saveWorkflowSchema, validateWorkflowDefinition } from "./workflowDefinition.js";
+import { createWorkflowSchema, exportWorkflowSelectionSchema, saveWorkflowSchema, validateWorkflowDefinition } from "./workflowDefinition.js";
 import { loadDataTypes, loadModelIoContracts } from "./modelContracts.js";
 import { createWorkflowRunInTransaction, definitionFor, workflowRunErrorMessage } from "./workflowRunService.js";
 import { parsePagination, totalPages } from "./pagination.js";
@@ -68,6 +69,52 @@ router.post("/:id/duplicate", async (req, res, next) => {
     });
     if (!duplicate) { res.status(404).json({ error: "workflow_not_found" }); return; }
     res.status(201).json({ workflow: duplicate });
+  } catch (error) { next(error); }
+});
+
+router.post("/:id/export-selection", async (req, res, next) => {
+  if (req.get("origin") !== (process.env.WEB_ORIGIN ?? "http://localhost:5173")) { res.status(403).json({ error: "invalid_origin" }); return; }
+  const parsed = exportWorkflowSelectionSchema.safeParse(req.body);
+  if (!parsed.success) { res.status(400).json({ error: "invalid_workflow_selection", details: parsed.error.flatten() }); return; }
+  const ownerId = userId(res);
+  try {
+    const result = await db.transaction(async (tx) => {
+      const [source] = await tx.select().from(workflows).where(and(eq(workflows.id, req.params.id), eq(workflows.userId, ownerId), isNull(workflows.archivedAt))).limit(1).for("share");
+      if (!source) return null;
+      const selectedNodes = parsed.data.definition.nodes;
+      const selectedEdges = parsed.data.definition.edges;
+      const artifactIds = selectedNodes.flatMap((node) => node.artifactId ? [node.artifactId] : []);
+      const libraryArtifacts = artifactIds.length ? await tx.select({ id: artifacts.id }).from(artifacts).where(and(eq(artifacts.userId, ownerId), eq(artifacts.savedToLibrary, true), inArray(artifacts.id, artifactIds))) : [];
+      const libraryArtifactIds = new Set(libraryArtifacts.map((artifact) => artifact.id));
+      const [copy] = await tx.insert(workflows).values({ userId: ownerId, name: parsed.data.name, description: parsed.data.description }).returning();
+      const nodeIds = new Map(selectedNodes.map((node) => [node.id, randomUUID()]));
+      await tx.insert(workflowNodes).values(selectedNodes.map((node) => ({
+        workflowId: copy!.id,
+        userId: ownerId,
+        nodeId: nodeIds.get(node.id)!,
+        kind: node.kind,
+        label: node.label,
+        modelId: node.modelId ?? null,
+        dataTypeId: node.dataTypeId ?? null,
+        inputText: node.inputText,
+        artifactId: node.artifactId && libraryArtifactIds.has(node.artifactId) ? node.artifactId : null,
+        parameters: node.parameters ?? {},
+        positionX: node.position.x,
+        positionY: node.position.y,
+      })));
+      if (selectedEdges.length) await tx.insert(workflowEdges).values(selectedEdges.map((edge) => ({
+        workflowId: copy!.id,
+        userId: ownerId,
+        edgeId: randomUUID(),
+        sourceNodeId: nodeIds.get(edge.source)!,
+        sourceHandle: edge.sourceHandle ?? null,
+        targetNodeId: nodeIds.get(edge.target)!,
+        targetHandle: edge.targetHandle ?? null,
+      })));
+      return { kind: "created" as const, workflow: { ...copy!, nodeCount: selectedNodes.length, connectionCount: selectedEdges.length }, clearedMediaCount: selectedNodes.filter((node) => node.artifactId && !libraryArtifactIds.has(node.artifactId)).length };
+    });
+    if (!result) { res.status(404).json({ error: "workflow_not_found" }); return; }
+    res.status(201).json({ workflow: result.workflow, clearedMediaCount: result.clearedMediaCount });
   } catch (error) { next(error); }
 });
 

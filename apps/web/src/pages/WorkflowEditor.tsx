@@ -37,10 +37,17 @@ export function WorkflowEditor({ workflowId, onClose, onNavigate }: { workflowId
   const [importDefinition, setImportDefinition] = useState<Definition | null>(null);
   const [importLoading, setImportLoading] = useState(false);
   const [importError, setImportError] = useState<string | null>(null);
+  const [exportOpen, setExportOpen] = useState(false);
+  const [exportName, setExportName] = useState("");
+  const [exportDescription, setExportDescription] = useState("");
+  const [exportError, setExportError] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
+  const [exportedWorkflow, setExportedWorkflow] = useState<Workflow | null>(null);
   const [removeOpen, setRemoveOpen] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [graph, setGraph] = useState<GraphDocument>(() => toIonodesGraph({ nodes: [], edges: [] }, [], [], workflowId));
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
   const [selectedConnectionId, setSelectedConnectionId] = useState<string | null>(null);
   const downloaded = useDownloadedModels();
   const createdUploads = useRef(new Set<string>());
@@ -88,7 +95,7 @@ export function WorkflowEditor({ workflowId, onClose, onNavigate }: { workflowId
     if (kind === "publishing") parameters = { operationId: id, accountId: instagramAccounts[0]?.id ?? "00000000-0000-4000-8000-000000000000", mode: "manual", shareToFeed: true };
     const node: Definition["nodes"][number] = { id: createId("node"), kind, label: model?.name ?? (kind === "processing" ? "Text Overlay" : kind === "publishing" ? (id === "instagram-reel" ? "Instagram Reel" : "Instagram Post") : `${dataType?.label ?? id} input`), modelId: model?.modelId ?? null, dataTypeId: kind === "input" ? id : null, inputText: "", artifactId: null, parameters,
       position: { x: 90 + (graph.nodes.length % 3) * 280, y: 90 + Math.floor(graph.nodes.length / 3) * 190 } };
-    setGraph((current) => addWorkflowNode(current, node, contracts, types)); setSelectedNodeId(node.id); setSelectedConnectionId(null); setDirty(true); setPickerOpen(false); setChoice(null);
+    setGraph((current) => addWorkflowNode(current, node, contracts, types)); setSelectedNodeId(node.id); setSelectedNodeIds([node.id]); setSelectedConnectionId(null); setDirty(true); setPickerOpen(false); setChoice(null);
   }
   function updateSelectedNode(patch: Partial<WorkflowNodeData>) {
     if (!selected) return;
@@ -134,7 +141,7 @@ export function WorkflowEditor({ workflowId, onClose, onNavigate }: { workflowId
       position: { x: Math.min(source.position.x + 48, 999_900), y: Math.min(source.position.y + 48, 999_900) },
     };
     const next = addWorkflowNode(graph, nodeDefinition, contracts, types);
-    setGraph(next); setSelectedNodeId(nodeId); setSelectedConnectionId(null); setDirty(true); setError(null);
+    setGraph(next); setSelectedNodeId(nodeId); setSelectedNodeIds([nodeId]); setSelectedConnectionId(null); setDirty(true); setError(null);
   }
   async function openImport() {
     setImportOpen(true); setImportError(null); setImportLoading(true);
@@ -197,12 +204,42 @@ export function WorkflowEditor({ workflowId, onClose, onNavigate }: { workflowId
     };
     const importedGraph = toIonodesGraph(copiedDefinition, contracts, types, workflowId);
     setGraph((current) => ({ ...current, nodes: [...current.nodes, ...importedGraph.nodes], connections: [...current.connections, ...importedGraph.connections] }));
-    setSelectedNodeId(copiedDefinition.nodes.at(-1)?.id ?? null); setSelectedConnectionId(null); setDirty(true); setError(null);
+    setSelectedNodeId(copiedDefinition.nodes.at(-1)?.id ?? null); setSelectedNodeIds(copiedDefinition.nodes.at(-1) ? [copiedDefinition.nodes.at(-1)!.id] : []); setSelectedConnectionId(null); setDirty(true); setError(null);
     setImportOpen(false); setImportWorkflowId(null); setImportDefinition(null);
   }
   const clearedMediaCount = (importDefinition?.nodes ?? []).filter((node) => node.artifactId && !mediaItems.some((item) => item.id === node.artifactId && item.savedToLibrary)).length;
+  function openExportSelection() {
+    if (!workflow || selectedNodeIds.length === 0) return;
+    setExportName(`${workflow.name} selection`.slice(0, 100));
+    setExportDescription(`Selected nodes exported from ${workflow.name}.`.slice(0, 1000));
+    setExportError(null);
+    setExportedWorkflow(null);
+    setExportOpen(true);
+  }
+  async function exportSelection() {
+    if (!workflow || selectedNodeIds.length === 0) return;
+    setExporting(true); setExportError(null);
+    try {
+      const definition = toWorkflowDefinition(graph);
+      const selectedIds = new Set(selectedNodeIds);
+      const selectedDefinition: Definition = {
+        nodes: definition.nodes.filter((node) => selectedIds.has(node.id)),
+        edges: definition.edges.filter((edge) => selectedIds.has(edge.source) && selectedIds.has(edge.target)),
+      };
+      const response = await apiFetch(`/api/workflows/${workflowId}/export-selection`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name: exportName, description: exportDescription, definition: selectedDefinition }),
+      });
+      const body = await response.json().catch(() => ({})) as { workflow?: Workflow; message?: string };
+      if (!response.ok || !body.workflow) throw new Error(body.message ?? "Could not create a workflow from this selection.");
+      setExportedWorkflow(body.workflow);
+    } catch (cause) {
+      setExportError(cause instanceof Error ? cause.message : "Could not create a workflow from this selection.");
+    } finally { setExporting(false); }
+  }
   function requestRemoveNode(graphNode: GraphDocument["nodes"][number]) {
-    setSelectedNodeId(graphNode.id); setSelectedConnectionId(null); setRemoveOpen(true);
+    setSelectedNodeId(graphNode.id); setSelectedNodeIds([graphNode.id]); setSelectedConnectionId(null); setRemoveOpen(true);
   }
   async function upload(file: File | null, target: WorkflowNode | undefined = selected) {
     if (!file || !target) return;
@@ -257,7 +294,7 @@ export function WorkflowEditor({ workflowId, onClose, onNavigate }: { workflowId
     finally { setRunning(false); }
   }
   return <div className="workflow-editor-page">
-    <header className="workflow-editor-header"><Group justify="space-between" className="workflow-editor-header-row"><Group className="workflow-header-leading" gap="sm"><Button variant="subtle" onClick={() => { if (!dirty || window.confirm("Discard unsaved workflow changes?")) onClose(); }}>Back</Button>{error && <Alert className="workflow-header-error" color="hiveError" variant="light" radius="sm" p="xs" role="alert">{error}</Alert>}</Group><Group wrap="wrap"><Button size="sm" variant="light" leftSection={<AddNodeIcon />} onClick={() => { void downloaded.refresh(); setPickerOpen(true); }}>Add node</Button><Button size="sm" variant="light" onClick={() => void openImport()}>Import nodes</Button><Button size="sm" variant="light" color="hiveError" leftSection={<RemoveIcon />} aria-label="Remove selected connection" disabled={!selectedConnectionId || uploading} onClick={() => { if (!selectedConnectionId) return; setGraph((current) => removeConnection(current, selectedConnectionId)); setSelectedConnectionId(null); setDirty(true); }}>Remove connection</Button><Button variant="subtle" onClick={() => setDetailsOpen(true)}>Edit details</Button><Button variant="light" onClick={() => void run()} loading={running} disabled={dirty || !graph.nodes.length || loading || saving || uploading}>Run workflow</Button><Button onClick={() => void save()} loading={saving} disabled={!dirty || uploading}>Save workflow</Button></Group></Group></header>
+    <header className="workflow-editor-header"><Group justify="space-between" className="workflow-editor-header-row"><Group className="workflow-header-leading" gap="sm"><Button variant="subtle" onClick={() => { if (!dirty || window.confirm("Discard unsaved workflow changes?")) onClose(); }}>Back</Button>{error && <Alert className="workflow-header-error" color="hiveError" variant="light" radius="sm" p="xs" role="alert">{error}</Alert>}</Group><Group wrap="wrap"><Button size="sm" variant="light" leftSection={<AddNodeIcon />} onClick={() => { void downloaded.refresh(); setPickerOpen(true); }}>Add node</Button><Button size="sm" variant="light" onClick={() => void openImport()}>Import nodes</Button><Button size="sm" variant="light" onClick={openExportSelection} disabled={!selectedNodeIds.length || exporting}>Export selected</Button><Button size="sm" variant="light" color="hiveError" leftSection={<RemoveIcon />} aria-label="Remove selected connection" disabled={!selectedConnectionId || uploading} onClick={() => { if (!selectedConnectionId) return; setGraph((current) => removeConnection(current, selectedConnectionId)); setSelectedConnectionId(null); setDirty(true); }}>Remove connection</Button><Button variant="subtle" onClick={() => setDetailsOpen(true)}>Edit details</Button><Button variant="light" onClick={() => void run()} loading={running} disabled={dirty || !graph.nodes.length || loading || saving || uploading}>Run workflow</Button><Button onClick={() => void save()} loading={saving} disabled={!dirty || uploading}>Save workflow</Button></Group></Group></header>
     {loading ? <Group justify="center" className="workflow-editor-loading"><Loader /><Text>Loading workflow…</Text></Group> : workflow && <div className="workflow-editor-body">
       <section className="workflow-editor-canvas" aria-label="Workflow canvas">
         <GraphEditor
@@ -265,7 +302,7 @@ export function WorkflowEditor({ workflowId, onClose, onNavigate }: { workflowId
           graphTitle={workflow?.name ?? "Workflow"}
           selectedNodeId={selectedNodeId}
           onChange={(next) => { setGraph(next); setDirty(true); setError(null); }}
-          onSelectionChange={({ nodeIds, connectionIds }) => { setSelectedNodeId(nodeIds[0] ?? null); setSelectedConnectionId(connectionIds[0] ?? null); }}
+          onSelectionChange={({ nodeIds, connectionIds }) => { setSelectedNodeIds(nodeIds); setSelectedNodeId(nodeIds[0] ?? null); setSelectedConnectionId(connectionIds[0] ?? null); }}
           validateConnection={validateWorkflowConnection}
           showConnectionWarnings={false}
           showEmptyState={false}
@@ -301,9 +338,24 @@ export function WorkflowEditor({ workflowId, onClose, onNavigate }: { workflowId
       </div>}
     <Modal opened={pickerOpen} onClose={() => setPickerOpen(false)} title="Add node" centered><Stack><Select label="Node" placeholder="Choose an input or downloaded model" data={options} value={choice} onChange={setChoice} searchable /><Text size="xs" c="dimmed">Only downloaded models are available here. Download additional models from Models.</Text>{downloaded.status === "unavailable" && <Alert color="hiveWarning">Could not check model downloads. Input nodes remain available.</Alert>}<Button onClick={addNode} disabled={!choice}>Add node</Button></Stack></Modal>
     <Modal opened={importOpen} onClose={() => setImportOpen(false)} title="Import a workflow" centered size="lg"><Stack>{importError && <Alert color="hiveError" title="Could not import workflow">{importError}</Alert>}{importLoading && <Group><Loader size="sm" /><Text size="sm">Loading workflows…</Text></Group>}<Select label="Workflow to import" placeholder="Choose a workflow" data={importWorkflows.map((item) => ({ value: item.id, label: item.name }))} value={importWorkflowId} onChange={(value) => void selectImportWorkflow(value)} searchable disabled={importLoading} />{importDefinition && <Text size="sm">This will import {importDefinition.nodes.length} {importDefinition.nodes.length === 1 ? "node" : "nodes"} and {importDefinition.edges.length} {importDefinition.edges.length === 1 ? "connection" : "connections"}.</Text>}<Text size="sm" c="dimmed">The complete workflow is copied with new node and connection IDs. Its layout and connections are preserved, while it remains independent of the source workflow.</Text>{clearedMediaCount > 0 && <Alert color="hiveWarning">{clearedMediaCount} node {clearedMediaCount === 1 ? "uses" : "use"} workflow-only media from the source. Those file selections will be cleared; choose or upload media for this workflow after importing. Saved Media Library files remain linked.</Alert>}<Group justify="flex-end"><Button variant="default" onClick={() => setImportOpen(false)}>Cancel</Button><Button onClick={importWorkflow} disabled={!importDefinition?.nodes.length || importLoading || graph.nodes.length + (importDefinition?.nodes.length ?? 0) > 100 || graph.connections.length + (importDefinition?.edges.length ?? 0) > 300}>Import workflow</Button></Group></Stack></Modal>
-    <ConfirmActionModal opened={removeOpen} onClose={() => setRemoveOpen(false)} title="Remove node" confirmLabel="Remove node" onConfirm={() => { if (!selected) return; setGraph((current) => removeNode(current, selected.id)); setSelectedNodeId(null); setSelectedConnectionId(null); setDirty(true); setRemoveOpen(false); }}>
+      <ConfirmActionModal opened={removeOpen} onClose={() => setRemoveOpen(false)} title="Remove node" confirmLabel="Remove node" onConfirm={() => { if (!selected) return; setGraph((current) => removeNode(current, selected.id)); setSelectedNodeId(null); setSelectedNodeIds([]); setSelectedConnectionId(null); setDirty(true); setRemoveOpen(false); }}>
       <Text>Remove {selected?.data.label} and its connections?</Text>
     </ConfirmActionModal>
+    <Modal opened={exportOpen} onClose={() => { if (!exporting) setExportOpen(false); }} title="Export selected nodes" centered>
+      <Stack gap="md">
+        {exportedWorkflow ? <>
+          <Alert color="hiveSuccess" title="Workflow created">“{exportedWorkflow.name}” was created with {exportedWorkflow.nodeCount} {exportedWorkflow.nodeCount === 1 ? "node" : "nodes"} and {exportedWorkflow.connectionCount ?? 0} {exportedWorkflow.connectionCount === 1 ? "connection" : "connections"}.</Alert>
+          <Group justify="flex-end"><Button variant="default" onClick={() => setExportOpen(false)}>Stay here</Button><Button onClick={() => { window.location.hash = `workflows/${exportedWorkflow.id}`; }}>Open workflow</Button></Group>
+        </> : <>
+          {exportError && <Alert color="hiveError" title="Could not export selection">{exportError}</Alert>}
+          <Text size="sm">Create a separate workflow from {selectedNodeIds.length} selected {selectedNodeIds.length === 1 ? "node" : "nodes"} and the connections between them.</Text>
+          <TextInput label="Workflow name" value={exportName} maxLength={100} onChange={(event) => setExportName(event.currentTarget.value)} required />
+          <Textarea label="Description" value={exportDescription} maxLength={1000} onChange={(event) => setExportDescription(event.currentTarget.value)} minRows={2} autosize />
+          <Text size="xs" c="dimmed">Only connections whose two nodes are selected are included. Media uploaded only for the original workflow must be selected again; saved Media Library files are retained.</Text>
+          <Group justify="flex-end"><Button variant="default" onClick={() => setExportOpen(false)} disabled={exporting}>Cancel</Button><Button onClick={() => void exportSelection()} loading={exporting} disabled={!exportName.trim()}>Create workflow</Button></Group>
+        </>}
+      </Stack>
+    </Modal>
     <Modal opened={detailsOpen} onClose={() => setDetailsOpen(false)} title="Workflow details" centered>{workflow && <Stack><TextInput label="Name" value={workflow.name} maxLength={100} onChange={(event) => { setWorkflow({ ...workflow, name: event.currentTarget.value }); setDirty(true); }} /><Textarea label="Description" value={workflow.description} maxLength={1000} onChange={(event) => { setWorkflow({ ...workflow, description: event.currentTarget.value }); setDirty(true); }} /><Button onClick={() => setDetailsOpen(false)}>Done</Button></Stack>}</Modal>
   </div>;
 }

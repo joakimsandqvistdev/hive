@@ -66,6 +66,8 @@ export const workflowDefinitionSchema = z.object({ nodes: z.array(nodeSchema).ma
 
 const metadataSchema = z.object({ name: z.string().trim().min(1).max(100), description: z.string().trim().max(1000).default("") });
 export const createWorkflowSchema = metadataSchema;
+export const exportWorkflowSelectionSchema = metadataSchema.extend({ definition: workflowDefinitionSchema }).strict()
+  .refine((value) => value.definition.nodes.length > 0, { path: ["definition", "nodes"], message: "Select at least one node." });
 export const saveWorkflowSchema = metadataSchema.extend({ definition: workflowDefinitionSchema });
 export const startRunSchema = z.object({});
 
