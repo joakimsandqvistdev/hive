@@ -7,6 +7,7 @@ import { deriveCustomNodeInterface, hasOutdatedCustomNodeReferences, isCustomNod
 import { definitionFor } from "./workflowRunService.js";
 import { artifacts, instagramAccounts, workflowEdges, workflowNodes, workflows } from "./schema.js";
 import { instagramPublishingContract } from "./processingNodes.js";
+import { parsePagination, totalPages } from "./pagination.js";
 
 const router = Router();
 const userId = (res: import("express").Response) => res.locals.userId as string;
@@ -103,16 +104,29 @@ router.get("/catalog", async (req, res, next) => {
   } catch (error) { next(error); }
 });
 
-router.get("/", async (_req, res, next) => {
+router.get("/", async (req, res, next) => {
   try {
     const ownerId = userId(res);
-    const rows = await db.select().from(workflows).where(and(eq(workflows.userId, ownerId), eq(workflows.isCustomNode, true), isNull(workflows.archivedAt))).orderBy(sql`${workflows.updatedAt} desc`);
-    const items = await Promise.all(rows.map(async (row) => {
-      const [nodeCount] = await db.select({ total: count() }).from(workflowNodes).where(eq(workflowNodes.workflowId, row.id));
-      const [directUsage] = await db.select({ total: sql<number>`count(distinct ${workflowNodes.workflowId})` }).from(workflowNodes).innerJoin(workflows, eq(workflows.id, workflowNodes.workflowId)).where(and(eq(workflows.userId, ownerId), sql`${workflowNodes.parameters}->>'customNodeId' = ${row.id}`));
-      return { ...row, nodeCount: nodeCount?.total ?? 0, directUsageCount: directUsage?.total ?? 0 };
-    }));
-    res.json({ items });
+    const { page, pageSize, offset } = parsePagination(req);
+    const conditions = and(eq(workflows.userId, ownerId), eq(workflows.isCustomNode, true), isNull(workflows.archivedAt));
+    const [items, totalRows] = await Promise.all([
+      db.select().from(workflows).where(conditions)
+        .orderBy(sql`${workflows.updatedAt} desc`, sql`${workflows.id} desc`).limit(pageSize).offset(offset),
+      db.select({ total: count() }).from(workflows).where(conditions),
+    ]);
+    const total = totalRows[0]?.total ?? 0;
+    const ids = items.map((item) => item.id);
+    const [nodeCounts, usageCounts] = await Promise.all([
+      ids.length ? db.select({ workflowId: workflowNodes.workflowId, total: count() }).from(workflowNodes)
+        .where(inArray(workflowNodes.workflowId, ids)).groupBy(workflowNodes.workflowId) : [],
+      ids.length ? db.select({ customNodeId: sql<string>`${workflowNodes.parameters}->>'customNodeId'`, total: sql<number>`count(distinct ${workflowNodes.workflowId})` })
+        .from(workflowNodes).innerJoin(workflows, eq(workflows.id, workflowNodes.workflowId))
+        .where(and(eq(workflows.userId, ownerId), inArray(sql`${workflowNodes.parameters}->>'customNodeId'`, ids)))
+        .groupBy(sql`${workflowNodes.parameters}->>'customNodeId'`) : [],
+    ]);
+    const nodesByWorkflow = new Map(nodeCounts.map((row) => [row.workflowId, row.total]));
+    const usesByCustomNode = new Map(usageCounts.map((row) => [row.customNodeId, row.total]));
+    res.json({ items: items.map((item) => ({ ...item, nodeCount: nodesByWorkflow.get(item.id) ?? 0, directUsageCount: usesByCustomNode.get(item.id) ?? 0 })), page, pageSize, total, totalPages: totalPages(total, pageSize) });
   } catch (error) { next(error); }
 });
 

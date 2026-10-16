@@ -51,10 +51,6 @@ body { color: var(--mantine-color-text); background: var(--mantine-color-gray-0)
 .welcome-signature { padding-top: 2px; }
 .signature-mark { color: var(--mantine-color-hiveSky-7); font-family: var(--mantine-font-family-monospace); font-size: var(--mantine-font-size-sm); }
 .home-note { display: flex; align-items: center; gap: 12px; padding: 13px 15px; border-color: var(--mantine-color-gray-2); background: var(--mantine-color-white); }
-.workspace-shortcuts { margin-top: 2px; }
-.workspace-shortcut { display: flex; flex-direction: column; gap: 5px; padding: 15px; border-color: var(--mantine-color-gray-2); background: var(--mantine-color-white); cursor: pointer; transition: border-color 140ms ease, background-color 140ms ease; }
-.workspace-shortcut:hover { border-color: var(--mantine-color-hiveSky-7); background: var(--mantine-color-hiveSky-0); }
-.workspace-shortcut:focus-visible { outline: 2px solid var(--mantine-color-hiveSky-7); outline-offset: 2px; }
 .workspace-page { width: min(100%, 1080px); margin: 0 auto; padding: 20px 0 40px; }
 .workspace-empty { padding: clamp(20px, 4vw, 32px); border-color: var(--mantine-color-gray-2); background: var(--mantine-color-white); }
 .license-card { padding: clamp(16px, 3vw, 24px); border-color: var(--mantine-color-gray-2); background: var(--mantine-color-white); }
@@ -99,7 +95,6 @@ body { color: var(--mantine-color-text); background: var(--mantine-color-gray-0)
 .note-mark { width: 7px; height: 7px; flex: 0 0 auto; border-radius: 50%; background: var(--mantine-color-hiveSky-7); }
 .login-button { box-shadow: none; }
 @media (max-width: 760px) { .home-page { padding-top: 14px; } .welcome-title { font-size: clamp(28px, 7vw, 36px); } }
-@media (max-width: 760px) { .workspace-shortcuts { flex-direction: column; } }
 @media (max-width: 520px) {
   .header-context { display: none; }
   .brand-section { padding-bottom: 10px; }
