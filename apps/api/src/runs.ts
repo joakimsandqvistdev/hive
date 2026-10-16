@@ -1,7 +1,7 @@
 import { and, count, desc, eq, inArray, or } from "drizzle-orm";
 import { Router } from "express";
 import { db, pool } from "./db.js";
-import { artifacts, instagramPublications, runDeletions, runNodes, runs } from "./schema.js";
+import { artifacts, instagramPublications, runDeletions, runNodes, runs, workflowTriggers } from "./schema.js";
 import { workflowExecutionOrder } from "./workflowExecutionOrder.js";
 import { parsePagination, totalPages } from "./pagination.js";
 import { canDeleteAwaitingPublishRun } from "./runDeletionPolicy.js";
@@ -199,15 +199,17 @@ router.get("/", async (req, res, next) => {
   const { page, pageSize, offset } = parsePagination(req);
   try {
     const [rows, totals] = await Promise.all([
-      db.select({ run: runs, deletion: runDeletions }).from(runs)
+      db.select({ run: runs, deletion: runDeletions, triggerName: workflowTriggers.name }).from(runs)
         .leftJoin(runDeletions, eq(runDeletions.runId, runs.id))
+        .leftJoin(workflowTriggers, eq(workflowTriggers.id, runs.triggerId))
         .where(eq(runs.userId, ownerId))
         .orderBy(desc(runs.createdAt), desc(runs.id)).limit(pageSize).offset(offset),
       db.select({ total: count() }).from(runs).where(eq(runs.userId, ownerId)),
     ]);
     const total = totals[0]?.total ?? 0;
-    const items = rows.map(({ run, deletion }) => ({
+    const items = rows.map(({ run, deletion, triggerName }) => ({
       ...run,
+      triggerName,
       deletion: deletion ? { attemptCount: deletion.attemptCount, lastError: deletion.lastError, processing: Boolean(deletion.claimedBy && deletion.leaseExpiresAt && deletion.leaseExpiresAt > new Date()) } : null,
     }));
     res.json({ items, page, pageSize, total, totalPages: totalPages(total, pageSize) });
@@ -240,7 +242,8 @@ router.get("/:id", async (req, res, next) => {
     const outputs = (await db.select().from(artifacts).where(and(outputScope, eq(artifacts.userId, run.userId))))
       .sort((left, right) => rank(left.runNodeId ?? "") - rank(right.runNodeId ?? ""));
     const [publication] = await db.select().from(instagramPublications).where(and(eq(instagramPublications.runId, run.id), eq(instagramPublications.userId, run.userId))).limit(1);
-    res.json({ run, nodes, artifacts: outputs, publication: publication ?? null });
+    const [trigger] = run.triggerId ? await db.select({ name: workflowTriggers.name }).from(workflowTriggers).where(and(eq(workflowTriggers.id, run.triggerId), eq(workflowTriggers.userId, run.userId))).limit(1) : [];
+    res.json({ run, triggerName: trigger?.name ?? null, nodes, artifacts: outputs, publication: publication ?? null });
   } catch (error) { next(error); }
 });
 

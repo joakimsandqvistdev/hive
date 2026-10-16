@@ -1,6 +1,6 @@
 # Hive
 
-Hive is a self-hosted application for building and running workflows with typed media and text inputs, downloadable AI models, and deterministic Processing operations. Overlay text on images or convert a still image into a 9:16 MP4 with optional soundtrack. Browse and upload images, audio, and MP4 video in the Media Library, reuse saved media in workflows, and preserve generated outputs beyond run deletion. Publish Instagram posts and Reels manually or automatically, schedule workflows as Jobs, and review run progress and media. Delete completed runs individually or in bulk by status; generated media is cleaned up with the run.
+Hive is a self-hosted application for building and running workflows with typed media and text inputs, downloadable AI models, and deterministic Processing operations. Overlay text on images or convert a still image into a 9:16 MP4 with optional soundtrack. Browse and upload images, audio, and MP4 video in the Media Library, reuse saved media in workflows, and preserve generated outputs beyond run deletion. Publish Instagram posts and Reels manually or automatically, schedule workflows as Jobs, or start them from signed webhook events. Review run progress and media, and delete completed runs individually or in bulk by status; generated media is cleaned up with the run.
 
 Built with React, TypeScript, Node.js, Express, PostgreSQL, Drizzle ORM, and Docker Compose.
 
@@ -117,11 +117,49 @@ Workflows combine typed Text/Image/Audio inputs, downloaded model nodes, and bui
 
 Open **Custom Nodes** from the side navigation to create a reusable workflow definition. Start with a blank editor, then import a complete workflow to copy its nodes, internal connections, and layout into the custom node. Duplicate a Custom Node to make an independent editable copy; references to nested Custom Nodes remain shared. Choose the custom node's public inputs and outputs with **Edit interface**, and give each exposed port a caller-facing name. Any port in its definition can be exposed, including ports that are already connected internally. Self-contained Custom Nodes with no exposed inputs can be run directly from the list or editor; nodes with inputs can be run within a workflow. Add it from the **Custom nodes** group in a workflow or another custom node; nested custom nodes cannot form cycles.
 
-Editing a custom node updates the implementation used by every workflow that references it. If its exposed interface changes or a referenced custom node is deleted, dependent workflows and custom nodes are marked **Needs attention** and cannot run until repaired. Update an outdated custom node from its configuration panel; Hive reconnects ports only when their names and datatypes match exactly, and leaves unmatched connections disconnected. Missing nodes remain as placeholders that can be removed. Deleting a custom node shows direct and transitive usage counts first; confirmed deletion flags dependent workflows and custom nodes.
+Editing a custom node updates the implementation used by every workflow that references it. If its exposed interface changes, dependent workflows and custom nodes are marked **Needs attention** and cannot run until repaired. Update an outdated custom node from its configuration panel; Hive reconnects ports only when their names and datatypes match exactly, and leaves unmatched connections disconnected. Deletion shows direct and transitive usage counts and is blocked until all references are removed.
 
 ## Schedule workflow jobs
 
 Sign in and open **Jobs** in the side navigation. Create a job by choosing a saved workflow, naming the job, and setting the first run time. A job can run once, repeat a chosen total number of times, or repeat indefinitely. Repeating jobs use intervals from one minute to 365 days, measured from when workflow generation finishes. Pending Instagram review or publication does not block the next occurrence.
+
+## Secure webhook triggers
+
+In **Workflows**, open the trigger icon on a workflow row to create and manage signed inbound triggers. Text inputs map automatically using their stable **Webhook identifier**; edit the identifier in the selected input's configuration. Dotted paths such as `brief.captionPrompt` are supported, and clearing an identifier keeps that input private from webhooks. The creator shows an example JSON payload based on the mappings. Text inputs inside nested Custom Nodes are included, with each Custom Node instance name added as a JSON path prefix. A mapped input may be left blank in the saved definition for webhook requests; ordinary manual runs still require configured text. If a request omits a value, sends `null`, or sends an empty string, Hive uses the text configured on that input node. When no Text inputs are mapped, send an empty body or `{}` to run with the workflow's configured values; signed headers are still required. Duplicate or overlapping paths are rejected. Edits that would change a live trigger's mapping are blocked until you delete the trigger and update the external sender. Media inputs can bind to assets already saved in your Media Library. A trigger queues a normal run through the existing worker. Sample validation does not run the workflow; **Start test run** creates a real run and may cause external side effects such as Instagram publishing.
+
+Webhook triggers require two server-side settings in `.env`:
+
+- `WEBHOOK_PUBLIC_API_URL`: the public HTTPS API origin that reaches Hive, without a path such as `/api` (for example, your Cloudflare Tunnel origin). Remote senders cannot reach `localhost`.
+- `WEBHOOK_SECRET_ENCRYPTION_KEY`: a separate 32-byte base64 key used to encrypt trigger secrets at rest. Generate it with `node -e "console.log(require('node:crypto').randomBytes(32).toString('base64'))"`. Keep it backed up and stable; changing it makes existing trigger secrets unreadable. Rotate the affected triggers after restoring a new key.
+
+After setting both values, restart/rebuild Hive. Copy the signing secret when a trigger is created or rotated; Hive displays it once. Send `Content-Type: application/json`, `X-Hive-Timestamp` (Unix seconds), `X-Hive-Event-Id` (a stable unique ID for one source event), and `X-Hive-Signature` (`v1=<lowercase hex>`). Compute the signature as HMAC-SHA256 over the UTF-8 text `v1\n<TIMESTAMP>\n<EVENT_ID>\n<SHA256_HEX_OF_EXACT_RAW_BODY>`. Do not reformat the JSON after computing its digest. Timestamps must be within five minutes. The same event ID and body return the original run; the same ID with a different body is rejected. Use a new event ID only to intentionally create another run.
+
+The v1 limits are 256 KiB per JSON body, nesting depth 10, and 10 requests per minute per trigger. Delivery metadata is retained for 30 days. Only Hive's documented HMAC format is supported; provider-native signature adapters are not included in v1.
+
+Example sender using Node.js:
+
+```js
+import { createHash, createHmac, randomUUID } from "node:crypto";
+
+const body = JSON.stringify({ caption: { text: "A new workflow input" } });
+const timestamp = String(Math.floor(Date.now() / 1000));
+const eventId = randomUUID();
+const bodyDigest = createHash("sha256").update(body).digest("hex");
+const signature = createHmac("sha256", signingSecret)
+  .update(`v1\n${timestamp}\n${eventId}\n${bodyDigest}`)
+  .digest("hex");
+
+const response = await fetch(triggerUrl, {
+  method: "POST",
+  headers: {
+    "content-type": "application/json",
+    "x-hive-timestamp": timestamp,
+    "x-hive-event-id": eventId,
+    "x-hive-signature": `v1=${signature}`,
+  },
+  body,
+});
+```
 
 Jobs queue only their current workflow run. They do not create future run records in advance, and the next run is scheduled after workflow execution finishes plus the configured interval. The previous run may still have an Instagram publication awaiting review or completion; its publication and media remain attached to that run while the job continues. Workflow executions from one job do not overlap. Pause a job to stop future queueing; an already queued or running run is allowed to finish. Removing a job cancels its queued run, lets an in-progress run finish, and preserves existing run history and generated media.
 

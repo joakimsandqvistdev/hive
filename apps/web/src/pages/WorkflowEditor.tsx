@@ -8,6 +8,7 @@ import { defaultVideoModelParameters, type VideoModelParameters } from "../compo
 import { defaultAudioModelParameters } from "../components/AudioModelParametersFields";
 import { defaultTextModelParameters } from "../components/TextModelParametersFields";
 import { WorkflowNodeConfiguration } from "./WorkflowNodeConfiguration";
+import { defaultWebhookIdentifier } from "./webhookInputMappings";
 import { ConfirmActionModal } from "../components/ConfirmActionModal";
 import { startCustomNodeRun, startWorkflowRun } from "./startWorkflowRun";
 import { useFlashMessages } from "../components/FlashMessages";
@@ -50,6 +51,7 @@ export function WorkflowEditor({ workflowId, onClose, onNavigate, customNodeEdit
   const [exporting, setExporting] = useState(false);
   const [exportedWorkflow, setExportedWorkflow] = useState<Workflow | null>(null);
   const [removeOpen, setRemoveOpen] = useState(false);
+  const [discardOpen, setDiscardOpen] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [interfaceOpen, setInterfaceOpen] = useState(false);
   const [interfaceSelection, setInterfaceSelection] = useState<InterfaceSelection>({ inputs: [], outputs: [] });
@@ -112,7 +114,9 @@ export function WorkflowEditor({ workflowId, onClose, onNavigate, customNodeEdit
     const model = contracts.find((item) => item.modelId === id);
     const dataType = types.find((item) => item.id === id);
     const custom = customNodes.find((item) => item.id === id);
+    const label = custom?.name ?? model?.name ?? (kind === "processing" ? "Text Overlay" : kind === "publishing" ? (id === "instagram-reel" ? "Instagram Reel" : "Instagram Post") : `${dataType?.label ?? id} input`);
     let parameters: Record<string, unknown> = {};
+    if (kind === "input" && id === "text") parameters = { webhookIdentifier: defaultWebhookIdentifier(label) };
     if (model?.modality === "text") parameters = { ...defaultTextModelParameters, modelId: id as "qwen3-0.6b" | "qwen3-1.7b" };
     else if (model?.modality === "video") parameters = { ...defaultVideoModelParameters(id as VideoModelParameters["modelId"]) };
     else if (model?.modality === "audio") parameters = { ...defaultAudioModelParameters, modelId: "kokoro-82m" };
@@ -121,7 +125,7 @@ export function WorkflowEditor({ workflowId, onClose, onNavigate, customNodeEdit
     if (kind === "processing" && id === "still-image-video") parameters = { ...stillImageVideoDefaults };
     if (kind === "publishing") parameters = { operationId: id, accountId: instagramAccounts[0]?.id ?? "00000000-0000-4000-8000-000000000000", mode: "manual", shareToFeed: true };
     if (kind === "custom" && custom) parameters = { customNodeId: id, customInterfaceSnapshot: custom.interface };
-    const node: Definition["nodes"][number] = { id: createId("node"), kind, label: custom?.name ?? model?.name ?? (kind === "processing" ? "Text Overlay" : kind === "publishing" ? (id === "instagram-reel" ? "Instagram Reel" : "Instagram Post") : `${dataType?.label ?? id} input`), modelId: model?.modelId ?? null, dataTypeId: kind === "input" ? id : null, inputText: "", artifactId: null, parameters,
+    const node: Definition["nodes"][number] = { id: createId("node"), kind, label, modelId: model?.modelId ?? null, dataTypeId: kind === "input" ? id : null, inputText: "", artifactId: null, parameters,
       position: { x: 90 + (graph.nodes.length % 3) * 280, y: 90 + Math.floor(graph.nodes.length / 3) * 190 } };
     setGraph((current) => addWorkflowNode(current, node, contracts, types)); setSelectedNodeId(node.id); setSelectedNodeIds([node.id]); setSelectedConnectionId(null); setDirty(true); setPickerOpen(false); setChoice(null);
   }
@@ -132,15 +136,17 @@ export function WorkflowEditor({ workflowId, onClose, onNavigate, customNodeEdit
       nodes: current.nodes.map((node) => {
         if (node.id !== selected.id) return node;
         const { label, inputText, artifactId, parameters } = patch;
+        const nextParameters = parameters ?? selected.data.parameters;
+        const preserveWebhookIdentifier = label !== undefined && selected.data.kind === "input" && selected.data.dataTypeId === "text" && selected.data.parameters.webhookIdentifier === undefined;
+        const savedParameters = preserveWebhookIdentifier ? { ...nextParameters, webhookIdentifier: defaultWebhookIdentifier(selected.data.label) } : nextParameters;
         const metadata = {
           ...(node.metadata ?? {}),
           ...(inputText !== undefined ? { inputText } : {}),
           ...(artifactId !== undefined ? { artifactId } : {}),
-          ...(parameters !== undefined ? { parameters } : {}),
+          ...(parameters !== undefined || preserveWebhookIdentifier ? { parameters: savedParameters } : {}),
         };
         const nextLabel = label ?? node.title;
         const nextArtifactId = artifactId !== undefined ? artifactId : selected.data.artifactId;
-        const nextParameters = parameters ?? selected.data.parameters;
         const description = selected.data.kind === "input"
           ? selected.data.dataTypeId === "text" ? "Text input" : nextArtifactId ? "Media selected" : "Input not set"
           : selected.data.kind === "processing"
@@ -348,7 +354,7 @@ export function WorkflowEditor({ workflowId, onClose, onNavigate, customNodeEdit
       };
       const response = await apiFetch(`${resourcePath}/${workflowId}`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: workflow.name, description: workflow.description, definition, ...(customNodeEditor ? { interfaceSelection: savedInterfaceSelection } : {}) }) });
       const body = await response.json();
-      if (!response.ok) throw new Error(body.error === "invalid_input_counts" ? "Connect all required model inputs and check connection limits." : body.error === "invalid_input" ? "Fill every text input and upload a file for each media input." : body.error === "custom_node_cycle" ? "Custom nodes cannot contain circular references." : body.error === "custom_node_missing" ? "A custom node is missing. Replace or remove it before saving." : "Could not save workflow. Check node settings and connections.");
+      if (!response.ok) throw new Error(body.message ?? (body.error === "invalid_input_counts" ? "Connect all required model inputs and check connection limits." : body.error === "invalid_input" ? "Fill every text input and upload a file for each media input." : body.error === "custom_node_cycle" ? "Custom nodes cannot contain circular references." : body.error === "custom_node_missing" ? "A custom node is missing. Replace or remove it before saving." : body.error === "webhook_identifier_conflict" ? "Resolve duplicate or overlapping Webhook identifiers before saving." : body.error === "webhook_contract_in_use" ? "Delete the existing webhook trigger before changing its input identifiers. Update the external sender, then create a new trigger." : "Could not save workflow. Check node settings and connections."));
       setWorkflow(customNodeEditor ? body.customNode : body.workflow);
       if (customNodeEditor) setCustomNodeRunEligible(savedInterfaceSelection.inputs.length === 0 && !body.customNode?.needsAttention);
       setDirty(false);
@@ -366,7 +372,7 @@ export function WorkflowEditor({ workflowId, onClose, onNavigate, customNodeEdit
     finally { setRunning(false); }
   }
   return <div className="workflow-editor-page">
-    <header className="workflow-editor-header"><Group justify="space-between" className="workflow-editor-header-row"><Group className="workflow-header-leading" gap="sm"><Button variant="subtle" onClick={() => { if (!dirty || window.confirm(`Discard unsaved ${customNodeEditor ? "custom node" : "workflow"} changes?`)) onClose(); }}>Back</Button>{workflow?.needsAttention && <Alert className="workflow-header-error" color="hiveWarning" variant="light" radius="sm" p="xs" role="status">This {customNodeEditor ? "custom node" : "workflow"} needs attention. Repair or replace outdated custom node references.</Alert>}{error && <Alert className="workflow-header-error" color="hiveError" variant="light" radius="sm" p="xs" role="alert">{error}</Alert>}</Group><Group wrap="wrap"><Button size="sm" variant="light" leftSection={<AddNodeIcon />} onClick={() => { void downloaded.refresh(); setPickerOpen(true); }}>Add node</Button><Button size="sm" variant="light" onClick={() => void openImport()}>{customNodeEditor ? "Import workflow" : "Import nodes"}</Button>{customNodeEditor && <Button size="sm" variant="light" onClick={() => setInterfaceOpen(true)}>Edit interface</Button>}{!customNodeEditor && <Button size="sm" variant="light" onClick={openExportSelection} disabled={!selectedNodeIds.length || exporting}>Export selected</Button>}<Button size="sm" variant="light" color="hiveError" leftSection={<RemoveIcon />} aria-label="Remove selected connection" disabled={!selectedConnectionId || uploading} onClick={() => { if (!selectedConnectionId) return; setGraph((current) => removeConnection(current, selectedConnectionId)); setSelectedConnectionId(null); setDirty(true); }}>Remove connection</Button><Button variant="subtle" onClick={() => setDetailsOpen(true)}>Edit details</Button>{(!customNodeEditor || customNodeRunEligible) && <Button variant="light" onClick={() => void run()} loading={running} disabled={dirty || !graph.nodes.length || loading || saving || uploading || workflow?.needsAttention || (customNodeEditor && !customNodeRunEligible)}>{customNodeEditor ? "Run custom node" : "Run workflow"}</Button>}<Button onClick={() => void save()} loading={saving} disabled={!dirty || uploading}>Save {customNodeEditor ? "custom node" : "workflow"}</Button></Group></Group></header>
+    <header className="workflow-editor-header"><Group justify="space-between" className="workflow-editor-header-row"><Group className="workflow-header-leading" gap="sm"><Button variant="subtle" onClick={() => { if (dirty) setDiscardOpen(true); else onClose(); }}>Back</Button>{workflow?.needsAttention && <Alert className="workflow-header-error" color="hiveWarning" variant="light" radius="sm" p="xs" role="status">This {customNodeEditor ? "custom node" : "workflow"} needs attention. Repair or replace outdated custom node references.</Alert>}{error && <Alert className="workflow-header-error" color="hiveError" variant="light" radius="sm" p="xs" role="alert">{error}</Alert>}</Group><Group wrap="wrap"><Button size="sm" variant="light" leftSection={<AddNodeIcon />} onClick={() => { void downloaded.refresh(); setPickerOpen(true); }}>Add node</Button><Button size="sm" variant="light" onClick={() => void openImport()}>{customNodeEditor ? "Import workflow" : "Import nodes"}</Button>{customNodeEditor && <Button size="sm" variant="light" onClick={() => setInterfaceOpen(true)}>Edit interface</Button>}{!customNodeEditor && <Button size="sm" variant="light" onClick={openExportSelection} disabled={!selectedNodeIds.length || exporting}>Export selected</Button>}<Button size="sm" variant="light" color="hiveError" leftSection={<RemoveIcon />} aria-label="Remove selected connection" disabled={!selectedConnectionId || uploading} onClick={() => { if (!selectedConnectionId) return; setGraph((current) => removeConnection(current, selectedConnectionId)); setSelectedConnectionId(null); setDirty(true); }}>Remove connection</Button><Button variant="subtle" onClick={() => setDetailsOpen(true)}>Edit details</Button>{(!customNodeEditor || customNodeRunEligible) && <Button variant="light" onClick={() => void run()} loading={running} disabled={dirty || !graph.nodes.length || loading || saving || uploading || workflow?.needsAttention || (customNodeEditor && !customNodeRunEligible)}>{customNodeEditor ? "Run custom node" : "Run workflow"}</Button>}<Button onClick={() => void save()} loading={saving} disabled={!dirty || uploading}>Save {customNodeEditor ? "custom node" : "workflow"}</Button></Group></Group></header>
     {loading ? <Group justify="center" className="workflow-editor-loading"><Loader /><Text>Loading workflow…</Text></Group> : workflow && <div className="workflow-editor-body">
       <section className="workflow-editor-canvas" aria-label="Workflow canvas">
         <GraphEditor
@@ -420,6 +426,9 @@ export function WorkflowEditor({ workflowId, onClose, onNavigate, customNodeEdit
     <Modal opened={importOpen} onClose={() => setImportOpen(false)} title="Import a workflow" centered size="lg"><Stack>{importError && <Alert color="hiveError" title="Could not import workflow">{importError}</Alert>}{importLoading && <Group><Loader size="sm" /><Text size="sm">Loading workflows…</Text></Group>}<Select label="Workflow to import" placeholder="Choose a workflow" data={importWorkflows.map((item) => ({ value: item.id, label: item.name }))} value={importWorkflowId} onChange={(value) => void selectImportWorkflow(value)} searchable disabled={importLoading} />{importDefinition && <Text size="sm">This will import {importDefinition.nodes.length} {importDefinition.nodes.length === 1 ? "node" : "nodes"} and {importDefinition.edges.length} {importDefinition.edges.length === 1 ? "connection" : "connections"}.</Text>}<Text size="sm" c="dimmed">The complete workflow is copied with new node and connection IDs. Its layout and connections are preserved, while it remains independent of the source workflow.</Text>{clearedMediaCount > 0 && <Alert color="hiveWarning">{clearedMediaCount} node {clearedMediaCount === 1 ? "uses" : "use"} workflow-only media from the source. Those file selections will be cleared; choose or upload media for this workflow after importing. Saved Media Library files remain linked.</Alert>}<Group justify="flex-end"><Button variant="default" onClick={() => setImportOpen(false)}>Cancel</Button><Button onClick={importWorkflow} disabled={!importDefinition?.nodes.length || importLoading || graph.nodes.length + (importDefinition?.nodes.length ?? 0) > 100 || graph.connections.length + (importDefinition?.edges.length ?? 0) > 300}>Import workflow</Button></Group></Stack></Modal>
       <ConfirmActionModal opened={removeOpen} onClose={() => setRemoveOpen(false)} title="Remove node" confirmLabel="Remove node" onConfirm={() => { if (!selected) return; setGraph((current) => removeNode(current, selected.id)); setSelectedNodeId(null); setSelectedNodeIds([]); setSelectedConnectionId(null); setDirty(true); setRemoveOpen(false); }}>
       <Text>Remove {selected?.data.label} and its connections?</Text>
+    </ConfirmActionModal>
+    <ConfirmActionModal opened={discardOpen} onClose={() => setDiscardOpen(false)} title={`Discard unsaved ${customNodeEditor ? "custom node" : "workflow"} changes?`} confirmLabel="Discard changes" color="hiveWarning" onConfirm={() => { setDiscardOpen(false); onClose(); }}>
+      <Text size="sm">Your unsaved edits to this {customNodeEditor ? "custom node" : "workflow"} will be lost.</Text>
     </ConfirmActionModal>
     <Modal opened={exportOpen} onClose={() => { if (!exporting) setExportOpen(false); }} title="Export selected nodes" centered>
       <Stack gap="md">

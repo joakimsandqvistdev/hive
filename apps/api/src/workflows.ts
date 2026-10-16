@@ -2,12 +2,13 @@ import { and, count, eq, inArray, sql, asc, isNull } from "drizzle-orm";
 import { randomUUID } from "node:crypto";
 import { Router } from "express";
 import { db } from "./db.js";
-import { artifacts, instagramAccounts, runs, workflowEdges, workflowJobs, workflowNodes, workflows } from "./schema.js";
+import { artifacts, instagramAccounts, runs, workflowEdges, workflowJobs, workflowNodes, workflowTriggers, workflows } from "./schema.js";
 import { createWorkflowSchema, exportWorkflowSelectionSchema, saveWorkflowSchema, validateWorkflowDefinition } from "./workflowDefinition.js";
 import { loadDataTypes, loadModelIoContracts } from "./modelContracts.js";
 import { createWorkflowRunInTransaction, definitionFor, workflowRunErrorMessage } from "./workflowRunService.js";
 import { parsePagination, totalPages } from "./pagination.js";
 import { hasOutdatedCustomNodeReferences, loadCustomNodeCatalog, snapshotCustomNodeReferences } from "./customNodeCatalog.js";
+import { collectWebhookTextInputs, webhookTextInputConflict, webhookTextInputContractChanged } from "./webhookInputMappings.js";
 
 const router = Router();
 function userId(res: import("express").Response) { return res.locals.userId as string; }
@@ -142,10 +143,18 @@ router.put("/:id", async (req, res, next) => {
     const result = await db.transaction(async (tx) => {
       const [existing] = await tx.select().from(workflows).where(and(eq(workflows.id, req.params.id), eq(workflows.userId, ownerId), eq(workflows.isCustomNode, false))).limit(1).for("update");
       if (!existing) return null;
+      const webhookInputs = collectWebhookTextInputs(parsed.data.definition, customCatalog);
+      const identifierConflict = webhookTextInputConflict(webhookInputs);
+      if (identifierConflict) return { error: "webhook_identifier_conflict", message: identifierConflict } as const;
+      const triggers = await tx.select({ inputMappings: workflowTriggers.inputMappings }).from(workflowTriggers)
+        .where(and(eq(workflowTriggers.workflowId, existing.id), eq(workflowTriggers.userId, ownerId), isNull(workflowTriggers.deletedAt)));
+      if (triggers.some((trigger) => webhookTextInputContractChanged(trigger.inputMappings, webhookInputs))) {
+        return { error: "webhook_contract_in_use" } as const;
+      }
       const definition = snapshotCustomNodeReferences(parsed.data.definition, customCatalog);
       const ids = definition.nodes.flatMap((node) => node.artifactId ? [node.artifactId] : []);
       const uploads = ids.length ? await tx.select().from(artifacts).where(and(eq(artifacts.userId, ownerId), inArray(artifacts.id, ids))) : [];
-      const validation = validateWorkflowDefinition(definition, contracts, uploads, types.map((type) => type.id), existing.id, customCatalog.map((item) => item.contract));
+      const validation = validateWorkflowDefinition(definition, contracts, uploads, types.map((type) => type.id), existing.id, customCatalog.map((item) => item.contract), false, false, true);
       if (!validation.ok) return validation.error;
       for (const node of validation.nodes.filter((item) => item.kind === "publishing")) {
         const [account] = await tx.select({ id: instagramAccounts.id }).from(instagramAccounts)
@@ -168,6 +177,11 @@ router.put("/:id", async (req, res, next) => {
     });
     if (!result) { res.status(404).json({ error: "workflow_not_found" }); return; }
     if (typeof result === "string") { res.status(400).json({ error: result }); return; }
+    if (result && "error" in result) {
+      const status = result.error === "webhook_contract_in_use" ? 409 : 400;
+      res.status(status).json(result);
+      return;
+    }
     res.json({ workflow: result });
   } catch (error) { next(error); }
 });

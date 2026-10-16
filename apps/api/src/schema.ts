@@ -117,6 +117,27 @@ export const workflows = pgTable("workflows", {
   uniqueIndex("workflows_id_user_unique").on(table.id, table.userId),
 ]);
 
+export const workflowTriggers = pgTable("workflow_triggers", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  publicId: text("public_id").notNull().unique(),
+  userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  workflowId: uuid("workflow_id").notNull(),
+  workflowName: text("workflow_name").notNull(),
+  name: text("name").notNull(),
+  encryptedSecret: text("encrypted_secret"),
+  inputMappings: jsonb("input_mappings").$type<Array<{ nodeId: string; source: "payload" | "library"; path?: string; artifactId?: string }>>().notNull().default(sql`'[]'::jsonb`),
+  enabled: boolean("enabled").notNull().default(true),
+  secretVersion: integer("secret_version").notNull().default(1),
+  requestWindowStartedAt: timestamp("request_window_started_at", { withTimezone: true }),
+  requestCount: integer("request_count").notNull().default(0),
+  deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table): PgTableExtraConfigValue[] => [
+  foreignKey({ columns: [table.workflowId, table.userId], foreignColumns: [workflows.id, workflows.userId], name: "workflow_triggers_workflow_owner_fk" }).onDelete("cascade"),
+  index("workflow_triggers_owner_idx").on(table.userId, table.createdAt),
+]);
+
 export const workflowJobs = pgTable("workflow_jobs", {
   id: uuid("id").defaultRandom().primaryKey(),
   userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
@@ -180,6 +201,7 @@ export const runs = pgTable("runs", {
   userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
   workflowId: uuid("workflow_id").references(() => workflows.id, { onDelete: "set null" }),
   jobId: uuid("job_id").references(() => workflowJobs.id, { onDelete: "set null" }),
+  triggerId: uuid("trigger_id").references(() => workflowTriggers.id, { onDelete: "set null" }),
   scheduledFor: timestamp("scheduled_for", { withTimezone: true }),
   status: text("status").$type<RunStatus>().notNull().default("queued"),
   inputJson: jsonb("input_json").$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
@@ -200,6 +222,22 @@ export const runs = pgTable("runs", {
   uniqueIndex("runs_job_scheduled_unique").on(table.jobId, table.scheduledFor).where(sql`${table.jobId} IS NOT NULL`),
   uniqueIndex("runs_one_active_job_run_unique").on(table.jobId).where(sql`${table.jobId} IS NOT NULL AND status IN ('queued', 'running', 'cancel_requested')`),
   check("runs_status_check", sql`${table.status} IN ('queued', 'running', 'awaiting_publish', 'succeeded', 'failed', 'cancel_requested', 'cancelled')`),
+]);
+
+export const webhookDeliveries = pgTable("webhook_deliveries", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  triggerId: uuid("trigger_id").notNull().references(() => workflowTriggers.id, { onDelete: "cascade" }),
+  userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  eventId: text("event_id").notNull(),
+  bodyDigest: text("body_digest").notNull(),
+  outcome: text("outcome").notNull(),
+  statusCode: integer("status_code").notNull(),
+  errorCode: text("error_code"),
+  runId: uuid("run_id").references(() => runs.id, { onDelete: "set null" }),
+  receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
+}, (table): PgTableExtraConfigValue[] => [
+  uniqueIndex("webhook_deliveries_trigger_event_unique").on(table.triggerId, table.eventId),
+  index("webhook_deliveries_trigger_received_idx").on(table.triggerId, table.receivedAt),
 ]);
 
 export const runNodes = pgTable("run_nodes", {

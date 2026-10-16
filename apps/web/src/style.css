@@ -284,6 +284,16 @@ body { color: var(--mantine-color-text); background: var(--mantine-color-gray-0)
 .run-inspector-output-table th { padding: 9px 10px; }
 .run-inspector-text-output { max-height: 300px; overflow: auto; border-color: var(--mantine-color-gray-2); background: var(--mantine-color-gray-0); }
 .run-inspector-text-output .mantine-Text-root:last-child { overflow-wrap: anywhere; }
+.webhook-credential-field { min-width: 0; display: grid; gap: 4px; }
+.webhook-credential-label { color: var(--mantine-color-dimmed); }
+.webhook-credential-row { min-width: 0; display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: stretch; gap: var(--mantine-spacing-xs); }
+.webhook-credential-value { min-width: 0; width: 100%; white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-all; }
+.webhook-issued-credentials { background: var(--mantine-color-gray-0); }
+.webhook-signing-guide { background: var(--mantine-color-hiveSky-0); border-color: var(--mantine-color-hiveSky-2); }
+.webhook-signature-code { white-space: pre-wrap; overflow-wrap: anywhere; }
+.webhook-trigger-endpoint-row { min-width: 0; }
+.webhook-trigger-endpoint { flex: 1; min-width: 0; white-space: pre-wrap; overflow-wrap: anywhere; word-break: break-all; }
+.webhook-payload-preview { overflow-wrap: anywhere; }
 @media (max-width: 900px) {
   .inventory-layout,
   .media-library-layout { grid-template-columns: minmax(0, 1fr); }
@@ -300,6 +310,8 @@ body { color: var(--mantine-color-text); background: var(--mantine-color-gray-0)
   .media-filter,
   .media-save-filter { flex: 1 1 130px; width: auto; }
   .media-date-cell { display: none; }
+  .webhook-credential-row { grid-template-columns: minmax(0, 1fr); }
+  .webhook-credential-row > .mantine-Button-root { justify-self: end; }
 }
 @media (max-width: 700px) {
   .run-details-modal { max-height: calc(100dvh - 12px); }

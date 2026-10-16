@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Alert, Avatar, Button, Card, Group, Image, Loader, Select, Stack, Text, Title } from "@mantine/core";
 import { apiFetch, apiUrl } from "../apiClient";
 import { useFlashMessages } from "../components/FlashMessages";
+import { ConfirmActionModal } from "../components/ConfirmActionModal";
 
 type Account = { id: string; username: string; profileImageArtifactId: string | null };
 type Asset = { id: string; displayName: string; mediaType: string; createdAt: string; runId: string | null };
@@ -13,6 +14,8 @@ export function AccountsPage() {
   const [selectedAsset, setSelectedAsset] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [disconnecting, setDisconnecting] = useState(false);
+  const [disconnectOpen, setDisconnectOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -39,10 +42,13 @@ export function AccountsPage() {
     finally { setSaving(false); }
   };
   const disconnect = async () => {
-    if (!window.confirm("Disconnect this Instagram account? Publishing nodes using it will need a different connected account.")) return;
-    const response = await apiFetch("/api/instagram/account", { method: "DELETE" });
-    if (!response.ok) { showFlash({ tone: "error", title: "Could not disconnect Instagram", message: response.status === 409 ? "Resolve or delete this account’s publication history from Runs before disconnecting it." : "Could not disconnect Instagram." }); return; }
-    setAccount(null); showFlash({ tone: "success", title: "Instagram disconnected", message: "The account was disconnected from Hive." });
+    setDisconnecting(true);
+    try {
+      const response = await apiFetch("/api/instagram/account", { method: "DELETE" });
+      if (!response.ok) throw new Error(response.status === 409 ? "Resolve or delete this account’s publication history from Runs before disconnecting it." : "Could not disconnect Instagram.");
+      setAccount(null); setDisconnectOpen(false); showFlash({ tone: "success", title: "Instagram disconnected", message: "The account was disconnected from Hive." });
+    } catch (cause) { showFlash({ tone: "error", title: "Could not disconnect Instagram", message: cause instanceof Error ? cause.message : "Could not disconnect Instagram." }); }
+    finally { setDisconnecting(false); }
   };
   const downloadSquareCrop = async () => {
     if (!selectedAsset) return;
@@ -67,12 +73,15 @@ export function AccountsPage() {
     <Text c="dimmed">Connect a professional Instagram account for workflow publishing and prepare a profile picture from your Hive assets.</Text>
     {error && <Alert color="hiveError" title="Instagram settings unavailable">{error}</Alert>}
     {!account ? <Card withBorder><Stack><Text fw={600}>Instagram</Text><Text size="sm" c="dimmed">Connect one Business or Creator account to publish posts and Reels from workflows.</Text><Button w="fit-content" onClick={() => void connect()}>Connect Instagram</Button></Stack></Card> : <>
-      <Card withBorder><Group justify="space-between"><Group><Avatar radius="xl">@</Avatar><div><Text fw={600}>@{account.username}</Text><Text size="sm" c="dimmed">Connected professional account</Text></div></Group><Button color="hiveError" variant="light" onClick={() => void disconnect()}>Disconnect</Button></Group></Card>
+      <Card withBorder><Group justify="space-between"><Group><Avatar radius="xl">@</Avatar><div><Text fw={600}>@{account.username}</Text><Text size="sm" c="dimmed">Connected professional account</Text></div></Group><Button color="hiveError" variant="light" onClick={() => setDisconnectOpen(true)}>Disconnect</Button></Group></Card>
       <Card withBorder><Stack><div><Text fw={600}>Profile picture</Text><Text size="sm" c="dimmed">Choose an image already in your Hive assets. Hive prepares a centered square crop for download; upload it to Instagram manually.</Text></div>
         {selectedAsset && <Image src={apiUrl(`/api/artifacts/${selectedAsset}/preview`)} alt="Profile picture crop preview" w={128} h={128} fit="cover" radius={100} />}
         <Select label="Image asset" placeholder="Choose a generated or uploaded image" searchable clearable data={assets.map((asset) => ({ value: asset.id, label: `${asset.displayName}${asset.runId ? " · generated" : " · uploaded"}` }))} value={selectedAsset} onChange={setSelectedAsset} />
         <Group><Button variant="light" disabled={!selectedAsset} onClick={() => void downloadSquareCrop()}>Download square crop</Button><Button variant="light" onClick={() => void save()} loading={saving}>Save draft selection</Button></Group>
       </Stack></Card>
     </>}
+    <ConfirmActionModal opened={disconnectOpen} onClose={() => { if (!disconnecting) setDisconnectOpen(false); }} title="Disconnect Instagram account?" confirmLabel="Disconnect account" loading={disconnecting} onConfirm={() => void disconnect()}>
+      <Text size="sm">Disconnect @{account?.username}? Publishing nodes that use this account will need a different connected account.</Text>
+    </ConfirmActionModal>
   </Stack>;
 }

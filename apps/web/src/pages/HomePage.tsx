@@ -5,11 +5,12 @@ import { AppIcon } from "../components/AppIcon";
 
 const capabilities = [
   { icon: "workflows", title: "Visual workflows", description: "Connect inputs, AI models, and styled media processing in one flow." },
-  { icon: "customNodes", title: "Reusable Custom Nodes", description: "Reuse, duplicate, and run self-contained logic." },
+  { icon: "customNodes", title: "Reusable Custom Nodes", description: "Reuse shared workflow logic; deletion is blocked while referenced." },
   { icon: "models", title: "Model library", description: "Download supported models and use them in your workflows." },
   { icon: "media", title: "Media Library", description: "Upload, organize, and reuse assets across workflows." },
   { icon: "publish", title: "Instagram publishing", description: "Publish posts and Reels automatically or after review." },
   { icon: "jobs", title: "Jobs and Runs", description: "Schedule repeat runs, track progress, receive completion alerts, and manage outputs." },
+  { icon: "webhook", title: "Secure webhook triggers", description: "Start workflows from signed events with stable, nested text input mappings." },
 ] as const;
 
 export function HomePage({ onNavigate }: { onNavigate: (view: AppView) => void }) {
@@ -21,7 +22,7 @@ export function HomePage({ onNavigate }: { onNavigate: (view: AppView) => void }
         <Badge className="home-eyebrow" variant="light" color="hiveSky" leftSection={<span className="home-eyebrow-mark" aria-hidden="true" />}>Creative workflow automation</Badge>
         <Stack gap="sm">
           <Title order={1} className="home-title">Turn ideas into repeatable workflows.</Title>
-          <Text className="home-description">Bring AI models, media processing, and publishing together in one visual workspace. Build reusable flows, schedule runs, and keep every output easy to find.</Text>
+          <Text className="home-description">Bring AI models, media processing, and publishing together in one visual workspace. Build reusable flows, schedule runs, trigger workflows from secure webhooks, and keep every output easy to find.</Text>
         </Stack>
         <Group gap="sm" className="home-actions">
           {user

@@ -17,7 +17,7 @@ Workflow authors need to reuse graph logic across workflows and other reusable d
 - Run a Custom Node directly for testing only when it has no exposed inputs. Nodes with public inputs are run by adding them to a workflow and connecting the required values.
 - Permit nested Custom Nodes but reject cycles. Before queueing a workflow run, recursively expand its Custom Nodes into a single validated graph and persist that graph in the run snapshot. A queued run therefore keeps the behavior it had when it was created.
 - When a Custom Node interface changes, mark its direct and transitive dependent workflows and Custom Nodes **Needs attention**. Recompute this state after definitions are repaired so it clears automatically when the dependency chain is valid again.
-- When deleting a Custom Node, show direct and transitive usage counts, then flag dependent definitions and retain missing-node placeholders, which can be removed from the workflow editor. Updating a stale reference reconnects ports only by exact, case-sensitive name and datatype; unmatched edges are left disconnected.
+- When deleting a Custom Node, show direct and transitive usage counts and block deletion while any workflow or Custom Node references it. Remove or replace those references first. This prevents breaking active reusable definitions and avoids creating missing-node placeholders.
 
 ## Consequences
 

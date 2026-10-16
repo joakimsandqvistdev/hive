@@ -5,12 +5,26 @@ import { loadDataTypes, loadModelIoContracts, type ModelIoContract } from "./mod
 import { customNodeMetadataSchema, saveCustomNodeSchema, validateWorkflowDefinition } from "./workflowDefinition.js";
 import { deriveCustomNodeInterface, hasOutdatedCustomNodeReferences, isCustomNodeInterfaceSelectionValid, loadCustomNodeCatalog, snapshotCustomNodeReferences, type CustomNodeCatalogItem } from "./customNodeCatalog.js";
 import { createWorkflowRun, definitionFor, workflowRunErrorMessage } from "./workflowRunService.js";
-import { artifacts, instagramAccounts, workflowEdges, workflowNodes, workflows } from "./schema.js";
+import { artifacts, instagramAccounts, workflowEdges, workflowNodes, workflowTriggers, workflows } from "./schema.js";
 import { instagramPublishingContract } from "./processingNodes.js";
 import { parsePagination, totalPages } from "./pagination.js";
+import { collectWebhookTextInputs, webhookTextInputConflict, webhookTextInputContractChanged } from "./webhookInputMappings.js";
 
 const router = Router();
 const userId = (res: import("express").Response) => res.locals.userId as string;
+
+function definitionReferencesCustom(definition: { nodes: Array<Record<string, any>> }, targetId: string, catalog: CustomNodeCatalogItem[], visited = new Set<string>()): boolean {
+  for (const node of definition.nodes) {
+    if (node.kind !== "custom") continue;
+    const childId = String(node.parameters?.customNodeId ?? "");
+    if (childId === targetId) return true;
+    if (visited.has(childId)) continue;
+    visited.add(childId);
+    const child = catalog.find((item) => item.id === childId);
+    if (child && definitionReferencesCustom(child.definition, targetId, catalog, visited)) return true;
+  }
+  return false;
+}
 
 async function deletionImpact(id: string, ownerId: string, catalog: CustomNodeCatalogItem[]) {
   const rows = await db.select({ workflowId: workflowNodes.workflowId, isCustomNode: workflows.isCustomNode }).from(workflowNodes).innerJoin(workflows, eq(workflows.id, workflowNodes.workflowId)).where(and(eq(workflows.userId, ownerId), sql`${workflowNodes.parameters}->>'customNodeId' = ${id}`));
@@ -239,13 +253,53 @@ router.put("/:id", async (req, res, next) => {
     }
     const childContracts = new Map(catalog.map((item) => [item.id, item.contract]));
     if (interfaceSelection && !isCustomNodeInterfaceSelectionValid(parsed.data.definition, models, childContracts, interfaceSelection)) { res.status(400).json({ error: "invalid_custom_node_interface" }); return; }
+    const candidateCatalog = catalog.map((item) => item.id === id
+      ? { ...item, definition: parsed.data.definition as unknown as CustomNodeCatalogItem["definition"] }
+      : item);
+    const affectedCustomNodes = catalog.filter((item) => item.id === id || definitionReferencesCustom(item.definition, id, catalog));
+    for (const item of affectedCustomNodes) {
+      const definition = item.id === id ? parsed.data.definition : item.definition as unknown as typeof parsed.data.definition;
+      const conflict = webhookTextInputConflict(collectWebhookTextInputs(definition, candidateCatalog));
+          if (conflict) { res.status(400).json({ error: "webhook_identifier_conflict", message: conflict, customNodeName: item.name }); return; }
+    }
+    const ordinaryWorkflows = await db.select({ id: workflows.id }).from(workflows)
+      .where(and(eq(workflows.userId, ownerId), eq(workflows.isCustomNode, false)));
+    const ordinaryIds = ordinaryWorkflows.map((item) => item.id);
+    if (ordinaryIds.length) {
+      const [workflowNodeRows, workflowEdgeRows] = await Promise.all([
+        db.select().from(workflowNodes).where(inArray(workflowNodes.workflowId, ordinaryIds)),
+        db.select().from(workflowEdges).where(inArray(workflowEdges.workflowId, ordinaryIds)),
+      ]);
+      const dependentIds = ordinaryWorkflows.filter((item) => {
+        const definition = definitionFor(workflowNodeRows.filter((node) => node.workflowId === item.id), workflowEdgeRows.filter((edge) => edge.workflowId === item.id));
+        return definitionReferencesCustom(definition, id, catalog);
+      }).map((item) => item.id);
+      if (dependentIds.length) {
+        const triggerRows = await db.select({ workflowId: workflowTriggers.workflowId, inputMappings: workflowTriggers.inputMappings })
+          .from(workflowTriggers).where(and(eq(workflowTriggers.userId, ownerId), inArray(workflowTriggers.workflowId, dependentIds), isNull(workflowTriggers.deletedAt)));
+        const triggersByWorkflow = new Map<string, typeof triggerRows>();
+        for (const trigger of triggerRows) {
+          if (!trigger.workflowId) continue;
+          triggersByWorkflow.set(trigger.workflowId, [...(triggersByWorkflow.get(trigger.workflowId) ?? []), trigger]);
+        }
+        for (const workflowId of dependentIds) {
+          const definition = definitionFor(workflowNodeRows.filter((node) => node.workflowId === workflowId), workflowEdgeRows.filter((edge) => edge.workflowId === workflowId));
+          const nextInputs = collectWebhookTextInputs(definition, candidateCatalog);
+          const conflict = webhookTextInputConflict(nextInputs);
+          if (conflict) { res.status(400).json({ error: "webhook_identifier_conflict", message: conflict }); return; }
+          if ((triggersByWorkflow.get(workflowId) ?? []).some((trigger) => webhookTextInputContractChanged(trigger.inputMappings, nextInputs))) {
+            res.status(409).json({ error: "webhook_contract_in_use", workflowId, message: "Delete the existing webhook trigger before changing its input identifiers. Update the external sender, then create a new trigger." }); return;
+          }
+        }
+      }
+    }
     const result = await db.transaction(async (tx) => {
       const [existing] = await tx.select().from(workflows).where(and(eq(workflows.id, id), eq(workflows.userId, ownerId), eq(workflows.isCustomNode, true))).limit(1).for("update");
       if (!existing) return null;
       const definition = snapshotCustomNodeReferences(parsed.data.definition, catalog);
       const ids = definition.nodes.flatMap((node) => node.artifactId ? [node.artifactId] : []);
       const uploads = ids.length ? await tx.select().from(artifacts).where(and(eq(artifacts.userId, ownerId), inArray(artifacts.id, ids))) : [];
-      const validation = validateWorkflowDefinition(definition, models, uploads, dataTypes.map((type) => type.id), existing.id, catalog.map((item) => item.contract), true);
+      const validation = validateWorkflowDefinition(definition, models, uploads, dataTypes.map((type) => type.id), existing.id, catalog.map((item) => item.contract), true, false, true);
       if (!validation.ok) return validation.error;
       for (const node of validation.nodes.filter((item) => item.kind === "publishing")) {
         const [account] = await tx.select({ id: instagramAccounts.id }).from(instagramAccounts).where(and(eq(instagramAccounts.id, String(node.parameters.accountId)), eq(instagramAccounts.userId, ownerId))).limit(1);
@@ -276,20 +330,17 @@ router.delete("/:id", async (req, res, next) => {
     const selected = catalog.find((item) => item.id === req.params.id);
     if (!selected) { res.status(404).json({ error: "custom_node_not_found" }); return; }
     const impact = await deletionImpact(selected.id, ownerId, catalog);
-    const affectedIds = new Set<string>();
-    const queue = [selected.id];
-    while (queue.length) {
-      const current = queue.shift()!;
-      const consumers = await db.select({ workflowId: workflowNodes.workflowId, isCustomNode: workflows.isCustomNode }).from(workflowNodes).innerJoin(workflows, eq(workflows.id, workflowNodes.workflowId)).where(and(eq(workflows.userId, ownerId), sql`${workflowNodes.parameters}->>'customNodeId' = ${current}`));
-      for (const row of consumers) if (row.workflowId !== selected.id && !affectedIds.has(row.workflowId)) {
-        affectedIds.add(row.workflowId);
-        if (row.isCustomNode) queue.push(row.workflowId);
-      }
+    if (impact.directWorkflowCount + impact.directCustomNodeCount > 0) {
+      res.status(409).json({ error: "custom_node_in_use", ...impact }); return;
     }
-    await db.transaction(async (tx) => {
-      if (affectedIds.size) await tx.update(workflows).set({ needsAttention: true }).where(and(eq(workflows.userId, ownerId), inArray(workflows.id, [...affectedIds])));
+    const deleted = await db.transaction(async (tx) => {
+      const [references] = await tx.select({ total: sql<number>`count(*)` }).from(workflowNodes).innerJoin(workflows, eq(workflowNodes.workflowId, workflows.id))
+        .where(and(eq(workflows.userId, ownerId), sql`${workflowNodes.parameters}->>'customNodeId' = ${selected.id}`));
+      if ((references?.total ?? 0) > 0) return false;
       await tx.delete(workflows).where(and(eq(workflows.id, selected.id), eq(workflows.userId, ownerId), eq(workflows.isCustomNode, true)));
+      return true;
     });
+    if (!deleted) { res.status(409).json({ error: "custom_node_in_use", ...await deletionImpact(selected.id, ownerId, await loadCustomNodeCatalog(ownerId)) }); return; }
     await refreshAttention(ownerId);
     res.json({ deleted: true, ...impact });
   } catch (error) { next(error); }

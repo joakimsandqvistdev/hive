@@ -14,6 +14,7 @@ import { parseTextOverlaySettings, stillImageVideoSettingsSchema } from "./proce
 import { renderTextOverlay } from "./textOverlayRenderer.js";
 import { renderStillImageVideo } from "./stillImageVideo.js";
 import { instagramMediaUrl, usableInstagramToken } from "./instagram.js";
+import { purgeExpiredWebhookDeliveries } from "./webhookTriggers.js";
 import sharp from "sharp";
 
 const workerId = `${hostname()}:${process.pid}`;
@@ -283,6 +284,11 @@ async function processRunDeletion(): Promise<boolean> {
 }
 
 console.log(`Hive worker ${workerId} polling PostgreSQL; model runner: ${modelRunnerUrl}`);
+const webhookDeliveryCleanup = setInterval(() => {
+  void purgeExpiredWebhookDeliveries().catch((error) => console.error("Webhook delivery cleanup failed", error instanceof Error ? error.name : "UnknownError"));
+}, 60 * 60 * 1000);
+webhookDeliveryCleanup.unref();
+void purgeExpiredWebhookDeliveries().catch((error) => console.error("Webhook delivery cleanup failed", error instanceof Error ? error.name : "UnknownError"));
 let jobSchedulerBusy = false;
 const jobScheduler = setInterval(() => {
   if (jobSchedulerBusy) return;
@@ -301,6 +307,7 @@ try {
   }
 } finally {
   clearInterval(jobScheduler);
+  clearInterval(webhookDeliveryCleanup);
   await modelRunner.close();
   await pool.end();
 }

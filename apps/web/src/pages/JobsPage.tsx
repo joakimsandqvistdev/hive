@@ -153,8 +153,8 @@ export function JobsPage({ onNavigate }: { onNavigate: (view: AppView) => void }
       <Table.Td><Text size="sm">{job.repeatCount === 1 ? "Once" : intervalLabel(job.intervalSeconds ?? 3600)}</Text><Text size="xs" c="dimmed">{job.repeatCount === null ? job.completedRuns + " completed · no limit" : job.completedRuns + " of " + job.repeatCount + " runs"}</Text></Table.Td>
       <Table.Td><Text size="sm">{activity ?? formatDate(job.nextRunAt)}</Text></Table.Td>
       <Table.Td><Group gap={4} wrap="nowrap" justify="flex-end">
-        {job.status === "active" || job.status === "paused" || job.status === "failed" ? <Tooltip label={job.status === "active" ? "Pause job" : job.status === "failed" ? "Retry job" : "Resume job"}><ActionIcon variant="subtle" color={job.status === "active" ? "hiveSky" : "hiveSuccess"} aria-label={job.status === "active" ? "Pause " + job.name : "Resume " + job.name} loading={mutatingId === job.id} onClick={() => void setJobStatus(job, job.status === "active" ? "paused" : "active")}><PausePlayIcon paused={job.status !== "active"} /></ActionIcon></Tooltip> : null}
-        <Tooltip label="Remove job"><ActionIcon variant="subtle" color="hiveError" aria-label={"Remove " + job.name} loading={mutatingId === job.id} onClick={() => setConfirmRemove(job)}><TrashIcon /></ActionIcon></Tooltip>
+        {job.status === "active" || job.status === "paused" || job.status === "failed" ? <Tooltip label={job.status === "active" ? "Pause" : job.status === "failed" ? "Retry" : "Resume"}><ActionIcon variant="subtle" color={job.status === "active" ? "hiveSky" : "hiveSuccess"} aria-label={job.status === "active" ? "Pause" : job.status === "failed" ? "Retry" : "Resume"} loading={mutatingId === job.id} onClick={() => void setJobStatus(job, job.status === "active" ? "paused" : "active")}><PausePlayIcon paused={job.status !== "active"} /></ActionIcon></Tooltip> : null}
+        <Tooltip label="Delete"><ActionIcon variant="subtle" color="hiveError" aria-label="Delete" loading={mutatingId === job.id} onClick={() => setConfirmRemove(job)}><TrashIcon /></ActionIcon></Tooltip>
       </Group></Table.Td>
     </Table.Tr>;
   });

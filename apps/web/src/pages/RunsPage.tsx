@@ -214,16 +214,16 @@ export function RunsPage({ onNavigate }: { onNavigate: (view: AppView) => void }
   }, [detail?.run.id]);
 
   const rows = result?.items.map((run) => <Table.Tr key={run.id} role="button" tabIndex={0} aria-label={`View run for ${run.workflowSnapshotJson?.name ?? "workflow"}`} onClick={() => setSelectedId(run.id)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setSelectedId(run.id); } }} style={{ cursor: "pointer" }}>
-    <Table.Td><Group gap="xs" wrap="nowrap"><Text fw={600} size="sm">{run.workflowSnapshotJson?.name ?? "Workflow"}</Text>{run.jobId && <Badge size="xs" color="hiveSky" variant="light">Job</Badge>}</Group><Text size="xs" c="dimmed" ff="monospace">{run.id.slice(0, 8)}{run.scheduledFor ? " · Scheduled " + date(run.scheduledFor) : ""}</Text></Table.Td>
+    <Table.Td><Group gap="xs" wrap="nowrap"><Text fw={600} size="sm">{run.workflowSnapshotJson?.name ?? "Workflow"}</Text>{run.jobId && <Badge size="xs" color="hiveSky" variant="light">Job</Badge>}{run.triggerName && <Badge size="xs" color="hiveSky" variant="light">{run.triggerName}</Badge>}</Group><Text size="xs" c="dimmed" ff="monospace">{run.id.slice(0, 8)}{run.scheduledFor ? " · Scheduled " + date(run.scheduledFor) : ""}</Text></Table.Td>
     <Table.Td><Badge variant="light" color={statusColor(run.status)}>{run.status.replaceAll("_", " ")}</Badge></Table.Td>
     <Table.Td><Text size="sm" c="dimmed">{timingLabel(run.startedAt, run.finishedAt, now, run.status === "awaiting_publish")}</Text></Table.Td>
     <Table.Td><Text size="sm" c={run.errorSummary ? "hiveError.7" : "dimmed"} lineClamp={2}>{run.errorSummary ?? (active(run.status) ? "Waiting for worker…" : "—")}</Text></Table.Td>
     <Table.Td><Group gap={4} justify="flex-end" onClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()}>
-      {run.status === "running" && <Tooltip label="Stop run"><ActionIcon color="hiveError" variant="subtle" aria-label={"Stop run for " + (run.workflowSnapshotJson?.name ?? "workflow")} loading={cancellingId === run.id} onClick={() => void stopRun(run.id)}><StopIcon /></ActionIcon></Tooltip>}
+      {run.status === "running" && <Tooltip label="Stop"><ActionIcon color="hiveError" variant="subtle" aria-label="Stop" loading={cancellingId === run.id} onClick={() => void stopRun(run.id)}><StopIcon /></ActionIcon></Tooltip>}
       {run.deletion ? run.deletion.lastError
-        ? <Tooltip label="Cleanup failed. Retry removing generated media"><ActionIcon color="hiveError" variant="subtle" aria-label="Retry run cleanup" loading={retryingDeletionId === run.id} onClick={() => void retryDeletion(run.id)}><RetryIcon /></ActionIcon></Tooltip>
+        ? <Tooltip label="Retry cleanup"><ActionIcon color="hiveError" variant="subtle" aria-label="Retry cleanup" loading={retryingDeletionId === run.id} onClick={() => void retryDeletion(run.id)}><RetryIcon /></ActionIcon></Tooltip>
         : <Badge color="hiveSky" variant="light">Removing…</Badge>
-        : <Tooltip label={run.status === "queued" ? "Cancel and delete queued run" : run.status === "awaiting_publish" ? "Delete run and discard its pending publication" : active(run.status) ? "Stop the run before deleting it" : "Delete run and generated media"}><ActionIcon color="hiveError" variant="subtle" aria-label={"Delete run for " + (run.workflowSnapshotJson?.name ?? "workflow")} disabled={active(run.status) && run.status !== "queued"} loading={deletingId === run.id} onClick={() => setDeleteTarget(run)}><TrashIcon /></ActionIcon></Tooltip>}
+        : <Tooltip label={run.status === "queued" ? "Cancel and delete queued run" : run.status === "awaiting_publish" ? "Delete run and discard its pending publication" : active(run.status) ? "Stop the run before deleting it" : "Delete run and generated media"}><ActionIcon color="hiveError" variant="subtle" aria-label="Delete" disabled={active(run.status) && run.status !== "queued"} loading={deletingId === run.id} onClick={() => setDeleteTarget(run)}><TrashIcon /></ActionIcon></Tooltip>}
     </Group></Table.Td>
   </Table.Tr>);
 
