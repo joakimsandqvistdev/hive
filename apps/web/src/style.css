@@ -67,24 +67,25 @@ body { color: var(--mantine-color-text); background: var(--mantine-color-gray-0)
 .workflow-header-error { min-width: 0; max-width: min(560px, 45vw); flex: 0 1 auto; margin: 0; font-size: var(--mantine-font-size-sm); line-height: 1.35; }
 .workflow-header-error .mantine-Alert-message { overflow-wrap: anywhere; }
 .workflow-editor-title { min-width: 0; max-width: min(34vw, 420px); }
-.workflow-editor-body { display: flex; flex: 1 1 auto; min-height: 0; }
-.workflow-editor-canvas { position: relative; min-width: 0; min-height: 0; overflow: hidden; background: var(--mantine-color-gray-0); }
+.workflow-editor-body { display: flex; flex: 1 1 auto; width: 100%; min-width: 0; min-height: 0; }
+.workflow-editor-canvas { --hive-canvas-background: #d6dde5; --hive-canvas-surface: #181e25; --hive-canvas-header: #202832; --hive-canvas-border: #313d4c; --hive-canvas-text: #e5edf6; --hive-canvas-muted: #9aa9bb; --hive-canvas-accent: #74c0fc; --hive-canvas-danger: #ff6b6b; --hive-canvas-control-surface: #ffffff; --hive-canvas-control-border: #dfe3e8; --hive-canvas-control-text: #303843; --hive-canvas-control-hover: #f1f6fe; --hive-canvas-label: #47505c; position: relative; display: flex; flex: 1 1 0; width: 100%; min-width: 0; min-height: 0; overflow: hidden; background: var(--hive-canvas-background); }
 .workflow-editor-canvas .hive-ionodes { width: 100%; height: 100%; min-height: 0; color-scheme: dark; }
 .workflow-editor-canvas .hive-ionodes .ionodes-canvas,
-.workflow-editor-canvas .hive-ionodes .ionodes-canvas .react-flow { background: var(--mantine-color-gray-0); }
-.workflow-editor-canvas .hive-ionodes .ionodes-canvas-label { color: var(--mantine-color-gray-7); }
-.workflow-editor-canvas .hive-ionodes .ionodes-canvas .react-flow__controls { border-color: var(--mantine-color-gray-2); border-radius: var(--mantine-radius-sm); background: var(--mantine-color-white); box-shadow: var(--mantine-shadow-sm); }
-.workflow-editor-canvas .hive-ionodes .ionodes-canvas .react-flow__controls-button { border-color: var(--mantine-color-gray-2); background: var(--mantine-color-white); color: var(--mantine-color-gray-9); }
-.workflow-editor-canvas .hive-ionodes .ionodes-canvas .react-flow__controls-button:hover { background: var(--mantine-color-hiveSky-0); color: var(--mantine-color-gray-9); }
-.workflow-editor-canvas .hive-ionodes .ionodes-canvas .react-flow__minimap { border-color: var(--mantine-color-gray-2); border-radius: var(--mantine-radius-sm); background: var(--mantine-color-white); box-shadow: var(--mantine-shadow-sm); }
+.workflow-editor-canvas .hive-ionodes .ionodes-canvas .react-flow { background: var(--hive-canvas-background); }
+.workflow-editor-canvas .hive-ionodes .ionodes-canvas-label { color: var(--hive-canvas-label); }
+.workflow-editor-canvas .hive-ionodes .ionodes-canvas-count { color: var(--hive-canvas-label); }
+.workflow-editor-canvas .hive-ionodes .ionodes-canvas .react-flow__controls { border-color: var(--hive-canvas-control-border); border-radius: 7px; background: var(--hive-canvas-control-surface); box-shadow: 0 2px 6px rgba(36, 55, 74, 0.08); }
+.workflow-editor-canvas .hive-ionodes .ionodes-canvas .react-flow__controls-button { border-color: var(--hive-canvas-control-border); background: var(--hive-canvas-control-surface); color: var(--hive-canvas-control-text); fill: var(--hive-canvas-control-text); }
+.workflow-editor-canvas .hive-ionodes .ionodes-canvas .react-flow__controls-button:hover { background: var(--hive-canvas-control-hover); color: var(--hive-canvas-control-text); fill: var(--hive-canvas-control-text); }
+.workflow-editor-canvas .hive-ionodes .ionodes-canvas .react-flow__minimap { border-color: var(--hive-canvas-control-border); border-radius: 7px; background: var(--hive-canvas-control-surface); box-shadow: 0 2px 6px rgba(36, 55, 74, 0.08); }
 .workflow-editor-canvas .hive-ionodes .ionodes-toolbar { display: none; }
-.workflow-editor-canvas .hive-ionodes { --ionodes-accent: var(--mantine-color-hiveSky-7); --ionodes-border: var(--mantine-color-gray-3); --ionodes-surface: var(--mantine-color-white); --ionodes-text: var(--mantine-color-gray-9); --ionodes-muted: var(--mantine-color-gray-6); --ionodes-danger: var(--mantine-color-hiveError-6); }
-.workflow-editor-canvas .hive-ionodes .ionodes-node { min-width: 250px; border-color: var(--mantine-color-gray-3); border-radius: var(--mantine-radius-md); background: var(--mantine-color-white); color: var(--mantine-color-gray-9); box-shadow: var(--mantine-shadow-sm); }
-.workflow-editor-canvas .hive-ionodes .ionodes-node-header { min-height: 38px; border-color: var(--mantine-color-gray-2); background: var(--mantine-color-gray-0); }
-.workflow-editor-canvas .hive-ionodes .ionodes-node-description { color: var(--mantine-color-gray-6); }
-.workflow-editor-canvas .hive-ionodes .ionodes-connector-label { color: var(--mantine-color-gray-8); }
-.workflow-editor-canvas .hive-ionodes .ionodes-type-key { color: var(--mantine-color-gray-6); }
-.workflow-editor-canvas .hive-ionodes .ionodes-connector-row .react-flow__handle { border-color: var(--mantine-color-white); }
+.workflow-editor-canvas .hive-ionodes { --ionodes-bg: var(--hive-canvas-background); --ionodes-accent: var(--hive-canvas-accent); --ionodes-border: var(--hive-canvas-border); --ionodes-surface: var(--hive-canvas-surface); --ionodes-text: var(--hive-canvas-text); --ionodes-muted: var(--hive-canvas-muted); --ionodes-danger: var(--hive-canvas-danger); }
+.workflow-editor-canvas .hive-ionodes .ionodes-node { min-width: 250px; border-color: var(--hive-canvas-border); border-radius: 9px; background: var(--hive-canvas-surface); color: var(--hive-canvas-text); box-shadow: 0 8px 25px #0004; }
+.workflow-editor-canvas .hive-ionodes .ionodes-node-header { min-height: 38px; border-color: var(--hive-canvas-border); background: var(--hive-canvas-header); }
+.workflow-editor-canvas .hive-ionodes .ionodes-node-description { color: #aebed0; }
+.workflow-editor-canvas .hive-ionodes .ionodes-connector-label { color: var(--hive-canvas-text); }
+.workflow-editor-canvas .hive-ionodes .ionodes-type-key { color: var(--hive-canvas-muted); }
+.workflow-editor-canvas .hive-ionodes .ionodes-connector-row .react-flow__handle { border-color: var(--hive-canvas-surface); }
 .workflow-editor-canvas .hive-ionodes .ionodes-node-editor { color-scheme: light; }
 .workflow-config-panel { min-height: 0; overflow-y: auto; padding: 20px 18px; border-left: 1px solid var(--mantine-color-gray-2); background: var(--mantine-color-white); }
 .workflow-node-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--mantine-spacing-xs); margin-bottom: var(--mantine-spacing-lg); }
@@ -115,10 +116,10 @@ body { color: var(--mantine-color-text); background: var(--mantine-color-gray-0)
   .workflow-editor-title { max-width: 38vw; }
 }
 @media (max-width: 600px) {
-  .workflow-editor-main { height: auto; min-height: calc(100vh - 64px); overflow: auto; }
-  .workflow-editor-page { min-height: calc(100vh - 64px); height: auto; }
-  .workflow-editor-body { display: flex; flex-direction: column; min-height: 0; }
-  .workflow-editor-canvas { height: 58vh; min-height: 360px; }
+  .workflow-editor-main { height: calc(100vh - 64px); height: calc(100dvh - 64px); min-height: 0; overflow: hidden; }
+  .workflow-editor-page { min-height: 0; height: 100%; }
+  .workflow-editor-body { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; }
+  .workflow-editor-canvas { flex: 1 1 0; width: 100%; min-height: 0; }
   .workflow-config-panel { border-left: 0; border-top: 1px solid var(--mantine-color-gray-2); }
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; } }
