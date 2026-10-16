@@ -116,7 +116,7 @@ export function WorkflowEditor({ workflowId, onClose, onNavigate, customNodeEdit
     const custom = customNodes.find((item) => item.id === id);
     const label = custom?.name ?? model?.name ?? (kind === "processing" ? "Text Overlay" : kind === "publishing" ? (id === "instagram-reel" ? "Instagram Reel" : "Instagram Post") : `${dataType?.label ?? id} input`);
     let parameters: Record<string, unknown> = {};
-    if (kind === "input" && id === "text") parameters = { webhookIdentifier: defaultWebhookIdentifier(label) };
+    if (kind === "input" && id === "text") parameters = { webhookIdentifier: "" };
     if (model?.modality === "text") parameters = { ...defaultTextModelParameters, modelId: id as "qwen3-0.6b" | "qwen3-1.7b" };
     else if (model?.modality === "video") parameters = { ...defaultVideoModelParameters(id as VideoModelParameters["modelId"]) };
     else if (model?.modality === "audio") parameters = { ...defaultAudioModelParameters, modelId: "kokoro-82m" };
