@@ -31,7 +31,7 @@ Hive installs `ionodes` from the public npm registry as a web workspace dependen
 npm run local
 ```
 
-This creates `.env` if missing (with a random local database password), installs dependencies inside the app image, builds the app, starts PostgreSQL and the model runner, applies tracked database migrations, and starts the API, web app, and workflow worker. The worker also schedules due Jobs from PostgreSQL. It waits for service readiness, then returns to your terminal. Open [http://localhost:5173](http://localhost:5173).
+This creates `.env` if missing (with a random local database password), installs dependencies inside the app image, builds the app, starts PostgreSQL and the model runner, applies tracked database migrations, and starts the API, web app, workflow worker, and independent run cleanup worker. The workflow worker executes runs and schedules due Jobs; the cleanup worker removes deleted runs and their eligible media without waiting for model inference to finish. It waits for service readiness, then returns to your terminal. Open [http://localhost:5173](http://localhost:5173).
 
 To stop all Compose services belonging to this checkout's project:
 
@@ -39,7 +39,7 @@ To stop all Compose services belonging to this checkout's project:
 npm run local:stop
 ```
 
-Stopping preserves the database volume, downloaded model cache, and generated pictures in `.data/artifacts`. Services launched separately with `npm run dev` or `worker:dev` remain controlled by their original terminals; stop those before switching to this launcher to avoid port conflicts. Do not run `docker compose down -v` to stop normally: it deletes persistent volumes.
+Stopping preserves the database volume, downloaded model cache, and generated pictures in `.data/artifacts`. Services launched separately with `npm run dev`, `worker:dev`, or `cleanup:dev` remain controlled by their original terminals; stop those before switching to this launcher to avoid port conflicts. Do not run `docker compose down -v` to stop normally: it deletes persistent volumes.
 
 - No host `npm install` is needed for these commands; dependencies are installed in Docker. The first image build needs internet access and can take several minutes. Rerun `npm run local` after code or `.env` changes to rebuild/recreate affected services. This runs the built app; use the development commands below for hot reload.
 - Google credentials cannot be generated automatically. Add `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` to `.env` using the sign-in setup below, then rerun `npm run local`. Existing `.env` files are preserved. Until configured, the public app works but Google sign-in is unavailable.
@@ -65,7 +65,7 @@ Launcher checks: `npm run test:local`.
 6. Start the API and web app: `npm run dev`
 7. Open <http://localhost:5173>. The API runs at <http://localhost:3001>.
 
-For workflow execution and Jobs scheduling, also run `npm run worker:dev -w @hive/api` in another terminal and start the [model runner](services/runner/README.md). The development worker handles both queued runs and due Jobs.
+For workflow execution and Jobs scheduling, run `npm run worker:dev -w @hive/api` in another terminal and start the [model runner](services/runner/README.md). To process deleted runs independently during development, also run `npm run cleanup:dev -w @hive/api` in another terminal.
 
 ## Google sign-in setup
 

@@ -95,3 +95,15 @@ services:
         condition: service_completed_successfully
       runner:
         condition: service_healthy
+  cleanup-worker:
+    <<: *hive-app
+    restart: unless-stopped
+    command: ["node", "apps/api/dist/cleanupWorker.js"]
+    environment:
+      DATABASE_URL: ${HIVE_LOCAL_DATABASE_URL:?Use npm run local to configure the local database URL}
+      ARTIFACT_ROOT: /app/.data/artifacts
+    volumes:
+      - ./.data/artifacts:/app/.data/artifacts
+    depends_on:
+      migrate:
+        condition: service_completed_successfully

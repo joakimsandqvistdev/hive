@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "worker:dev": "tsx watch src/worker.ts",
+    "cleanup:dev": "tsx watch src/cleanupWorker.ts",
+    "cleanup": "node dist/cleanupWorker.js",
     "worker": "node dist/worker.js",
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc --noEmit -p tsconfig.json",

@@ -34,6 +34,7 @@ const address = server.address(); assert.ok(address && typeof address !== "strin
 const base = `http://127.0.0.1:${address.port}`;
 const origin = process.env.WEB_ORIGIN ?? "http://localhost:5173";
 const worker = spawn(process.execPath, ["node_modules/tsx/dist/cli.mjs", "apps/api/src/worker.ts"], { cwd: new URL("../../../", import.meta.url), env: process.env, stdio: "ignore" });
+const cleanupWorker = spawn(process.execPath, ["node_modules/tsx/dist/cli.mjs", "apps/api/src/cleanupWorker.ts"], { cwd: new URL("../../../", import.meta.url), env: process.env, stdio: "ignore" });
 async function request(path: string, method = "GET", body?: unknown, user = owner) {
   return fetch(`${base}${path}`, { method, headers: { origin, "test-user": user, "content-type": "application/json" }, ...(body !== undefined ? { body: JSON.stringify(body) } : {}) });
 }
@@ -54,7 +55,8 @@ async function waitRun(id: string) {
 }
 after(async () => {
   worker.kill();
-  await new Promise<void>((resolve) => { if (worker.exitCode !== null) resolve(); else worker.once("exit", () => resolve()); });
+  cleanupWorker.kill();
+  await Promise.all([worker, cleanupWorker].map((child) => new Promise<void>((resolve) => { if (child.exitCode !== null) resolve(); else child.once("exit", () => resolve()); })));
   const files = await db.select().from(artifacts).where(inArray(artifacts.userId, [owner, other]));
   await db.delete(workflows).where(inArray(workflows.userId, [owner, other]));
   await db.delete(runs).where(inArray(runs.userId, [owner, other]));
@@ -195,7 +197,7 @@ test("cancelling a connected-model run interrupts its HTTP request and cancels t
   assert.equal(steps.find((node) => node.nodeId === "model")!.status, "cancelled");
 });
 
-test("deleting a queued run cancels it and queues artifact cleanup", async () => {
+test("deleting a queued run completes while another run is stalled in inference", async () => {
   const id = await createFlow();
   assert.equal((await request(`/api/workflows/${id}`, "PUT", { name: "Queued delete", description: "", definition: { nodes: [text, model], edges: [promptEdge] } })).status, 200);
   stallNext = true;
@@ -212,11 +214,13 @@ test("deleting a queued run cancels it and queues artifact cleanup", async () =>
   assert.equal(queuedRun!.status, "cancelled");
   assert.equal((await db.select().from(runDeletions).where(eq(runDeletions.runId, queuedRunId))).length, 1);
 
-  assert.equal((await request(`/api/runs/${activeRunId}/cancel`, "POST", {})).status, 200);
-  assert.equal((await waitRun(activeRunId)).status, "cancelled");
   for (let attempt = 0; attempt < 100; attempt++) {
     if (!(await db.select({ id: runs.id }).from(runs).where(eq(runs.id, queuedRunId))).length) break;
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
-  assert.equal((await db.select({ id: runs.id }).from(runs).where(eq(runs.id, queuedRunId))).length, 0);
+  assert.equal((await db.select({ id: runs.id }).from(runs).where(eq(runs.id, queuedRunId))).length, 0, "cleanup worker should delete a queued run while another run is stalled in inference");
+  assert.equal((await db.select().from(runs).where(eq(runs.id, activeRunId)))[0]!.status, "running");
+  assert.equal((await request(`/api/runs/${activeRunId}/cancel`, "POST", {})).status, 200);
+  assert.equal((await waitRun(activeRunId)).status, "cancelled");
+
 });
