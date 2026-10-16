@@ -246,6 +246,18 @@ async function processRunDeletion(): Promise<boolean> {
   try {
     await client.query("BEGIN");
     transactionOpen = true;
+    const outputArtifacts = await client.query<{ id: string; storage_key: string; saved_to_library: boolean }>(
+      "SELECT id, storage_key, saved_to_library FROM artifacts WHERE run_id=$1 AND user_id=$2 FOR UPDATE",
+      [deletion.run_id, deletion.user_id],
+    );
+    const savedOutputIds = outputArtifacts.rows.filter((artifact) => artifact.saved_to_library).map((artifact) => artifact.id);
+    const outputStorageKeys = outputArtifacts.rows.filter((artifact) => !artifact.saved_to_library).map((artifact) => artifact.storage_key);
+    if (savedOutputIds.length) {
+      await client.query(
+        "UPDATE artifacts SET run_id=NULL, run_node_id=NULL, source_workflow_id=NULL WHERE id=ANY($1::uuid[]) AND user_id=$2",
+        [savedOutputIds, deletion.user_id],
+      );
+    }
     const uploads = await client.query<{ id: string; storage_key: string }>(
       "SELECT artifact.id, artifact.storage_key FROM artifacts AS artifact " +
       "WHERE artifact.id = ANY($1::uuid[]) AND artifact.user_id=$2 AND artifact.run_id IS NULL " +
@@ -254,7 +266,7 @@ async function processRunDeletion(): Promise<boolean> {
       "FOR UPDATE OF artifact",
       [deletion.candidate_upload_ids, deletion.user_id, deletion.run_id],
     );
-    for (const storageKey of [...deletion.storage_keys, ...uploads.rows.map((upload) => upload.storage_key)]) await removeArtifact(storageKey);
+    for (const storageKey of [...outputStorageKeys, ...uploads.rows.map((upload) => upload.storage_key)]) await removeArtifact(storageKey);
     await client.query("DELETE FROM instagram_publications WHERE run_id=$1 AND user_id=$2", [deletion.run_id, deletion.user_id]);
     await client.query("DELETE FROM runs WHERE id=$1 AND user_id=$2", [deletion.run_id, deletion.user_id]);
     if (uploads.rows.length) await client.query("DELETE FROM artifacts WHERE id=ANY($1::uuid[]) AND user_id=$2", [uploads.rows.map((upload) => upload.id), deletion.user_id]);

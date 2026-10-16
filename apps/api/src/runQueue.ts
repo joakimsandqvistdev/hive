@@ -12,7 +12,6 @@ export type ClaimedRun = {
 export type ClaimedRunDeletion = {
   run_id: string;
   user_id: string;
-  storage_keys: string[];
   candidate_upload_ids: string[];
   attempt_count: number;
 };
@@ -32,7 +31,7 @@ export async function claimNextRunDeletion(workerId: string, leaseSeconds = 120)
         lease_expires_at=now()+($2 * interval '1 second'), last_error=NULL
     FROM candidate
     WHERE deletion.run_id=candidate.run_id
-    RETURNING deletion.run_id, deletion.user_id, deletion.storage_keys, deletion.candidate_upload_ids, deletion.attempt_count
+    RETURNING deletion.run_id, deletion.user_id, deletion.candidate_upload_ids, deletion.attempt_count
   `, [workerId, leaseSeconds]);
   return result.rows[0] ?? null;
 }

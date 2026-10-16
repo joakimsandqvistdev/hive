@@ -64,7 +64,7 @@ router.delete("/:id", async (req, res, next) => {
     }
     await client.query("INSERT INTO run_deletions (run_id, user_id, storage_keys, candidate_upload_ids) " +
       "SELECT $1, $2, " +
-      "COALESCE((SELECT array_agg(storage_key) FROM artifacts WHERE run_id=$1 AND user_id=$2), ARRAY[]::text[]), " +
+      "COALESCE((SELECT array_agg(storage_key) FROM artifacts WHERE run_id=$1 AND user_id=$2 AND saved_to_library=false), ARRAY[]::text[]), " +
       "COALESCE((SELECT array_agg(DISTINCT input_artifact_id) FROM run_nodes WHERE run_id=$1 AND user_id=$2 AND input_artifact_id IS NOT NULL), ARRAY[]::uuid[]) " +
       "ON CONFLICT (run_id) DO NOTHING", [req.params.id, ownerId]);
     await client.query("COMMIT");
@@ -93,7 +93,7 @@ router.post("/bulk-delete", async (req, res, next) => {
         ORDER BY run.created_at, run.id
         FOR UPDATE
       ),
-      protected_runs AS MATERIALIZED (
+      profile_photo_runs AS MATERIALIZED (
         SELECT matching.id FROM matching
         WHERE EXISTS (
           SELECT 1 FROM artifacts AS artifact
@@ -103,12 +103,12 @@ router.post("/bulk-delete", async (req, res, next) => {
       ),
       eligible AS MATERIALIZED (
         SELECT matching.id FROM matching
-        WHERE NOT EXISTS (SELECT 1 FROM protected_runs WHERE protected_runs.id=matching.id)
+        WHERE NOT EXISTS (SELECT 1 FROM profile_photo_runs WHERE profile_photo_runs.id=matching.id)
       ),
       inserted AS (
         INSERT INTO run_deletions (run_id, user_id, storage_keys, candidate_upload_ids)
         SELECT eligible.id, $1,
-          COALESCE((SELECT array_agg(artifact.storage_key) FROM artifacts AS artifact WHERE artifact.run_id=eligible.id AND artifact.user_id=$1), ARRAY[]::text[]),
+          COALESCE((SELECT array_agg(artifact.storage_key) FROM artifacts AS artifact WHERE artifact.run_id=eligible.id AND artifact.user_id=$1 AND artifact.saved_to_library=false), ARRAY[]::text[]),
           COALESCE((SELECT array_agg(DISTINCT node.input_artifact_id) FROM run_nodes AS node WHERE node.run_id=eligible.id AND node.user_id=$1 AND node.input_artifact_id IS NOT NULL), ARRAY[]::uuid[])
         FROM eligible
         ON CONFLICT (run_id) DO NOTHING
@@ -117,7 +117,7 @@ router.post("/bulk-delete", async (req, res, next) => {
       SELECT
         (SELECT count(*)::int FROM matching) AS matched_count,
         (SELECT count(*)::int FROM inserted) AS queued_count,
-        (SELECT count(*)::int FROM protected_runs) AS skipped_profile_count,
+        (SELECT count(*)::int FROM profile_photo_runs) AS skipped_profile_count,
         ((SELECT count(*) FROM eligible) - (SELECT count(*) FROM inserted))::int AS already_deleting_count
     `, [ownerId, selectedStatuses]);
     await client.query("COMMIT");
