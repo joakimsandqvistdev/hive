@@ -10,7 +10,7 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test:integration": "tsx tests/workflowApi.integration.test.ts",
-    "test:runner": "tsx --test tests/artifactRange.test.ts tests/modelRunnerClient.test.ts tests/modelRunnerErrors.test.ts tests/modelParameters.test.ts tests/workflowDefinition.test.ts",
+    "test:runner": "tsx --test tests/artifactRange.test.ts tests/modelRunnerClient.test.ts tests/modelRunnerErrors.test.ts tests/modelParameters.test.ts tests/workflowDefinition.test.ts tests/runDeletionPolicy.test.ts",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push",

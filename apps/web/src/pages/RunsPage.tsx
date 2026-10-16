@@ -1,70 +1,16 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ActionIcon, Alert, Badge, Button, Group, Image, Loader, Modal, MultiSelect, Paper, Popover, SimpleGrid, Stack, Table, Text, Textarea, Title, Tooltip } from "@mantine/core";
+import { ActionIcon, Alert, Badge, Button, Group, Loader, Modal, MultiSelect, Paper, Popover, Stack, Table, Text, Title, Tooltip } from "@mantine/core";
 import { apiFetch, apiUrl } from "../apiClient";
 import { ConfirmActionModal } from "../components/ConfirmActionModal";
 import { PaginatedTableFooter } from "../components/PaginatedTableFooter";
+import { formatFileSize } from "../formatters";
+import { RunDetailsInspector } from "../components/RunDetailsInspector";
+import { active, date, statusColor, timingLabel } from "../runFormatting";
+import type { Artifact, Detail, PageResult, Run } from "../runTypes";
 
 import type { AppView } from "../navigation/navigationState";
 
-function nodeTypeLabel(modality?: string, modelId?: unknown) { return typeof modelId === "string" ? modelId : modality ?? "Input"; }
 const PAGE_SIZE = 10;
-type RunStatus = "queued" | "running" | "awaiting_publish" | "succeeded" | "failed" | "cancel_requested" | "cancelled";
-type Run = { id: string; workflowId: string | null; jobId: string | null; scheduledFor: string | null; status: RunStatus; workflowSnapshotJson: { name?: string }; errorSummary: string | null; createdAt: string; startedAt: string | null; finishedAt: string | null; deletion?: { attemptCount: number; lastError: string | null; processing: boolean } | null };
-type RunNode = { nodeId: string; status: string; startedAt: string | null; finishedAt: string | null; nodeSnapshotJson: { name?: string; modality?: string; kind?: string; dataTypeId?: string; parameters?: { modelId?: string } }; parameters?: { modelId?: string }; outputJson?: { dataTypeId?: string; text?: string; artifactId?: string }; errorSummary: string | null };
-type Artifact = { id: string; runNodeId: string; displayName: string; mediaType: string; byteSize: number; createdAt: string };
-type PageResult = { items: Run[]; page: number; pageSize: number; total: number; totalPages: number };
-type Publication = { id: string; status: string; mediaKind: string; mode: string; caption: string; artifactId: string; errorSummary: string | null; instagramMediaId: string | null };
-type Detail = { run: Run; nodes: RunNode[]; artifacts: Artifact[]; publication: Publication | null };
-
-function date(value: string | null) { return value ? new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "medium" }).format(new Date(value)) : "—"; }
-function statusColor(status: RunStatus | string) { return status === "succeeded" || status === "published" ? "hiveSuccess" : status === "failed" ? "hiveError" : status === "running" ? "hiveSky" : status === "queued" || status === "awaiting_publish" || status === "awaiting_review" ? "hiveWarning" : "gray"; }
-function active(status: RunStatus) { return status === "queued" || status === "running" || status === "cancel_requested"; }
-function timingLabel(startedAt: string | null, finishedAt: string | null, now: number) {
-  if (!startedAt) return finishedAt ? `Not started · Finished ${date(finishedAt)}` : "Waiting to start";
-  const end = finishedAt ? new Date(finishedAt).getTime() : now;
-  const totalSeconds = Math.floor(Math.max(0, end - new Date(startedAt).getTime()) / 1000);
-  const duration = `${Math.floor(totalSeconds / 60)}m ${String(totalSeconds % 60).padStart(2, "0")}s`;
-  return finishedAt ? `${duration} · Finished ${date(finishedAt)}` : `${duration} elapsed`;
-}
-
-function ArtifactPreview({ artifactId, label, mediaType }: { artifactId: string; label: string; mediaType: string }) {
-  const [src, setSrc] = useState<string | null>(null);
-  const [failed, setFailed] = useState(false);
-  useEffect(() => {
-    let disposed = false;
-    let objectUrl: string | null = null;
-    setSrc(null);
-    setFailed(false);
-    if (mediaType === "video/mp4") {
-      setSrc(apiUrl(`/api/artifacts/${artifactId}/preview`));
-      return () => { disposed = true; };
-    }
-    void apiFetch(`/api/artifacts/${artifactId}/preview`)
-      .then(async (response) => {
-        if (!response.ok) throw new Error("Preview unavailable");
-        return response.blob();
-      })
-      .then((blob) => {
-        if (disposed) return;
-        objectUrl = URL.createObjectURL(blob);
-        setSrc(objectUrl);
-      })
-      .catch(() => { if (!disposed) setFailed(true); });
-    return () => {
-      disposed = true;
-      if (objectUrl) URL.revokeObjectURL(objectUrl);
-    };
-  }, [artifactId, mediaType]);
-
-  return <Paper withBorder p="xs" aria-label={`${label} preview`}>
-    {failed ? <Group h={240} justify="center"><Text size="sm" c="dimmed">Preview unavailable</Text></Group>
-      : src ? mediaType.startsWith("video/")
-      ? <video src={src} controls crossOrigin="use-credentials" playsInline preload="metadata" onError={() => setFailed(true)} aria-label={`${label} generated video`} style={{ width: "100%", maxHeight: 320 }} />
-      : mediaType.startsWith("audio/") ? <audio src={src} controls aria-label={label} style={{ width: "100%" }} />
-      : <Image src={src} alt={`${label} output`} h={240} fit="contain" radius="sm" />
-      : <Group h={240} justify="center"><Loader size="sm" /></Group>}
-  </Paper>;
-}
 
 export function RunsPage({ onNavigate }: { onNavigate: (view: AppView) => void }) {
   const [page, setPage] = useState(1);
@@ -73,6 +19,7 @@ export function RunsPage({ onNavigate }: { onNavigate: (view: AppView) => void }
   const [error, setError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detail, setDetail] = useState<Detail | null>(null);
+  const [inspectorSelection, setInspectorSelection] = useState("publication");
   const captionDirty = useRef(false);
   const [detailError, setDetailError] = useState<string | null>(null);
   const [downloadError, setDownloadError] = useState<string | null>(null);
@@ -170,7 +117,12 @@ export function RunsPage({ onNavigate }: { onNavigate: (view: AppView) => void }
     setDeletingId(target.id); setDeleteError(null);
     try {
       const response = await apiFetch("/api/runs/" + target.id, { method: "DELETE" });
-        if (!response.ok) throw new Error(response.status === 409 ? "This run is active, awaiting publication, or its generated image is selected as your Instagram profile photo. Resolve that first." : response.status === 404 ? "This run could not be found." : "Could not delete this run. Please try again.");
+        const body = await response.json().catch(() => ({})) as { error?: string };
+      if (!response.ok) {
+        if (response.status === 409 && body.error === "publication_in_progress") throw new Error("Instagram is currently publishing this run. Wait until publishing finishes or the publication needs review, then delete the run.");
+        if (response.status === 409 && body.error === "profile_asset_in_use") throw new Error("This run's generated image is selected as an Instagram profile photo. Change the profile photo before deleting the run.");
+        throw new Error(response.status === 409 ? "This run is still active. Stop it before deleting." : response.status === 404 ? "This run could not be found." : "Could not delete this run. Please try again.");
+      }
       setDeleteTarget(null);
       if (selectedId === target.id) setSelectedId(null);
       await loadRuns(page);
@@ -193,11 +145,12 @@ export function RunsPage({ onNavigate }: { onNavigate: (view: AppView) => void }
     setBulkDeleting(true); setDeleteError(null); setBulkMessage(null);
     try {
       const response = await apiFetch("/api/runs/bulk-delete", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ statuses: bulkStatuses }) });
-      const body = await response.json().catch(() => ({})) as { queued_count?: number; skipped_profile_count?: number; already_deleting_count?: number };
+      const body = await response.json().catch(() => ({})) as { queued_count?: number; skipped_profile_count?: number; skipped_publication_count?: number; already_deleting_count?: number };
       if (!response.ok) throw new Error("Could not queue the selected runs for deletion.");
       const parts = [`${body.queued_count ?? 0} ${body.queued_count === 1 ? "run" : "runs"} queued for deletion`];
       if (body.already_deleting_count) parts.push(`${body.already_deleting_count} already being removed`);
       if (body.skipped_profile_count) parts.push(`${body.skipped_profile_count} skipped because a run image is in use as an Instagram profile photo`);
+      if (body.skipped_publication_count) parts.push(`${body.skipped_publication_count} skipped because Instagram is currently publishing`);
       setBulkMessage(`${parts.join(" · ")}.`);
       setBulkConfirmOpen(false); setBulkSelectorOpen(false); setBulkStatuses([]);
       await loadRuns(page);
@@ -226,6 +179,7 @@ export function RunsPage({ onNavigate }: { onNavigate: (view: AppView) => void }
 
   useEffect(() => {
     setDetail(null);
+    setInspectorSelection("publication");
     captionDirty.current = false;
     if (!selectedId) return;
     let disposed = false;
@@ -238,66 +192,70 @@ export function RunsPage({ onNavigate }: { onNavigate: (view: AppView) => void }
     return () => { disposed = true; if (timer !== undefined) window.clearTimeout(timer); };
   }, [loadDetail, selectedId]);
 
+  useEffect(() => {
+    if (!detail) return;
+    setInspectorSelection(detail.publication ? "publication" : detail.nodes[0]?.nodeId ?? "outputs");
+  }, [detail?.run.id]);
+
   const rows = result?.items.map((run) => <Table.Tr key={run.id} role="button" tabIndex={0} aria-label={`View run for ${run.workflowSnapshotJson?.name ?? "workflow"}`} onClick={() => setSelectedId(run.id)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setSelectedId(run.id); } }} style={{ cursor: "pointer" }}>
-    <Table.Td><Group gap="xs" wrap="nowrap"><Text fw={600}>{run.workflowSnapshotJson?.name ?? "Workflow"}</Text>{run.jobId && <Badge size="xs" color="hiveSky" variant="light">Job</Badge>}</Group><Text size="xs" c="dimmed" ff="monospace">{run.id.slice(0, 8)}{run.scheduledFor ? " · Scheduled " + date(run.scheduledFor) : ""}</Text></Table.Td>
+    <Table.Td><Group gap="xs" wrap="nowrap"><Text fw={600} size="sm">{run.workflowSnapshotJson?.name ?? "Workflow"}</Text>{run.jobId && <Badge size="xs" color="hiveSky" variant="light">Job</Badge>}</Group><Text size="xs" c="dimmed" ff="monospace">{run.id.slice(0, 8)}{run.scheduledFor ? " · Scheduled " + date(run.scheduledFor) : ""}</Text></Table.Td>
     <Table.Td><Badge variant="light" color={statusColor(run.status)}>{run.status.replaceAll("_", " ")}</Badge></Table.Td>
-    <Table.Td><Text size="sm" c="dimmed">{timingLabel(run.startedAt, run.finishedAt, now)}</Text></Table.Td>
+    <Table.Td><Text size="sm" c="dimmed">{timingLabel(run.startedAt, run.finishedAt, now, run.status === "awaiting_publish")}</Text></Table.Td>
     <Table.Td><Text size="sm" c={run.errorSummary ? "hiveError.7" : "dimmed"} lineClamp={2}>{run.errorSummary ?? (active(run.status) ? "Waiting for worker…" : "—")}</Text></Table.Td>
     <Table.Td><Group gap={4} justify="flex-end" onClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()}>
       {run.status === "running" && <Tooltip label="Stop run"><ActionIcon color="hiveError" variant="subtle" aria-label={"Stop run for " + (run.workflowSnapshotJson?.name ?? "workflow")} loading={cancellingId === run.id} onClick={() => void stopRun(run.id)}><StopIcon /></ActionIcon></Tooltip>}
       {run.deletion ? run.deletion.lastError
         ? <Tooltip label="Cleanup failed. Retry removing generated media"><ActionIcon color="hiveError" variant="subtle" aria-label="Retry run cleanup" loading={retryingDeletionId === run.id} onClick={() => void retryDeletion(run.id)}><RetryIcon /></ActionIcon></Tooltip>
         : <Badge color="hiveSky" variant="light">Removing…</Badge>
-        : <Tooltip label={run.status === "queued" ? "Cancel and delete queued run" : run.status === "awaiting_publish" ? "Publish or discard the pending publication first" : active(run.status) ? "Stop the run before deleting it" : "Delete run and generated media"}><ActionIcon color="hiveError" variant="subtle" aria-label={"Delete run for " + (run.workflowSnapshotJson?.name ?? "workflow")} disabled={run.status === "awaiting_publish" || active(run.status) && run.status !== "queued"} loading={deletingId === run.id} onClick={() => { setDeleteError(null); setDeleteTarget(run); }}><TrashIcon /></ActionIcon></Tooltip>}
+        : <Tooltip label={run.status === "queued" ? "Cancel and delete queued run" : run.status === "awaiting_publish" ? "Delete run and discard its pending publication" : active(run.status) ? "Stop the run before deleting it" : "Delete run and generated media"}><ActionIcon color="hiveError" variant="subtle" aria-label={"Delete run for " + (run.workflowSnapshotJson?.name ?? "workflow")} disabled={active(run.status) && run.status !== "queued"} loading={deletingId === run.id} onClick={() => { setDeleteError(null); setDeleteTarget(run); }}><TrashIcon /></ActionIcon></Tooltip>}
     </Group></Table.Td>
   </Table.Tr>);
 
   return <Stack className="workspace-page" gap="lg">
-    <Group justify="space-between" align="end"><Stack gap={3}><Text className="page-eyebrow">Workspace</Text><Title order={1} className="page-title">Runs</Title></Stack><Group><Popover opened={bulkSelectorOpen} onChange={setBulkSelectorOpen} position="bottom-end" withArrow shadow="md"><Popover.Target><Button color="hiveError" variant="light" aria-expanded={bulkSelectorOpen} rightSection={<svg aria-hidden="true" viewBox="0 0 16 16" width="14" height="14" style={{ transition: "transform 150ms ease", transform: bulkSelectorOpen ? "rotate(180deg)" : undefined }}><path d="m3 6 5 5 5-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>} onClick={() => { setBulkMessage(null); setBulkSelectorOpen((opened) => !opened); }}>Delete runs</Button></Popover.Target><Popover.Dropdown w={320}><Stack gap="sm"><MultiSelect label="Run statuses" placeholder="Choose statuses" data={[{ value: "failed", label: "Failed" }, { value: "succeeded", label: "Succeeded" }, { value: "cancelled", label: "Cancelled" }]} value={bulkStatuses} onChange={setBulkStatuses} searchable={false} clearable comboboxProps={{ withinPortal: false }} /><Text size="xs" c="dimmed">Only matching completed runs are included. Queued, running, and awaiting-publication runs are excluded.</Text><Button color="hiveError" variant="light" disabled={!bulkStatuses.length} onClick={() => { setBulkSelectorOpen(false); setBulkConfirmOpen(true); }}>Review deletion</Button></Stack></Popover.Dropdown></Popover><Button variant="light" onClick={() => void loadRuns(page)}>Refresh</Button><Button onClick={() => onNavigate("workflows")}>Browse workflows</Button></Group></Group>
+    <Group justify="flex-end" className="page-header-actions"><Group><Popover opened={bulkSelectorOpen} onChange={setBulkSelectorOpen} position="bottom-end" withArrow shadow="md"><Popover.Target><Button className="page-header-button" data-header-tone="danger" variant="default" aria-expanded={bulkSelectorOpen} rightSection={<svg aria-hidden="true" viewBox="0 0 16 16" width="14" height="14" style={{ transition: "transform 150ms ease", transform: bulkSelectorOpen ? "rotate(180deg)" : undefined }}><path d="m3 6 5 5 5-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>} onClick={() => { setBulkMessage(null); setBulkSelectorOpen((opened) => !opened); }}>Delete runs</Button></Popover.Target><Popover.Dropdown w={320}><Stack gap="sm"><MultiSelect label="Run statuses" placeholder="Choose statuses" data={[{ value: "failed", label: "Failed" }, { value: "succeeded", label: "Succeeded" }, { value: "cancelled", label: "Cancelled" }, { value: "awaiting_publish", label: "Awaiting publish" }]} value={bulkStatuses} onChange={setBulkStatuses} searchable={false} clearable comboboxProps={{ withinPortal: false }} /><Text size="xs" c="dimmed">Selected completed and awaiting-publication runs are included. Pending publications are discarded; runs currently publishing to Instagram are skipped. Queued, running, and profile-photo runs remain excluded.</Text><Button color="hiveError" variant="light" disabled={!bulkStatuses.length} onClick={() => { setBulkSelectorOpen(false); setBulkConfirmOpen(true); }}>Review deletion</Button></Stack></Popover.Dropdown></Popover><Button className="page-header-button" data-header-tone="neutral" variant="default" onClick={() => void loadRuns(page)}>Refresh</Button><Button className="page-header-button" data-header-tone="neutral" variant="default" onClick={() => onNavigate("workflows")}>Browse workflows</Button></Group></Group>
     {error && <Alert color="hiveError" title="Run history unavailable">{error}</Alert>}
     {deleteError && <Alert color="hiveError" title="Run deletion">{deleteError}</Alert>}
     {bulkMessage && <Alert color="hiveSuccess" title="Bulk deletion">{bulkMessage}</Alert>}
-    <Paper className="workspace-table-panel" withBorder>
+    <Paper className="inventory-list workspace-table-panel" withBorder radius="md">
       {loading ? <Group justify="center" p="xl"><Loader size="sm" /><Text size="sm" c="dimmed">Loading runs…</Text></Group>
         : result?.total === 0 ? <Stack className="workspace-empty" align="center" gap="sm"><Badge color="hiveSky" variant="light">Run history</Badge><Title order={2} size="h3">No runs yet</Title><Text c="dimmed" ta="center" maw={480}>Open a saved workflow and choose Run workflow to queue its current definition for execution.</Text><Button variant="light" onClick={() => onNavigate("workflows")}>Browse workflows</Button></Stack>
-          : <><Table.ScrollContainer minWidth={900}><Table verticalSpacing="sm" highlightOnHover><Table.Thead><Table.Tr><Table.Th>Workflow</Table.Th><Table.Th>Status</Table.Th><Table.Th>Duration</Table.Th><Table.Th>Result</Table.Th><Table.Th>Actions</Table.Th></Table.Tr></Table.Thead><Table.Tbody>{rows}</Table.Tbody></Table></Table.ScrollContainer><PaginatedTableFooter total={result?.total ?? 0} itemName="run" page={page} totalPages={result?.totalPages ?? 0} onPageChange={setPage} /></>}
+          : <><Table.ScrollContainer minWidth={900}><Table className="inventory-table run-inventory-table" highlightOnHover withRowBorders><Table.Thead><Table.Tr><Table.Th>Workflow</Table.Th><Table.Th>Status</Table.Th><Table.Th>Duration</Table.Th><Table.Th>Result</Table.Th><Table.Th>Actions</Table.Th></Table.Tr></Table.Thead><Table.Tbody>{rows}</Table.Tbody></Table></Table.ScrollContainer><PaginatedTableFooter total={result?.total ?? 0} itemName="run" page={page} totalPages={result?.totalPages ?? 0} onPageChange={setPage} /></>}
     </Paper>
     <ConfirmActionModal opened={deleteTarget !== null} onClose={() => { if (!deletingId) setDeleteTarget(null); }} title="Delete run?" confirmLabel="Delete run" loading={deletingId !== null} onConfirm={() => void deleteRun()}>
-      <Text>{deleteTarget?.status === "queued" ? <>Cancel and delete the queued run for <strong>{deleteTarget.workflowSnapshotJson?.name ?? "Workflow"}</strong>?</> : <>Delete the run for <strong>{deleteTarget?.workflowSnapshotJson?.name ?? "Workflow"}</strong>?</>} Its run history and generated media that has not been saved to the Media Library will be removed. Media saved to the library is kept. Uploaded input files are removed only when no workflow or other run still uses them.</Text>
+      <Text>{deleteTarget?.status === "queued" ? <>Cancel and delete the queued run for <strong>{deleteTarget.workflowSnapshotJson?.name ?? "Workflow"}</strong>?</> : <>Delete the run for <strong>{deleteTarget?.workflowSnapshotJson?.name ?? "Workflow"}</strong>?</>}{deleteTarget?.status === "awaiting_publish" && <> Any pending Instagram publication will be discarded.</>} Its run history and generated media that has not been saved to the Media Library will be removed. Media saved to the library is kept. Uploaded input files are removed only when no workflow or other run still uses them.</Text>
     </ConfirmActionModal>
     <ConfirmActionModal opened={bulkConfirmOpen} onClose={() => { if (!bulkDeleting) setBulkConfirmOpen(false); }} title="Delete matching runs?" confirmLabel="Delete matching runs" loading={bulkDeleting} onConfirm={() => void deleteRunsByStatus()}>
-      <Text>This will queue every <strong>{bulkStatuses.map((status) => status[0]?.toUpperCase() + status.slice(1)).join(", ")}</strong> run in your history for deletion, including its generated media that has not been saved to the Media Library. Media saved to the library is kept. This applies across all Runs pages. Queued, running, awaiting-publication, and profile-photo runs will be skipped.</Text>
+      <Text>This will queue matching <strong>{bulkStatuses.map((status) => status === "awaiting_publish" ? "Awaiting publish" : status[0]?.toUpperCase() + status.slice(1)).join(", ")}</strong> runs across all Runs pages for deletion, including generated media not saved to the Media Library. Saved library media is kept. Any pending Instagram publication for an awaiting-publication run will be discarded. Queued, running, currently publishing, and profile-photo runs will be skipped.</Text>
     </ConfirmActionModal>
-    <Modal opened={selectedId !== null} onClose={() => setSelectedId(null)} title="Run details" size="xl" centered>
-      {!detail && !detailError ? <Group justify="center" p="xl"><Loader size="sm" /></Group> : detailError ? <Alert color="hiveError" title="Could not load run">{detailError}</Alert> : detail && <Stack gap="md">
-        <Group justify="space-between"><div><Text fw={650}>{detail.run.workflowSnapshotJson?.name ?? "Workflow"}</Text><Text size="xs" c="dimmed">Created {date(detail.run.createdAt)}</Text><Text size="xs" c="dimmed" mt={3}>{timingLabel(detail.run.startedAt, detail.run.finishedAt, now)}</Text></div><Group><Badge variant="light" color={statusColor(detail.run.status)}>{detail.run.status.replaceAll("_", " ")}</Badge>{active(detail.run.status) && <Button color="hiveError" variant="light" loading={cancellingId === detail.run.id} disabled={detail.run.status === "cancel_requested"} onClick={() => void stopRun(detail.run.id)}>Stop run</Button>}</Group></Group>
-        {detail.run.errorSummary && <Alert color={detail.run.status === "cancelled" ? "gray" : "hiveError"} title={detail.run.status === "cancelled" ? "Run stopped" : "Run failed"}>{detail.run.errorSummary}</Alert>}
-        {detail.publication && <Paper withBorder p="md"><Stack><Group justify="space-between"><Text fw={600}>{detail.publication.mediaKind === "video" ? "Instagram Reel" : "Instagram Post"}</Text><Badge color={statusColor(detail.publication.status)} variant="light">{detail.publication.status.replaceAll("_", " ")}</Badge></Group><ArtifactPreview artifactId={detail.publication.artifactId} label="Instagram media" mediaType={detail.publication.mediaKind === "video" ? "video/mp4" : "image/jpeg"} />
-          {detail.publication.status === "awaiting_review" ? <>{detail.publication.errorSummary && <Alert color="hiveError" title="Publication needs review">{detail.publication.errorSummary} Check Instagram before retrying in case the post was accepted but the response was lost.</Alert>}<Textarea label="Caption" maxLength={2200} autosize minRows={3} value={detail.publication.caption} onChange={(event) => { captionDirty.current = true; const caption = event.currentTarget.value; setDetail((current) => current?.publication ? { ...current, publication: { ...current.publication, caption } } : current); }} /><Group justify="flex-end"><Button variant="default" onClick={() => void updatePublication("save")}>Save caption</Button><Button color="hiveError" variant="light" onClick={() => void updatePublication("discard")}>Discard</Button><Button onClick={() => void updatePublication("publish")}>Publish now</Button></Group><Text size="xs" c="dimmed">Workflow generation is complete. Scheduled Jobs continue even while this publication needs review.</Text></> : detail.publication.status === "published" ? <Text size="sm" c="dimmed">Published successfully.</Text> : detail.publication.status === "discarded" ? <Text size="sm" c="dimmed">Publication discarded.</Text> : <Text size="sm" c="dimmed">Publication processing continues independently. Repeating Jobs can queue their next run after workflow generation finishes.</Text>}
-        </Stack></Paper>}
-        <div><Text fw={600} mb="xs">Node steps</Text>{detail.nodes.length ? <Stack gap="xs">{detail.nodes.map((node) => {
-          const label = node.nodeSnapshotJson?.name ?? node.nodeId;
-          const producedArtifact = node.outputJson?.artifactId
-            ? detail.artifacts.find((artifact) => artifact.id === node.outputJson?.artifactId)
-            : undefined;
-          return <Paper key={node.nodeId} withBorder p="sm">
-            <Group justify="space-between"><div><Text size="sm" fw={600}>{label}</Text><Text size="xs" c="dimmed">{node.nodeSnapshotJson?.kind === "processing" ? "Text Overlay" : nodeTypeLabel(node.nodeSnapshotJson?.modality ?? "input", node.parameters?.modelId ?? node.nodeSnapshotJson?.parameters?.modelId)}</Text><Text size="xs" c="dimmed" mt={3}>{timingLabel(node.startedAt, node.finishedAt, now)}</Text></div><Badge variant="light" color={statusColor(node.status)}>{node.status}</Badge></Group>
-            {node.nodeSnapshotJson?.kind === "input" && node.outputJson?.text && <Text size="sm" mt="xs" style={{ whiteSpace: "pre-wrap" }}>{node.outputJson.text}</Text>}
-            {node.nodeSnapshotJson?.kind === "model" && node.outputJson?.dataTypeId === "text" && node.outputJson.text && <Text size="sm" mt="xs" style={{ whiteSpace: "pre-wrap" }}>{node.outputJson.text}</Text>}
-            {node.nodeSnapshotJson?.kind === "input" && node.outputJson?.artifactId && <ArtifactPreview artifactId={node.outputJson.artifactId} label={label} mediaType={`${node.outputJson.dataTypeId}/unknown`} />}
-            {(node.nodeSnapshotJson?.kind === "model" || node.nodeSnapshotJson?.kind === "processing") && producedArtifact && <ArtifactPreview artifactId={producedArtifact.id} label={label} mediaType={producedArtifact.mediaType} />}
-            {node.errorSummary && <Text size="xs" c="hiveError.7" mt="xs">{node.errorSummary}</Text>}
-          </Paper>;
-        })}</Stack> : <Text size="sm" c="dimmed">No node steps recorded.</Text>}</div>
-        <div><Text fw={600} mb="xs">Generated outputs</Text>{downloadError && <Alert color="hiveError" mb="xs">{downloadError}</Alert>}{detail.artifacts.length ? <SimpleGrid cols={{ base: 1, sm: 2 }} spacing="sm">{detail.artifacts.map((artifact) => {
-          const node = detail.nodes.find((item) => item.nodeId === artifact.runNodeId);
-          const label = node?.nodeSnapshotJson?.name ?? artifact.displayName;
-          return <Paper key={artifact.id} withBorder p="sm"><Stack gap="xs"><Group justify="space-between" align="start"><div><Text size="sm" fw={600}>{label}</Text><Text size="xs" c="dimmed">{Math.ceil(artifact.byteSize / 1024)} KB · {date(artifact.createdAt)}</Text></div><Button variant="subtle" size="compact-sm" loading={downloadingId === artifact.id} onClick={() => void downloadArtifact(artifact)}>Download</Button></Group><ArtifactPreview artifactId={artifact.id} label={label} mediaType={artifact.mediaType} /></Stack></Paper>;
-        })}</SimpleGrid> : <Text size="sm" c="dimmed">Outputs will appear here when available.</Text>}</div>
-      </Stack>}
+    <Modal
+      opened={selectedId !== null}
+      onClose={() => setSelectedId(null)}
+      title="Run details"
+      size={1100}
+      centered
+      classNames={{ content: "run-details-modal", body: "run-details-modal-body" }}
+    >
+      {!detail && !detailError ? <Group justify="center" p="xl"><Loader size="sm" /></Group>
+        : detailError ? <Alert color="hiveError" title="Could not load run">{detailError}</Alert>
+          : detail && <RunDetailsInspector
+            detail={detail}
+            inspectorSelection={inspectorSelection}
+            now={now}
+            cancellingId={cancellingId}
+            stopRun={stopRun}
+            setInspectorSelection={setInspectorSelection}
+            captionDirty={captionDirty}
+            setDetail={setDetail}
+            updatePublication={updatePublication}
+            downloadError={downloadError}
+            setDownloadError={setDownloadError}
+            downloadingId={downloadingId}
+            downloadArtifact={downloadArtifact}
+          />}
     </Modal>
   </Stack>;
 }
+
 
 function TrashIcon() { return <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="m19 6-1 14H6L5 6"/><path d="M10 11v5M14 11v5"/></svg>; }
 function RetryIcon() { return <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M20 7v5h-5"/><path d="M4 17v-5h5"/><path d="M5.6 9a7 7 0 0 1 11.5-2L20 12"/><path d="M18.4 15a7 7 0 0 1-11.5 2L4 12"/></svg>; }

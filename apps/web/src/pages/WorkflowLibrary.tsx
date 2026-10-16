@@ -101,7 +101,7 @@ export function WorkflowLibrary({ onNavigate }: { onNavigate: (view: AppView) =>
   };
 
   const rows = result?.items.map((item) => <Table.Tr key={item.id}>
-    <Table.Td><Group gap="xs" wrap="nowrap"><Text fw={600}>{item.name}</Text>{item.needsAttention && <Tooltip label="Repair or update a custom node before running this workflow."><Badge color="hiveWarning" variant="light">Needs attention</Badge></Tooltip>}</Group></Table.Td>
+    <Table.Td><Group gap="xs" wrap="nowrap"><Text fw={600} size="sm">{item.name}</Text>{item.needsAttention && <Tooltip label="Repair or update a custom node before running this workflow."><Badge color="hiveWarning" variant="light">Needs attention</Badge></Tooltip>}</Group></Table.Td>
     <Table.Td><Text size="sm" c={item.description ? undefined : "dimmed"} lineClamp={2}>{item.description || "No description"}</Text></Table.Td>
     <Table.Td><Text size="sm">{item.nodeCount} {item.nodeCount === 1 ? "node" : "nodes"}</Text></Table.Td>
     <Table.Td><Text size="sm" c="dimmed">{formatDate(item.updatedAt)}</Text></Table.Td>
@@ -114,15 +114,15 @@ export function WorkflowLibrary({ onNavigate }: { onNavigate: (view: AppView) =>
   </Table.Tr>);
 
   return <Stack className="workspace-page" gap="lg">
-    <Group justify="space-between" align="end"><Stack gap={3}><Text className="page-eyebrow">Workspace</Text><Title order={1} className="page-title">Workflows</Title></Stack><Group><Button variant="light" onClick={() => onNavigate("models")}>Manage models</Button><Button onClick={openCreate}>Create workflow</Button></Group></Group>
+    <Group justify="flex-end" className="page-header-actions"><Button className="page-header-button" data-header-tone="neutral" variant="default" onClick={() => onNavigate("models")}>Manage models</Button><Button className="page-header-button" data-header-tone="primary" variant="default" onClick={openCreate}>Create workflow</Button></Group>
     {runError && <Alert color="hiveError" title="Could not start workflow" withCloseButton onClose={() => setRunError(null)}>{runError}</Alert>}
     {duplicateError && <Alert color="hiveError" title="Could not duplicate workflow" withCloseButton onClose={() => setDuplicateError(null)}>{duplicateError}</Alert>}
     {duplicateSuccess && <Alert color="hiveSuccess" withCloseButton onClose={() => setDuplicateSuccess(null)}>{duplicateSuccess}</Alert>}
     {loadError && <Alert color="hiveError" title="Workflow list unavailable">{loadError}</Alert>}
-    <Paper className="workspace-table-panel" withBorder>
+    <Paper className="inventory-list workspace-table-panel" withBorder radius="md">
       {loading ? <Group justify="center" p="xl"><Loader size="sm" /><Text size="sm" c="dimmed">Loading workflows…</Text></Group>
         : result?.total === 0 ? <Stack className="workspace-empty" align="center" gap="sm"><Badge color="hiveSky" variant="light">Workflow library</Badge><Title order={2} size="h3">No workflows yet</Title><Text c="dimmed" ta="center" maw={480}>Create a named workflow, add inputs and downloaded models, and arrange them as a connected flow.</Text><Button variant="light" onClick={openCreate}>Create your first workflow</Button></Stack>
-          : <><Table.ScrollContainer minWidth={760}><Table verticalSpacing="sm" highlightOnHover><Table.Thead><Table.Tr><Table.Th>Name</Table.Th><Table.Th>Description</Table.Th><Table.Th>Nodes</Table.Th><Table.Th>Updated</Table.Th><Table.Th><span className="sr-only">Actions</span></Table.Th></Table.Tr></Table.Thead><Table.Tbody>{rows}</Table.Tbody></Table></Table.ScrollContainer><PaginatedTableFooter total={result?.total ?? 0} itemName="workflow" page={page} totalPages={result?.totalPages ?? 0} onPageChange={setPage} /></>}
+          : <><Table.ScrollContainer minWidth={760}><Table className="inventory-table" highlightOnHover withRowBorders><Table.Thead><Table.Tr><Table.Th>Name</Table.Th><Table.Th>Description</Table.Th><Table.Th>Nodes</Table.Th><Table.Th>Updated</Table.Th><Table.Th><span className="sr-only">Actions</span></Table.Th></Table.Tr></Table.Thead><Table.Tbody>{rows}</Table.Tbody></Table></Table.ScrollContainer><PaginatedTableFooter total={result?.total ?? 0} itemName="workflow" page={page} totalPages={result?.totalPages ?? 0} onPageChange={setPage} /></>}
     </Paper>
     <Modal opened={formOpened} onClose={() => setFormOpened(false)} title="Create workflow" centered>
       <form onSubmit={(event) => void createWorkflow(event)}><Stack gap="md">{formError && <Alert color="hiveError" title="Could not create workflow">{formError}</Alert>}<><TextInput label="Name" placeholder="e.g. Create a video from a script" value={form.name} maxLength={100} onChange={(event) => { const name = event.currentTarget.value; setForm((current) => ({ ...current, name })); }} required autoFocus /><Textarea label="Description" placeholder="What should this workflow do?" value={form.description} maxLength={1000} onChange={(event) => { const description = event.currentTarget.value; setForm((current) => ({ ...current, description })); }} minRows={3} autosize /><Group justify="flex-end"><Button variant="default" type="button" onClick={() => setFormOpened(false)}>Cancel</Button><Button type="submit" loading={savingForm}>Create workflow</Button></Group></></Stack></form>

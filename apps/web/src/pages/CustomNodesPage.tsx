@@ -77,7 +77,7 @@ export function CustomNodesPage({ onNavigate }: { onNavigate: (view: AppView) =>
   }
 
   const rows = result?.items.map((item) => <Table.Tr key={item.id}>
-    <Table.Td><Text fw={600}>{item.name}</Text></Table.Td>
+    <Table.Td><Text fw={600} size="sm">{item.name}</Text></Table.Td>
     <Table.Td><Text size="sm" c={item.description ? undefined : "dimmed"} lineClamp={2}>{item.description || "No description"}</Text></Table.Td>
     <Table.Td><Text size="sm">{item.nodeCount} {item.nodeCount === 1 ? "node" : "nodes"}</Text></Table.Td>
     <Table.Td><Text size="sm">{item.directUsageCount} {item.directUsageCount === 1 ? "use" : "uses"}</Text></Table.Td>
@@ -92,12 +92,12 @@ export function CustomNodesPage({ onNavigate }: { onNavigate: (view: AppView) =>
   if (customNodeId) return <WorkflowEditor key={customNodeId} workflowId={customNodeId} customNodeEditor onClose={() => { window.location.hash = "custom-nodes"; }} onNavigate={onNavigate} />;
 
   return <Stack className="workspace-page" gap="lg">
-    <Group justify="space-between" align="end"><Stack gap={3}><Text className="page-eyebrow">Workspace</Text><Title order={1} className="page-title">Custom Nodes</Title></Stack><Button onClick={() => { setError(null); setName(""); setDescription(""); setCreateOpen(true); }}>Create custom node</Button></Group>
+    <Group justify="flex-end" className="page-header-actions"><Button className="page-header-button" data-header-tone="primary" variant="default" onClick={() => { setError(null); setName(""); setDescription(""); setCreateOpen(true); }}>Create custom node</Button></Group>
     {error && <Alert color="hiveError" title="Custom nodes">{error}</Alert>}
-    <Paper className="workspace-table-panel" withBorder>
+    <Paper className="inventory-list workspace-table-panel" withBorder radius="md">
       {loading ? <Group justify="center" p="xl"><Loader size="sm" /><Text size="sm" c="dimmed">Loading custom nodes…</Text></Group>
         : result?.total === 0 ? <Stack className="workspace-empty" align="center" gap="sm"><Badge color="hiveSky" variant="light">Reusable workflow logic</Badge><Title order={2} size="h3">No custom nodes yet</Title><Text c="dimmed" ta="center" maw={520}>Create a reusable node from a blank editor, then import workflows or build its logic inside.</Text><Button variant="light" onClick={() => setCreateOpen(true)}>Create your first custom node</Button></Stack>
-          : <><Table.ScrollContainer minWidth={980}><Table verticalSpacing="sm" highlightOnHover><Table.Thead><Table.Tr><Table.Th>Name</Table.Th><Table.Th>Description</Table.Th><Table.Th>Nodes</Table.Th><Table.Th>Used by</Table.Th><Table.Th>Updated</Table.Th><Table.Th>Status</Table.Th><Table.Th><span className="sr-only">Actions</span></Table.Th></Table.Tr></Table.Thead><Table.Tbody>{rows}</Table.Tbody></Table></Table.ScrollContainer><PaginatedTableFooter total={result?.total ?? 0} itemName="custom node" page={page} totalPages={result?.totalPages ?? 0} onPageChange={setPage} /></>}
+          : <><Table.ScrollContainer minWidth={980}><Table className="inventory-table" highlightOnHover withRowBorders><Table.Thead><Table.Tr><Table.Th>Name</Table.Th><Table.Th>Description</Table.Th><Table.Th>Nodes</Table.Th><Table.Th>Used by</Table.Th><Table.Th>Updated</Table.Th><Table.Th>Status</Table.Th><Table.Th><span className="sr-only">Actions</span></Table.Th></Table.Tr></Table.Thead><Table.Tbody>{rows}</Table.Tbody></Table></Table.ScrollContainer><PaginatedTableFooter total={result?.total ?? 0} itemName="custom node" page={page} totalPages={result?.totalPages ?? 0} onPageChange={setPage} /></>}
     </Paper>
     <Modal opened={createOpen} onClose={() => { if (!saving) setCreateOpen(false); }} title="Create custom node" centered><Stack><TextInput label="Name" value={name} onChange={(event) => setName(event.currentTarget.value)} maxLength={100} required /><Textarea label="Description" value={description} onChange={(event) => setDescription(event.currentTarget.value)} maxLength={1000} autosize minRows={2} /><Text size="sm" c="dimmed">This creates a blank custom node editor. You can import an existing workflow into it after creation.</Text><Group justify="flex-end"><Button variant="default" onClick={() => setCreateOpen(false)} disabled={saving}>Cancel</Button><Button onClick={() => void create()} loading={saving} disabled={!name.trim()}>Create and edit</Button></Group></Stack></Modal>
     <ConfirmActionModal opened={deleteTarget !== null} onClose={() => { if (!deleting) { setDeleteTarget(null); setImpact(null); } }} title="Delete custom node?" confirmLabel="Delete custom node" loading={deleting || !impact} onConfirm={() => void remove()}>

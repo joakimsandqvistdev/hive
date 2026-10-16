@@ -6,7 +6,6 @@ export function SignInRequiredPage({ loading = false }: { loading?: boolean }) {
 
   return (
     <Stack className="workspace-page" gap="lg">
-      <Stack gap={3}><Text className="page-eyebrow">Private workspace</Text><Title order={1} className="page-title">Sign in to continue</Title></Stack>
       <Paper className="workspace-empty sign-in-required" withBorder>
         {loading ? <Stack align="center" gap="sm"><Loader size="sm" color="hiveSky" /><Text c="dimmed">Checking your sign-in…</Text></Stack> : (
           <Stack gap="sm" maw={540}>
