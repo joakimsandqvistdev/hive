@@ -8,7 +8,7 @@ import { instagramPublishingContract, instagramPublishingSettingsSchema, process
 
 const nodeSchema = z.object({
   id: z.string().min(1).max(100),
-  kind: z.enum(["input", "model", "processing", "publishing"]),
+  kind: z.enum(["input", "model", "processing", "publishing", "custom"]),
   label: z.string().trim().min(1).max(100),
   modelId: z.string().max(100).nullable().optional(),
   dataTypeId: z.enum(["text", "image", "audio", "video"]).nullable().optional(),
@@ -66,9 +66,16 @@ export const workflowDefinitionSchema = z.object({ nodes: z.array(nodeSchema).ma
 
 const metadataSchema = z.object({ name: z.string().trim().min(1).max(100), description: z.string().trim().max(1000).default("") });
 export const createWorkflowSchema = metadataSchema;
+export const customNodeMetadataSchema = metadataSchema;
 export const exportWorkflowSelectionSchema = metadataSchema.extend({ definition: workflowDefinitionSchema }).strict()
   .refine((value) => value.definition.nodes.length > 0, { path: ["definition", "nodes"], message: "Select at least one node." });
 export const saveWorkflowSchema = metadataSchema.extend({ definition: workflowDefinitionSchema });
+export const saveCustomNodeSchema = saveWorkflowSchema.extend({
+  interfaceSelection: z.object({
+    inputs: z.array(z.object({ nodeId: z.string().min(1).max(100), portKey: z.string().min(1).max(100), label: z.string().trim().min(1).max(100).optional() }).strict()).max(500),
+    outputs: z.array(z.object({ nodeId: z.string().min(1).max(100), portKey: z.string().min(1).max(100), label: z.string().trim().min(1).max(100).optional() }).strict()).max(500),
+  }).strict().optional(),
+}).strict();
 export const startRunSchema = z.object({});
 
 export type WorkflowDefinition = z.infer<typeof workflowDefinitionSchema>;
@@ -76,9 +83,9 @@ export type WorkflowNodeRecord = WorkflowDefinition["nodes"][number] & { paramet
 export type WorkflowEdgeRecord = WorkflowDefinition["edges"][number] & { sourceHandle: string; targetHandle: string };
 type UploadedInput = { id: string; dataTypeId: string; runId: string | null; savedToLibrary?: boolean; sourceWorkflowId?: string | null };
 export type DefinitionValidation = { ok: true; nodes: WorkflowNodeRecord[]; edges: WorkflowEdgeRecord[] }
-  | { ok: false; error: "invalid_parameters" | "invalid_model_contract" | "invalid_input" | "incompatible_data_types" | "invalid_input_counts" };
+  | { ok: false; error: "invalid_parameters" | "invalid_model_contract" | "invalid_input" | "incompatible_data_types" | "invalid_input_counts" | "custom_node_missing" };
 
-export function validateWorkflowDefinition(definition: WorkflowDefinition, catalog: ModelIoContract[], uploads: UploadedInput[] = [], dataTypeIds = ["text", "image", "audio", "video"], workflowId?: string) : DefinitionValidation {
+export function validateWorkflowDefinition(definition: WorkflowDefinition, catalog: ModelIoContract[], uploads: UploadedInput[] = [], dataTypeIds = ["text", "image", "audio", "video"], workflowId?: string, customNodeContracts: ModelIoContract[] = [], allowOpenPorts = false) : DefinitionValidation {
   const catalogById = new Map(catalog.map((model) => [model.modelId, model]));
   const uploadsById = new Map(uploads.map((input) => [input.id, input]));
   const contracts = new Map<string, ModelIoContract>();
@@ -111,12 +118,26 @@ export function validateWorkflowDefinition(definition: WorkflowDefinition, catal
       if (!parsed.success) return { ok: false, error: "invalid_parameters" };
       parameters = parsed.data;
       contracts.set(node.id, contract);
-    } else {
+    } else if (node.kind === "publishing") {
       const contract = instagramPublishingContract(node.parameters ?? {});
       const parsed = instagramPublishingSettingsSchema.safeParse(node.parameters ?? {});
       if (!contract || !parsed.success || node.modelId || node.dataTypeId || node.artifactId || node.inputText) return { ok: false, error: "invalid_model_contract" };
       if (definition.nodes.filter((item) => item.kind === "publishing").length > 1) return { ok: false, error: "invalid_input_counts" };
       parameters = parsed.data;
+      contracts.set(node.id, contract);
+    } else {
+      const customNodeId = node.parameters?.customNodeId;
+      if (typeof customNodeId !== "string" || !/^[0-9a-f-]{36}$/i.test(customNodeId) || node.modelId || node.dataTypeId || node.artifactId || node.inputText) return { ok: false, error: "invalid_model_contract" };
+      const current = customNodeContracts.find((item) => item.modelId === `custom-node:${customNodeId}`);
+      const snapshot = node.parameters?.customInterfaceSnapshot;
+      let savedContract: ModelIoContract | undefined;
+      if (snapshot && typeof snapshot === "object") {
+        const ports = snapshot as { inputs?: ModelIoContract["inputs"]; outputs?: ModelIoContract["outputs"] };
+        if (Array.isArray(ports.inputs) && Array.isArray(ports.outputs)) savedContract = { modelId: `custom-node:${customNodeId}`, name: node.label, modality: "custom", inputs: ports.inputs, outputs: ports.outputs, inputGroups: [] };
+      }
+      const contract = savedContract ?? current;
+      if (!contract) return { ok: false, error: "custom_node_missing" };
+      parameters = { ...node.parameters, customNodeId };
       contracts.set(node.id, contract);
     }
     nodes.push({ ...node, parameters });
@@ -143,11 +164,11 @@ export function validateWorkflowDefinition(definition: WorkflowDefinition, catal
     const nodeCounts = counts.get(node.id) ?? new Map<string, number>();
     for (const port of contract.inputs) {
       const count = nodeCounts.get(port.portKey) ?? 0;
-      if (count < port.minCount || count > port.maxCount) return { ok: false, error: "invalid_input_counts" };
+      if ((!allowOpenPorts || count > 0) && (count < port.minCount || count > port.maxCount)) return { ok: false, error: "invalid_input_counts" };
     }
     for (const group of contract.inputGroups) {
       const count = group.portKeys.reduce((total, key) => total + (nodeCounts.get(key) ?? 0), 0);
-      if (count < group.minCount || count > group.maxCount) return { ok: false, error: "invalid_input_counts" };
+      if ((!allowOpenPorts || count > 0) && (count < group.minCount || count > group.maxCount)) return { ok: false, error: "invalid_input_counts" };
     }
   }
   return { ok: true, nodes, edges };

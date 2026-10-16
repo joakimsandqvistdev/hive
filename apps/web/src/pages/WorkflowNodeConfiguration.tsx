@@ -5,27 +5,44 @@ import { ImageModelParametersFields, type ImageModelParameters } from "../compon
 import { VideoModelParametersFields, type VideoModelParameters } from "../components/VideoModelParametersFields";
 import { AudioModelParametersFields, type AudioModelParameters } from "../components/AudioModelParametersFields";
 import { TextModelParametersFields, type TextModelParameters } from "../components/TextModelParametersFields";
-import { formatModelPortCardinality } from "../modelIoTypes";
+import { formatModelPortCardinality, type ModelIoPort } from "../modelIoTypes";
 import type { DataType, WorkflowNode, WorkflowNodeData } from "./workflowTypes";
 import { stillImageVideoDefaults, textOverlayDefaults } from "./processingNodeTypes";
 
-export function WorkflowNodeConfiguration({ selected, types, instagramAccounts, downloadedModelIds, mediaItems, uploading, onUpdate, onUpload, onImportUrl }: {
+export function WorkflowNodeConfiguration({ selected, types, instagramAccounts, downloadedModelIds, mediaItems, customNodeOptions, uploading, onUpdate, onUpload, onImportUrl, onReplaceCustomNode }: {
   selected?: WorkflowNode;
   types: DataType[];
   instagramAccounts: Array<{ id: string; username: string }>;
   downloadedModelIds: Set<string>;
   mediaItems: Array<{ id: string; dataTypeId: string; displayName: string; savedToLibrary: boolean }>;
+  customNodeOptions: Array<{ id: string; name: string; description: string; needsAttention?: boolean; interface: { inputs: ModelIoPort[]; outputs: ModelIoPort[]; signature: string } }>;
   uploading: boolean;
   onUpdate: (patch: Partial<WorkflowNodeData>) => void;
   onUpload: (file: File | null) => void;
   onImportUrl: (url: string) => void;
+  onReplaceCustomNode: (id: string) => void;
 }) {
   const [sourceUrl, setSourceUrl] = useState("");
   if (!selected) return <Text size="sm" c="dimmed">Select a node to edit its data or model settings. Connect outputs to matching model input datatypes.</Text>;
   return <Stack>
-    <Title order={2} size="h4">{selected.data.kind === "input" ? "Input node" : selected.data.kind === "processing" ? "Processing node" : selected.data.kind === "publishing" ? "Publishing node" : "Model node"}</Title>
+    <Title order={2} size="h4">{selected.data.kind === "input" ? "Input node" : selected.data.kind === "processing" ? "Processing node" : selected.data.kind === "publishing" ? "Publishing node" : selected.data.kind === "custom" ? "Custom node" : "Model node"}</Title>
     <TextInput label="Node name" value={selected.data.label} maxLength={100} onChange={(event) => onUpdate({ label: event.currentTarget.value })} />
-    {selected.data.kind === "input" ? <>
+    {selected.data.kind === "custom" ? (() => {
+      const customNodeId = String(selected.data.parameters.customNodeId ?? "");
+      const current = customNodeOptions.find((item) => item.id === customNodeId);
+      const snapshot = selected.data.parameters.customInterfaceSnapshot as { signature?: string } | undefined;
+      const stale = Boolean(current && snapshot?.signature !== current.interface.signature);
+      return <>
+        {!current && <Alert color="hiveError" title="Custom node missing">This node refers to a custom node that was deleted. Restore that custom node or remove this placeholder to clear the workflow’s attention status.</Alert>}
+        {stale && <Alert color="hiveWarning" title="Interface changed">This custom node’s inputs or outputs have changed. Update its interface; Hive will reconnect exact name-and-datatype matches automatically.</Alert>}
+        {current?.needsAttention && !stale && <Alert color="hiveWarning" title="Nested custom node needs attention">Open Custom Nodes and repair the dependencies inside “{current.name}” before running this workflow.</Alert>}
+        {current && <Text size="sm" fw={500}>Using {current.name}</Text>}
+        {stale && <Button variant="light" onClick={() => onReplaceCustomNode(customNodeId)}>Update to latest interface</Button>}
+        {current?.description && <Text size="sm" c="dimmed">{current.description}</Text>}
+        {selected.data.inputPorts.map((port) => <Text key={port.portKey} size="sm">Input · {port.label}: {port.dataTypeLabel} {port.minCount > 0 ? "· required" : "· optional"}</Text>)}
+        {selected.data.outputPorts.map((port) => <Text key={port.portKey} size="sm">Output · {port.label}: {port.dataTypeLabel}</Text>)}
+      </>;
+    })() : selected.data.kind === "input" ? <>
       <Text size="sm">Datatype: {types.find((type) => type.id === selected.data.dataTypeId)?.label}</Text>
       {selected.data.dataTypeId === "text" ? <Textarea label="Text" value={selected.data.inputText} onChange={(event) => onUpdate({ inputText: event.currentTarget.value })} maxLength={8000} minRows={6} autosize /> : <>
         <Select label="Choose from Media Library" placeholder="Select saved media" clearable value={selected.data.artifactId ?? null} data={mediaItems.filter((item) => (item.savedToLibrary || item.id === selected.data.artifactId) && item.dataTypeId === selected.data.dataTypeId).map((item) => ({ value: item.id, label: item.displayName }))} onChange={(artifactId) => onUpdate({ artifactId, inputText: "" })} />

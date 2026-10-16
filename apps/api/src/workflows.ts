@@ -7,6 +7,7 @@ import { createWorkflowSchema, exportWorkflowSelectionSchema, saveWorkflowSchema
 import { loadDataTypes, loadModelIoContracts } from "./modelContracts.js";
 import { createWorkflowRunInTransaction, definitionFor, workflowRunErrorMessage } from "./workflowRunService.js";
 import { parsePagination, totalPages } from "./pagination.js";
+import { hasOutdatedCustomNodeReferences, loadCustomNodeCatalog, snapshotCustomNodeReferences } from "./customNodeCatalog.js";
 
 const router = Router();
 function userId(res: import("express").Response) { return res.locals.userId as string; }
@@ -17,9 +18,9 @@ router.get("/", async (req, res, next) => {
   try {
     const [items, totalRows] = await Promise.all([
       db.select().from(workflows)
-        .where(and(eq(workflows.userId, ownerId), sql`${workflows.archivedAt} is null`))
+        .where(and(eq(workflows.userId, ownerId), eq(workflows.isCustomNode, false), sql`${workflows.archivedAt} is null`))
         .orderBy(sql`${workflows.updatedAt} desc`, sql`${workflows.id} desc`).limit(pageSize).offset(offset),
-      db.select({ total: count() }).from(workflows).where(and(eq(workflows.userId, ownerId), sql`${workflows.archivedAt} is null`)),
+      db.select({ total: count() }).from(workflows).where(and(eq(workflows.userId, ownerId), eq(workflows.isCustomNode, false), sql`${workflows.archivedAt} is null`)),
     ]);
     const total = totalRows[0]?.total ?? 0;
     const nodeRows = items.length ? await db.select({ workflowId: workflowNodes.workflowId }).from(workflowNodes).where(inArray(workflowNodes.workflowId, items.map((workflow) => workflow.id))) : [];
@@ -52,7 +53,7 @@ router.post("/:id/duplicate", async (req, res, next) => {
   const ownerId = userId(res);
   try {
     const duplicate = await db.transaction(async (tx) => {
-      const [source] = await tx.select().from(workflows).where(and(eq(workflows.id, req.params.id), eq(workflows.userId, ownerId), isNull(workflows.archivedAt))).limit(1).for("share");
+      const [source] = await tx.select().from(workflows).where(and(eq(workflows.id, req.params.id), eq(workflows.userId, ownerId), eq(workflows.isCustomNode, false), isNull(workflows.archivedAt))).limit(1).for("share");
       if (!source) return null;
       const [copy] = await tx.insert(workflows).values({
         userId: ownerId,
@@ -79,7 +80,7 @@ router.post("/:id/export-selection", async (req, res, next) => {
   const ownerId = userId(res);
   try {
     const result = await db.transaction(async (tx) => {
-      const [source] = await tx.select().from(workflows).where(and(eq(workflows.id, req.params.id), eq(workflows.userId, ownerId), isNull(workflows.archivedAt))).limit(1).for("share");
+      const [source] = await tx.select().from(workflows).where(and(eq(workflows.id, req.params.id), eq(workflows.userId, ownerId), eq(workflows.isCustomNode, false), isNull(workflows.archivedAt))).limit(1).for("share");
       if (!source) return null;
       const selectedNodes = parsed.data.definition.nodes;
       const selectedEdges = parsed.data.definition.edges;
@@ -121,7 +122,7 @@ router.post("/:id/export-selection", async (req, res, next) => {
 
 router.get("/:id", async (req, res, next) => {
   try {
-    const [workflow] = await db.select().from(workflows).where(and(eq(workflows.id, req.params.id), eq(workflows.userId, userId(res)))).limit(1);
+    const [workflow] = await db.select().from(workflows).where(and(eq(workflows.id, req.params.id), eq(workflows.userId, userId(res)), eq(workflows.isCustomNode, false))).limit(1);
     if (!workflow) { res.status(404).json({ error: "workflow_not_found" }); return; }
     const [nodes, edges] = await Promise.all([
       db.select().from(workflowNodes).where(eq(workflowNodes.workflowId, workflow.id)),
@@ -137,20 +138,21 @@ router.put("/:id", async (req, res, next) => {
   if (!parsed.success) { res.status(400).json({ error: "invalid_workflow", details: parsed.error.flatten() }); return; }
   const ownerId = userId(res);
   try {
-    const [contracts, types] = await Promise.all([loadModelIoContracts(), loadDataTypes()]);
+    const [contracts, types, customCatalog] = await Promise.all([loadModelIoContracts(), loadDataTypes(), loadCustomNodeCatalog(ownerId)]);
     const result = await db.transaction(async (tx) => {
-      const [existing] = await tx.select().from(workflows).where(and(eq(workflows.id, req.params.id), eq(workflows.userId, ownerId))).limit(1).for("update");
+      const [existing] = await tx.select().from(workflows).where(and(eq(workflows.id, req.params.id), eq(workflows.userId, ownerId), eq(workflows.isCustomNode, false))).limit(1).for("update");
       if (!existing) return null;
-      const ids = parsed.data.definition.nodes.flatMap((node) => node.artifactId ? [node.artifactId] : []);
+      const definition = snapshotCustomNodeReferences(parsed.data.definition, customCatalog);
+      const ids = definition.nodes.flatMap((node) => node.artifactId ? [node.artifactId] : []);
       const uploads = ids.length ? await tx.select().from(artifacts).where(and(eq(artifacts.userId, ownerId), inArray(artifacts.id, ids))) : [];
-      const validation = validateWorkflowDefinition(parsed.data.definition, contracts, uploads, types.map((type) => type.id), existing.id);
+      const validation = validateWorkflowDefinition(definition, contracts, uploads, types.map((type) => type.id), existing.id, customCatalog.map((item) => item.contract));
       if (!validation.ok) return validation.error;
       for (const node of validation.nodes.filter((item) => item.kind === "publishing")) {
         const [account] = await tx.select({ id: instagramAccounts.id }).from(instagramAccounts)
           .where(and(eq(instagramAccounts.id, String(node.parameters.accountId)), eq(instagramAccounts.userId, ownerId))).limit(1);
         if (!account) return "instagram_account_not_connected";
       }
-      const [updated] = await tx.update(workflows).set({ name: parsed.data.name, description: parsed.data.description, updatedAt: new Date() }).where(eq(workflows.id, existing.id)).returning();
+      const [updated] = await tx.update(workflows).set({ name: parsed.data.name, description: parsed.data.description, needsAttention: hasOutdatedCustomNodeReferences(definition, customCatalog), updatedAt: new Date() }).where(eq(workflows.id, existing.id)).returning();
       await tx.delete(workflowEdges).where(eq(workflowEdges.workflowId, existing.id));
       await tx.delete(workflowNodes).where(eq(workflowNodes.workflowId, existing.id));
       if (validation.nodes.length) await tx.insert(workflowNodes).values(validation.nodes.map((node) => ({
@@ -189,7 +191,7 @@ router.delete("/:id", async (req, res, next) => {
   try {
     const result = await db.transaction(async (tx) => {
       const [workflow] = await tx.select({ id: workflows.id }).from(workflows)
-        .where(and(eq(workflows.id, req.params.id), eq(workflows.userId, userId(res)))).limit(1).for("update");
+        .where(and(eq(workflows.id, req.params.id), eq(workflows.userId, userId(res)), eq(workflows.isCustomNode, false))).limit(1).for("update");
       if (!workflow) return { kind: "not_found" as const };
       const [usage] = await tx.select({ total: sql<number>`count(*)` }).from(runs)
         .where(and(eq(runs.workflowId, workflow.id), inArray(runs.status, ["queued", "running", "cancel_requested"])));

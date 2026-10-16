@@ -3,6 +3,7 @@ import { and, eq } from "drizzle-orm";
 import { db } from "./db.js";
 import { models } from "./schema.js";
 import { loadDataTypes, loadModelIoContracts } from "./modelContracts.js";
+import { loadCustomNodeCatalog } from "./customNodeCatalog.js";
 
 const router = Router();
 const modelRunnerUrl = (process.env.MODEL_RUNNER_URL ?? "http://127.0.0.1:8188").replace(/\/$/, "");
@@ -28,7 +29,10 @@ router.get("/", async (_req, res) => {
 });
 
 router.get("/contracts", async (_req, res, next) => {
-  try { res.json({ models: await loadModelIoContracts(), dataTypes: await loadDataTypes() }); }
+  try {
+    const [models, dataTypes, customNodes] = await Promise.all([loadModelIoContracts(), loadDataTypes(), loadCustomNodeCatalog(res.locals.userId as string)]);
+    res.json({ models, dataTypes, customNodes: customNodes.map(({ id, name, description, needsAttention, interface: nodeInterface, contract }) => ({ id, name, description, needsAttention, interface: nodeInterface, contract })) });
+  }
   catch (error) { next(error); }
 });
 

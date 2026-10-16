@@ -5,6 +5,7 @@ import type { AppView } from "../navigation/navigationState";
 const viewTitles: Record<AppView, string> = {
   home: "Home",
   workflows: "Workflows",
+  "custom-nodes": "Custom Nodes",
   jobs: "Jobs",
   runs: "Runs",
   models: "Models",

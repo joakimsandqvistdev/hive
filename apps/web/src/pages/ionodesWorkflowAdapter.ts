@@ -1,5 +1,5 @@
 import { addNode, createGraph, type CompatibilityRule, type GraphDocument, type GraphNode as IonodesNode } from "ionodes";
-import type { ModelIoContract } from "../modelIoTypes";
+import type { ModelIoContract, ModelIoPort } from "../modelIoTypes";
 import type { DataType, Definition, NodeDefinition, WorkflowNode } from "./workflowTypes";
 import { instagramPublishingContract, stillImageVideoContract, textOverlayContract } from "./processingNodeTypes";
 
@@ -22,6 +22,8 @@ type WorkflowMetadata = {
   parameters: Record<string, unknown>;
 };
 
+type CustomInterfaceSnapshot = { inputs?: Array<ModelIoPort & { boundaryNodeId?: string; boundaryPortKey?: string }>; outputs?: Array<ModelIoPort & { boundaryNodeId?: string; boundaryPortKey?: string }> };
+
 const datatypeColors: Record<string, string> = {
   text: "#63d5b0",
   image: "#b18cff",
@@ -39,11 +41,19 @@ function colorForDatatype(dataTypeId: string) {
 
 function portsForNode(node: NodeDefinition, contracts: ModelIoContract[], types: DataType[]) {
   const contract = contracts.find((item) => item.modelId === node.modelId);
+  const customId = typeof node.parameters.customNodeId === "string" ? node.parameters.customNodeId : "";
+  const customContract = contracts.find((item) => item.modelId === `custom-node:${customId}`);
+  const snapshot = node.parameters.customInterfaceSnapshot as CustomInterfaceSnapshot | undefined;
+  const savedCustomContract = snapshot && Array.isArray(snapshot.inputs) && Array.isArray(snapshot.outputs) ? {
+    modelId: `custom-node:${customId}`, name: customContract?.name ?? node.label, modality: "custom" as const,
+    inputs: snapshot.inputs, outputs: snapshot.outputs, inputGroups: [],
+  } : undefined;
   const processing = node.kind === "processing" ? node.parameters.operationId === "still-image-video" ? stillImageVideoContract : node.parameters.operationId === "text-overlay" ? textOverlayContract : undefined : undefined;
   const publishing = node.kind === "publishing" ? instagramPublishingContract(String(node.parameters.operationId ?? "")) : undefined;
   const dataType = types.find((item) => item.id === node.dataTypeId);
-  const inputs = node.kind === "model" ? contract?.inputs ?? [] : node.kind === "processing" ? processing?.inputs ?? [] : node.kind === "publishing" ? publishing?.inputs ?? [] : [];
-  const outputs = node.kind === "model" ? contract?.outputs ?? [] : node.kind === "processing" ? processing?.outputs ?? [] : node.kind === "publishing" ? publishing?.outputs ?? [] : dataType ? [{
+  const effectiveContract = node.kind === "custom" ? savedCustomContract ?? customContract : contract ?? processing ?? publishing;
+  const inputs = node.kind === "custom" ? effectiveContract?.inputs ?? [] : node.kind === "model" ? contract?.inputs ?? [] : node.kind === "processing" ? processing?.inputs ?? [] : node.kind === "publishing" ? publishing?.inputs ?? [] : [];
+  const outputs = node.kind === "custom" ? effectiveContract?.outputs ?? [] : node.kind === "model" ? contract?.outputs ?? [] : node.kind === "processing" ? processing?.outputs ?? [] : node.kind === "publishing" ? publishing?.outputs ?? [] : dataType ? [{
     direction: "output" as const,
     portKey: "output",
     dataTypeId: dataType.id,
@@ -55,14 +65,14 @@ function portsForNode(node: NodeDefinition, contracts: ModelIoContract[], types:
     maxCount: 1,
     sortOrder: 0,
   }] : [];
-  return { inputs, outputs, contract: contract ?? processing ?? publishing };
+  return { inputs, outputs, contract: node.kind === "custom" ? effectiveContract : contract ?? processing ?? publishing };
 }
 
 function toIonodesNode(node: NodeDefinition, contracts: ModelIoContract[], types: DataType[]): IonodesNode {
   const { inputs, outputs, contract } = portsForNode(node, contracts, types);
   const description = node.kind === "input"
     ? node.dataTypeId === "text" ? "Text input" : node.artifactId ? "Media selected" : "Input not set"
-    : node.kind === "processing" ? `Processing · ${contract?.name ?? "Operation"}` : node.kind === "publishing" ? `Publishing · ${contract?.name ?? "Instagram"}` : contract?.name ?? "Model";
+    : node.kind === "processing" ? `Processing · ${contract?.name ?? "Operation"}` : node.kind === "publishing" ? `Publishing · ${contract?.name ?? "Instagram"}` : node.kind === "custom" ? `Custom node · ${contract?.name ?? "Missing custom node"}` : contract?.name ?? "Model";
   return {
     id: node.id,
     title: node.label,
@@ -141,7 +151,7 @@ export function toIonodesGraph(definition: Definition, contracts: ModelIoContrac
 
 function workflowMetadata(node: IonodesNode): WorkflowMetadata {
   const metadata = node.metadata as Partial<WorkflowMetadata> | undefined;
-  if ((metadata?.kind !== "input" && metadata?.kind !== "model" && metadata?.kind !== "processing" && metadata?.kind !== "publishing") || typeof metadata.parameters !== "object" || metadata.parameters === null) {
+  if ((metadata?.kind !== "input" && metadata?.kind !== "model" && metadata?.kind !== "processing" && metadata?.kind !== "publishing" && metadata?.kind !== "custom") || typeof metadata.parameters !== "object" || metadata.parameters === null) {
     throw new Error(`Node “${node.title}” is missing Hive workflow data.`);
   }
   return {
@@ -173,7 +183,7 @@ function portFromConnector(connector: IonodesNode["connectors"][number]) {
 
 export function toWorkflowNode(node: IonodesNode, contracts: ModelIoContract[]): WorkflowNode {
   const metadata = workflowMetadata(node);
-  const contract = contracts.find((item) => item.modelId === metadata.modelId);
+  const contract = contracts.find((item) => item.modelId === (metadata.kind === "custom" ? `custom-node:${String(metadata.parameters.customNodeId ?? "")}` : metadata.modelId));
   return {
     id: node.id,
     position: node.position,

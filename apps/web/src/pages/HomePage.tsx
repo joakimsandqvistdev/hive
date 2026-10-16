@@ -10,7 +10,7 @@ export function HomePage({ onNavigate }: { onNavigate: (view: AppView) => void }
         <Stack gap="xs">
           <Title order={2} className="welcome-title">Build workflows from models, inputs, and processing nodes.</Title>
           <Text className="welcome-description">
-            Build workflows from typed inputs, downloadable AI models, and deterministic Processing operations. Overlay text on images or turn a still image into a 9:16 MP4 with optional soundtrack. Manage uploaded and generated files in the Media Library, publish Instagram posts and Reels, and schedule workflows as Jobs.
+            Build workflows from typed inputs, downloadable AI models, reusable Custom Nodes with named public inputs and outputs, and deterministic Processing operations. Edit custom node logic once and reuse it across workflows, with interface changes flagged for attention. Overlay text on images or turn a still image into a 9:16 MP4 with optional soundtrack. Manage uploaded and generated files in the Media Library, publish Instagram posts and Reels, and schedule workflows as Jobs.
           </Text>
         </Stack>
         {!user && <Button w="fit-content" onClick={openLoginModal}>Log in to get started</Button>}
@@ -37,6 +37,9 @@ export function HomePage({ onNavigate }: { onNavigate: (view: AppView) => void }
         </Paper>
         <Paper className="workspace-shortcut" withBorder onClick={() => onNavigate("models")} role="button" tabIndex={0} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") onNavigate("models"); }}>
           <Text fw={600}>Models</Text><Text size="sm" c="dimmed">Check requirements and download supported image models to the local runner.</Text><Button variant="subtle" onClick={(event) => { event.stopPropagation(); onNavigate("models"); }}>Browse models</Button>
+        </Paper>
+        <Paper className="workspace-shortcut" withBorder onClick={() => onNavigate("custom-nodes")} role="button" tabIndex={0} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") onNavigate("custom-nodes"); }}>
+          <Text fw={600}>Custom Nodes</Text><Text size="sm" c="dimmed">Create reusable workflow logic, choose and name its public inputs and outputs, and update its implementation in one place.</Text><Button variant="subtle" onClick={(event) => { event.stopPropagation(); onNavigate("custom-nodes"); }}>Manage custom nodes</Button>
         </Paper>
         <Paper className="workspace-shortcut" withBorder onClick={() => onNavigate("workflows")} role="button" tabIndex={0} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") onNavigate("workflows"); }}>
           <Text fw={600}>Workflows</Text><Text size="sm" c="dimmed">Connect typed inputs, AI models, and Processing operations; export selected node groups or import complete workflows to reuse a setup.</Text><Button variant="subtle" onClick={(event) => { event.stopPropagation(); onNavigate("workflows"); }}>Browse workflows</Button>
