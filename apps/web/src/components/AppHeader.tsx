@@ -11,6 +11,7 @@ const viewTitles: Record<AppView, string> = {
   models: "Models",
   accounts: "Accounts",
   media: "Media Library",
+  "webhook-manager": "Webhook Manager",
   licenses: "Open-source licenses",
 };
 

@@ -31,3 +31,16 @@
 
 - Use Hive's shared `ConfirmActionModal` for confirmations, including destructive actions and actions with external side effects. Do not use native browser dialogs such as `window.confirm`, `window.alert`, or `window.prompt`; they interrupt the application flow and do not match Hive's design system.
 - State the action and its consequences clearly in the modal, use a specific confirm button label, and provide a cancel action. For destructive actions, use the destructive styling and explain what will be removed or affected.
+
+## Workspace inventory tables
+
+- Use the shared `inventory-table` typography and table surfaces for Models, Media Library, Workflows, Custom Nodes, Jobs, Runs, and Webhook Manager. Primary names use consistent medium emphasis (`600`) at the small body size; secondary metadata stays smaller and dimmed.
+- For paged lists, place the displayed item range and total (for example, `11-20 of 42 workflows`) at the bottom left of the table card and the pagination controls at the bottom right. Use `PaginatedTableFooter` rather than custom pagination markup.
+- Detail or activity tables should reuse the same compact headers, row separators, and text hierarchy as their parent inventory table.
+## Selection details drawers
+
+- Keep inventory lists full width when a selected item needs a detail view. Open its details in a right-side Mantine Drawer so list rows retain useful column width.
+- Use the same right-side drawer pattern for selected-node configuration in both Workflow and Custom Node editors. Keep the canvas full width beneath the drawer and retain the selected-node highlight.
+- Use one consistent drawer transition everywhere: `transitionProps={{ transition: "slide-left", duration: 180 }}` for right-side drawers. Keep drawers mounted while closed when needed so their exit transition can complete.
+- Keep configuration drawers compact like the webhook setup modal: use small body spacing, compact input heights and labels, and restrained vertical gaps while preserving enough room for readable helper text and complex controls.
+- On narrow screens, let drawers use the available viewport width. Keep close and Escape behavior available and do not alter the workflow canvas theme or node styling as part of drawer work.

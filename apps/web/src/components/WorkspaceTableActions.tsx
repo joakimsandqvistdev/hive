@@ -1,8 +1,8 @@
 import type { ReactNode } from "react";
 import { ActionIcon, Group, Tooltip } from "@mantine/core";
 
-export function WorkspaceTableActions({ children }: { children: ReactNode }) {
-  return <Group gap={4} wrap="nowrap" justify="flex-end" w="100%">{children}</Group>;
+export function WorkspaceTableActions({ children, className }: { children: ReactNode; className?: string }) {
+  return <Group className={className} gap={4} wrap="nowrap" justify="flex-end" w="100%">{children}</Group>;
 }
 
 export function WorkspaceTableAction({
@@ -39,7 +39,19 @@ export function PlayIcon() {
   return <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M8 5.5v13l10-6.5-10-6.5Z" fill="currentColor" /></svg>;
 }
 
+export function PauseIcon() {
+  return <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M8 5v14M16 5v14" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" /></svg>;
+}
+
+export function ActivityIcon() {
+  return <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="8.5" stroke="currentColor" strokeWidth="1.7" /><path d="M12 7v5l3.2 2" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" /></svg>;
+}
+
 export function DuplicateIcon() {
+  return <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2" stroke="currentColor" strokeWidth="1.7"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"/></svg>;
+}
+
+export function CopyIcon() {
   return <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2" stroke="currentColor" strokeWidth="1.7"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"/></svg>;
 }
 

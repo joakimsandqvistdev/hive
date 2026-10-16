@@ -10,7 +10,7 @@ const capabilities = [
   { icon: "media", title: "Media Library", description: "Upload, organize, and reuse assets across workflows." },
   { icon: "publish", title: "Instagram publishing", description: "Publish posts and Reels automatically or after review." },
   { icon: "jobs", title: "Jobs and Runs", description: "Schedule repeat runs, track progress, receive completion alerts, and delete finished runs without interrupting active work." },
-  { icon: "webhook", title: "Secure webhook triggers", description: "Start workflows from signed events with stable, nested text input mappings." },
+  { icon: "webhook", title: "Secure webhook triggers", description: "Create signed triggers, search by workflow, and review delivery history." },
 ] as const;
 
 export function HomePage({ onNavigate }: { onNavigate: (view: AppView) => void }) {

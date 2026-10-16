@@ -17,7 +17,7 @@ const mappingSchema = z.array(z.discriminatedUnion("source", [
   z.object({ nodeId: z.string().min(1).max(5000), source: z.literal("payload"), path: z.string().min(1).max(200) }).strict(),
   z.object({ nodeId: z.string().min(1).max(5000), source: z.literal("library"), artifactId: z.string().uuid() }).strict(),
 ])).max(100);
-const createSchema = z.object({ name: z.string().trim().min(1).max(100), inputMappings: mappingSchema }).strict();
+const createSchema = z.object({ name: z.string().trim().min(1).max(100), inputMappings: mappingSchema, enabled: z.boolean().optional() }).strict();
 const updateSchema = z.object({ name: z.string().trim().min(1).max(100).optional(), enabled: z.boolean().optional(), inputMappings: mappingSchema.optional() }).strict();
 const MAX_BODY_BYTES = 256 * 1024;
 const MAX_JSON_DEPTH = 10;
@@ -280,6 +280,30 @@ router.post("/:publicId", express.raw({ type: "application/json", limit: MAX_BOD
 router.use(requireAuthenticatedUser);
 router.use(express.json({ limit: "256kb" }));
 
+router.get("/", async (_req, res, next) => {
+  try {
+    const triggers = await db.select().from(workflowTriggers)
+      .where(and(eq(workflowTriggers.userId, ownerId(res)), isNull(workflowTriggers.deletedAt)))
+      .orderBy(desc(workflowTriggers.updatedAt));
+    const workflowIds = [...new Set(triggers.map((trigger) => trigger.workflowId))];
+    const ownedWorkflows = workflowIds.length
+      ? await db.select({ id: workflows.id, name: workflows.name }).from(workflows)
+        .where(and(eq(workflows.userId, ownerId(res)), inArray(workflows.id, workflowIds)))
+      : [];
+    const names = new Map(ownedWorkflows.map((workflow) => [workflow.id, workflow.name]));
+    const latestDeliveries = await Promise.all(triggers.map(async (trigger) => {
+      const [delivery] = await db.select({ id: webhookDeliveries.id, eventId: webhookDeliveries.eventId, outcome: webhookDeliveries.outcome, statusCode: webhookDeliveries.statusCode, errorCode: webhookDeliveries.errorCode, runId: webhookDeliveries.runId, receivedAt: webhookDeliveries.receivedAt })
+        .from(webhookDeliveries).where(and(eq(webhookDeliveries.triggerId, trigger.id), eq(webhookDeliveries.userId, ownerId(res))))
+        .orderBy(desc(webhookDeliveries.receivedAt)).limit(1);
+      return [trigger.id, delivery ?? null] as const;
+    }));
+    const deliveryByTrigger = new Map(latestDeliveries);
+    res.json({ items: triggers.map((trigger) => {
+      const workflowName = names.get(trigger.workflowId) ?? trigger.workflowName;
+      return { ...safeTrigger({ ...trigger, workflowName }), workflowId: trigger.workflowId, lastDelivery: deliveryByTrigger.get(trigger.id) ?? null };
+    }) });
+  } catch (error) { next(error); }
+});
 router.get("/workflows/:workflowId", async (req, res, next) => {
   try {
     const loaded = await loadWorkflowDefinition(db, req.params.workflowId!, ownerId(res));
@@ -315,10 +339,11 @@ router.post("/workflows/:workflowId", async (req, res, next) => {
       if (loaded.workflow.needsAttention) return { kind: "needs_attention" as const };
       const mappings = triggerMappings(loaded.definition, catalog, parsed.data.inputMappings);
       const mappingError = await validateMappings(ownerId(res), loaded.workflow.id, loaded.definition, catalog, mappings, tx);
-      if (mappingError) return { kind: "invalid_mapping" as const, error: mappingError };
+      const enabled = parsed.data.enabled ?? true;
+      if (mappingError && (enabled || mappingError !== "required_input_unmapped")) return { kind: "invalid_mapping" as const, error: mappingError };
       const [created] = await tx.insert(workflowTriggers).values({
         publicId: randomBytes(24).toString("base64url"), userId: ownerId(res), workflowId: loaded.workflow.id,
-        workflowName: loaded.workflow.name, name: parsed.data.name, encryptedSecret: encryptWebhookSecret(secret), inputMappings: mappings,
+        workflowName: loaded.workflow.name, name: parsed.data.name, enabled, encryptedSecret: encryptWebhookSecret(secret), inputMappings: mappings,
       }).returning();
       return { kind: "created" as const, trigger: created! };
     });
