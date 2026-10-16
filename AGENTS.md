@@ -45,6 +45,7 @@ Treat the existing codebase as the source of truth for implemented behavior. Tre
 - Reuse existing design tokens and components.
 - Do not introduce new colors or inconsistent styles without approval.
 - Check existing UI patterns before creating new components.
+- Do not change the workflow editor's visual styling—including canvas colors, node surfaces, controls, minimap, typography, spacing, or interaction states—unless the user explicitly requests an editor styling change. For non-visual feature work, preserve its existing appearance.
 
 ## Decisions
 
