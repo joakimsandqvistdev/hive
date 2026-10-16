@@ -1,9 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import type { FormEvent } from "react";
-import { ActionIcon, Alert, Badge, Button, Group, Loader, Modal, Paper, Stack, Table, Text, Textarea, TextInput, Title, Tooltip } from "@mantine/core";
+import { Alert, Badge, Button, Group, Loader, Modal, Paper, Stack, Table, Text, Textarea, TextInput, Title, Tooltip } from "@mantine/core";
 import { apiFetch } from "../apiClient";
 import { ConfirmActionModal } from "../components/ConfirmActionModal";
 import { PaginatedTableFooter } from "../components/PaginatedTableFooter";
+import { DuplicateIcon, EditIcon, PlayIcon, TrashIcon, WorkspaceTableAction, WorkspaceTableActions } from "../components/WorkspaceTableActions";
 import type { AppView } from "../navigation/navigationState";
 import { emptyWorkflowForm, type Workflow, type WorkflowForm } from "./workflowTypes";
 import { startWorkflowRun } from "./startWorkflowRun";
@@ -104,7 +105,12 @@ export function WorkflowLibrary({ onNavigate }: { onNavigate: (view: AppView) =>
     <Table.Td><Text size="sm" c={item.description ? undefined : "dimmed"} lineClamp={2}>{item.description || "No description"}</Text></Table.Td>
     <Table.Td><Text size="sm">{item.nodeCount} {item.nodeCount === 1 ? "node" : "nodes"}</Text></Table.Td>
     <Table.Td><Text size="sm" c="dimmed">{formatDate(item.updatedAt)}</Text></Table.Td>
-    <Table.Td><Group gap={4} wrap="nowrap" justify="flex-end" w="100%"><Tooltip label={item.needsAttention ? "Resolve custom node changes before running" : `Run ${item.name}`}><span><ActionIcon variant="subtle" color="hiveSuccess" aria-label={`Run ${item.name}`} loading={startingRunId === item.id} disabled={startingRunId !== null || item.needsAttention} onClick={() => void startRun(item)}><PlayIcon /></ActionIcon></span></Tooltip><Tooltip label={`Edit ${item.name}`}><ActionIcon variant="subtle" color="hiveSky" aria-label={`Edit ${item.name}`} onClick={() => openEdit(item)}><EditIcon /></ActionIcon></Tooltip><Tooltip label={`Duplicate ${item.name}`}><span><ActionIcon variant="subtle" color="hiveSky" aria-label={`Duplicate ${item.name}`} loading={duplicatingWorkflowId === item.id} disabled={duplicatingWorkflowId !== null} onClick={() => void duplicateWorkflow(item)}><DuplicateIcon /></ActionIcon></span></Tooltip><Tooltip label={item.activeRunCount ? "This workflow is currently running" : `Remove ${item.name}`}><span><ActionIcon variant="subtle" color="hiveError" aria-label={`Remove ${item.name}`} disabled={(item.activeRunCount ?? 0) > 0} onClick={() => { setDeleteTarget(item); setDeleteError(null); }}><TrashIcon /></ActionIcon></span></Tooltip></Group></Table.Td>
+    <Table.Td><WorkspaceTableActions>
+      <WorkspaceTableAction label={`Run ${item.name}`} tooltip={item.needsAttention ? "Resolve custom node changes before running" : undefined} color="hiveSuccess" loading={startingRunId === item.id} disabled={startingRunId !== null || item.needsAttention} onClick={() => void startRun(item)}><PlayIcon /></WorkspaceTableAction>
+      <WorkspaceTableAction label={`Edit ${item.name}`} onClick={() => openEdit(item)}><EditIcon /></WorkspaceTableAction>
+      <WorkspaceTableAction label={`Duplicate ${item.name}`} loading={duplicatingWorkflowId === item.id} disabled={duplicatingWorkflowId !== null} onClick={() => void duplicateWorkflow(item)}><DuplicateIcon /></WorkspaceTableAction>
+      <WorkspaceTableAction label={item.activeRunCount ? "This workflow is currently running" : `Remove ${item.name}`} color="hiveError" disabled={(item.activeRunCount ?? 0) > 0} onClick={() => { setDeleteTarget(item); setDeleteError(null); }}><TrashIcon /></WorkspaceTableAction>
+    </WorkspaceTableActions></Table.Td>
   </Table.Tr>);
 
   return <Stack className="workspace-page" gap="lg">
@@ -126,8 +132,3 @@ export function WorkflowLibrary({ onNavigate }: { onNavigate: (view: AppView) =>
     </ConfirmActionModal>
   </Stack>;
 }
-
-function EditIcon() { return <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m14 5 5 5M4 20l4.2-.8L19 8.4a2.12 2.12 0 0 0-3-3L5.2 16.2 4 20Z" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" /></svg>; }
-function PlayIcon() { return <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M8 5.5v13l10-6.5-10-6.5Z" fill="currentColor" /></svg>; }
-function DuplicateIcon() { return <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2" stroke="currentColor" strokeWidth="1.7"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"/></svg>; }
-function TrashIcon() { return <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3m3 0-.8 12.2a1 1 0 0 1-1 .8H7.8a1 1 0 0 1-1-.8L6 7m4 4v5m4-5v5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" /></svg>; }

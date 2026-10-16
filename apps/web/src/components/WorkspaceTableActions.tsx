@@ -1,0 +1,48 @@
+import type { ReactNode } from "react";
+import { ActionIcon, Group, Tooltip } from "@mantine/core";
+
+export function WorkspaceTableActions({ children }: { children: ReactNode }) {
+  return <Group gap={4} wrap="nowrap" justify="flex-end" w="100%">{children}</Group>;
+}
+
+export function WorkspaceTableAction({
+  label,
+  tooltip,
+  color = "hiveSky",
+  disabled = false,
+  loading = false,
+  onClick,
+  children,
+}: {
+  label: string;
+  tooltip?: string;
+  color?: string;
+  disabled?: boolean;
+  loading?: boolean;
+  onClick: () => void;
+  children: ReactNode;
+}) {
+  return <Tooltip label={tooltip ?? label}>
+    <span>
+      <ActionIcon variant="subtle" color={color} aria-label={label} disabled={disabled} loading={loading} onClick={onClick}>
+        {children}
+      </ActionIcon>
+    </span>
+  </Tooltip>;
+}
+
+export function EditIcon() {
+  return <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m14 5 5 5M4 20l4.2-.8L19 8.4a2.12 2.12 0 0 0-3-3L5.2 16.2 4 20Z" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" /></svg>;
+}
+
+export function PlayIcon() {
+  return <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M8 5.5v13l10-6.5-10-6.5Z" fill="currentColor" /></svg>;
+}
+
+export function DuplicateIcon() {
+  return <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2" stroke="currentColor" strokeWidth="1.7"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"/></svg>;
+}
+
+export function TrashIcon() {
+  return <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3m3 0-.8 12.2a1 1 0 0 1-1 .8H7.8a1 1 0 0 1-1-.8L6 7m4 4v5m4-5v5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" /></svg>;
+}
