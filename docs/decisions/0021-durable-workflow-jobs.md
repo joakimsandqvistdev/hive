@@ -7,7 +7,7 @@
 
 Store workflow job definitions and their recurrence state in PostgreSQL. Reuse the durable run queue and the same workflow validation and snapshot path as manual execution. Support one-time jobs and interval-based repetitions with a finite total run count or no limit.
 
-Only materialize the current occurrence as a run. A job holds at most one queued or active run. Once that run reaches a terminal state, compute the next eligible time from its finish time plus the configured interval. Do not pre-create future run records and do not overlap runs from the same job.
+Only materialize the current occurrence as a run. A job holds at most one queued or actively executing run. Once workflow execution finishes, compute the next eligible time from its finish time plus the configured interval. Instagram publication review or processing may remain pending on a finished run without blocking the job's next occurrence. Do not pre-create future run records and do not overlap workflow executions from the same job.
 
 ## Consequences
 

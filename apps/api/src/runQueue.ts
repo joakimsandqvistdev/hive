@@ -137,7 +137,7 @@ export async function failRun(runId: string, workerId: string, code: string, sum
 
 export async function finishRun(runId: string, workerId: string): Promise<boolean> {
   const result = await pool.query(`UPDATE runs SET status=CASE WHEN EXISTS (SELECT 1 FROM instagram_publications p WHERE p.run_id=runs.id AND p.status IN ('awaiting_review','queued','publishing')) THEN 'awaiting_publish' ELSE 'succeeded' END,
-    finished_at=CASE WHEN EXISTS (SELECT 1 FROM instagram_publications p WHERE p.run_id=runs.id AND p.status IN ('awaiting_review','queued','publishing')) THEN NULL ELSE now() END, claimed_by=NULL,lease_expires_at=NULL
+    finished_at=now(), claimed_by=NULL,lease_expires_at=NULL
     WHERE id=$1 AND claimed_by=$2 AND status='running'`, [runId,workerId]);
   return result.rowCount === 1;
 }

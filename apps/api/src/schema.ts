@@ -198,7 +198,7 @@ export const runs = pgTable("runs", {
   index("runs_queue_idx").on(table.status, table.createdAt, table.leaseExpiresAt),
   uniqueIndex("runs_id_user_unique").on(table.id, table.userId),
   uniqueIndex("runs_job_scheduled_unique").on(table.jobId, table.scheduledFor).where(sql`${table.jobId} IS NOT NULL`),
-  uniqueIndex("runs_one_active_job_run_unique").on(table.jobId).where(sql`${table.jobId} IS NOT NULL AND status IN ('queued', 'running', 'awaiting_publish', 'cancel_requested')`),
+  uniqueIndex("runs_one_active_job_run_unique").on(table.jobId).where(sql`${table.jobId} IS NOT NULL AND status IN ('queued', 'running', 'cancel_requested')`),
   check("runs_status_check", sql`${table.status} IN ('queued', 'running', 'awaiting_publish', 'succeeded', 'failed', 'cancel_requested', 'cancelled')`),
 ]);
 

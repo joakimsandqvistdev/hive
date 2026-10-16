@@ -26,10 +26,10 @@ function intervalLabel(seconds: number) {
   const units = [[86400, "day"], [3600, "hour"], [60, "minute"]] as const;
   const [size, label] = units.find(([unitSize]) => seconds % unitSize === 0) ?? units[2]!;
   const amount = seconds / size;
-  return "every " + amount + " " + label + (amount === 1 ? "" : "s") + " after the previous run finishes";
+  return "every " + amount + " " + label + (amount === 1 ? "" : "s") + " after workflow generation finishes";
 }
 function currentActivity(job: Job) {
-  return job.currentRunStatus === "queued" ? "Run queued" : job.currentRunStatus === "running" ? "Run in progress" : job.currentRunStatus === "awaiting_publish" ? "Waiting for Instagram publication" : job.currentRunStatus === "cancel_requested" ? "Stopping run" : null;
+  return job.currentRunStatus === "queued" ? "Run queued" : job.currentRunStatus === "running" ? "Run in progress" : job.currentRunStatus === "awaiting_publish" ? "Workflow finished; publication pending" : job.currentRunStatus === "cancel_requested" ? "Stopping run" : null;
 }
 
 export function JobsPage({ onNavigate }: { onNavigate: (view: AppView) => void }) {

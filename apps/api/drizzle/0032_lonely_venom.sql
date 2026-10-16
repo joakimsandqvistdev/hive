@@ -1,0 +1,2 @@
+DROP INDEX "runs_one_active_job_run_unique";--> statement-breakpoint
+CREATE UNIQUE INDEX "runs_one_active_job_run_unique" ON "runs" USING btree ("job_id") WHERE "runs"."job_id" IS NOT NULL AND status IN ('queued', 'running', 'cancel_requested');
