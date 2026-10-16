@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ActionIcon, Alert, Button, Checkbox, Group, Loader, Modal, ScrollArea, Select, Stack, Text, Textarea, TextInput, Tooltip } from "@mantine/core";
+import { ActionIcon, Alert, Button, Checkbox, Drawer, Group, Loader, Modal, ScrollArea, Select, Stack, Text, Textarea, TextInput, Tooltip } from "@mantine/core";
 import { GraphEditor, createId, removeConnection, removeNode, type GraphDocument } from "ionodes";
 import { apiFetch } from "../apiClient";
 import { useDownloadedModels } from "../hooks/useDownloadedModels";
@@ -400,8 +400,8 @@ export function WorkflowEditor({ workflowId, onClose, onNavigate, customNodeEdit
           canvas={{ hideAttribution: true, backgroundColor: "#e0e5eb", miniMapMaskColor: "rgba(124, 135, 148, 0.16)", miniMapNodeColor: (_node, invalid) => invalid ? "#ba514d" : "#4285f4" }}
         />
       </section>
-      {selected && <aside className="workflow-config-panel" aria-label="Node configuration">
-        <WorkflowNodeConfiguration
+        <Drawer opened={Boolean(selected)} onClose={() => { setSelectedNodeId(null); setSelectedNodeIds([]); setSelectedConnectionId(null); }} position="right" size="min(520px, 100vw)" title={selected ? <Stack gap={0}><Text size="sm" fw={650}>Node configuration</Text><Text size="xs" c="dimmed">{selected.data.label}</Text></Stack> : undefined} className="workflow-node-config-drawer" styles={{ root: { top: 64, bottom: 0, height: "auto" }, inner: { height: "100%", minHeight: 0 }, content: { height: "100%", minHeight: 0, maxHeight: "100%" } }} transitionProps={{ transition: "slide-left", duration: 180 }} withOverlay={false} lockScroll={false} trapFocus={false} closeOnClickOutside={false} padding="sm" zIndex={300}>
+        {selected && <WorkflowNodeConfiguration
           selected={selected}
           types={types}
           instagramAccounts={instagramAccounts}
@@ -413,8 +413,8 @@ export function WorkflowEditor({ workflowId, onClose, onNavigate, customNodeEdit
           onReplaceCustomNode={replaceCustomNode}
           onUpload={(file) => void upload(file)}
           onImportUrl={(url) => void importUrl(url)}
-        />
-      </aside>}
+        />}
+      </Drawer>
       </div>}
     <Modal opened={pickerOpen} onClose={() => setPickerOpen(false)} title="Add node" centered><Stack><Select label="Node" placeholder="Choose an input or downloaded model" data={options} value={choice} onChange={setChoice} searchable /><Text size="xs" c="dimmed">Only downloaded models are available here. Download additional models from Models.</Text>{downloaded.status === "unavailable" && <Alert color="hiveWarning">Could not check model downloads. Input nodes remain available.</Alert>}<Button onClick={addNode} disabled={!choice}>Add node</Button></Stack></Modal>
     <Modal opened={interfaceOpen} onClose={() => setInterfaceOpen(false)} title="Custom node interface" centered size="lg"><Stack><Text size="sm" c="dimmed">Choose which ports callers can connect to. A port can be exposed even when it is already connected inside this custom node.</Text><ScrollArea h={420} type="auto"><Stack gap="lg">{(["inputs", "outputs"] as const).map((direction) => <Stack key={direction} gap="xs"><Text fw={600}>{direction === "inputs" ? "Inputs" : "Outputs"}</Text>{availableBoundaryPorts.filter((port) => port.direction === direction).length ? availableBoundaryPorts.filter((port) => port.direction === direction).map((port) => {

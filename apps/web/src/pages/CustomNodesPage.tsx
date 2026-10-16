@@ -3,7 +3,7 @@ import { Alert, Badge, Button, Group, Loader, Modal, Paper, Stack, Table, Text, 
 import { apiFetch } from "../apiClient";
 import { ConfirmActionModal } from "../components/ConfirmActionModal";
 import { PaginatedTableFooter } from "../components/PaginatedTableFooter";
-import { DuplicateIcon, EditIcon, PlayIcon, TrashIcon, WorkspaceTableAction, WorkspaceTableActions } from "../components/WorkspaceTableActions";
+import { DuplicateIcon, PlayIcon, TrashIcon, WorkspaceTableAction, WorkspaceTableActions } from "../components/WorkspaceTableActions";
 import type { AppView } from "../navigation/navigationState";
 import { WorkflowEditor } from "./WorkflowEditor";
 import { startCustomNodeRun } from "./startWorkflowRun";
@@ -102,16 +102,15 @@ export function CustomNodesPage({ onNavigate }: { onNavigate: (view: AppView) =>
     finally { setStartingRunId(null); }
   }
 
-  const rows = result?.items.map((item) => <Table.Tr key={item.id}>
-    <Table.Td><Text fw={600} size="sm">{item.name}</Text></Table.Td>
+  const rows = result?.items.map((item) => <Table.Tr key={item.id} className="inventory-row-navigable" tabIndex={0} aria-label={`Open Custom Node ${item.name}`} title={`Open Custom Node ${item.name}`} onClick={() => { window.location.hash = `custom-nodes/${item.id}`; }} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); window.location.hash = `custom-nodes/${item.id}`; } }}>
+    <Table.Td><Text className="inventory-row-title" fw={600} size="sm">{item.name}</Text></Table.Td>
     <Table.Td><Text size="sm" c={item.description ? undefined : "dimmed"} lineClamp={2}>{item.description || "No description"}</Text></Table.Td>
     <Table.Td><Text size="sm">{item.nodeCount} {item.nodeCount === 1 ? "node" : "nodes"}</Text></Table.Td>
     <Table.Td><Text size="sm">{item.directUsageCount} {item.directUsageCount === 1 ? "use" : "uses"}</Text></Table.Td>
     <Table.Td><Text size="sm" c="dimmed">{formatDate(item.updatedAt)}</Text></Table.Td>
     <Table.Td>{item.needsAttention ? <Tooltip label="Repair or update nested custom nodes before using this node."><Badge color="hiveWarning" variant="light">Needs attention</Badge></Tooltip> : <Badge color="hiveSuccess" variant="light">Ready</Badge>}</Table.Td>
-    <Table.Td><WorkspaceTableActions>
+    <Table.Td onClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()}><WorkspaceTableActions>
       <WorkspaceTableAction label="Run" tooltip={!item.runEligible ? item.needsAttention ? "Resolve Custom Node issues before running" : "Custom Nodes with exposed inputs must be run from a workflow" : "Run"} color="hiveSuccess" loading={startingRunId === item.id} disabled={!item.runEligible || startingRunId !== null} onClick={() => void run(item)}><PlayIcon /></WorkspaceTableAction>
-      <WorkspaceTableAction label="Edit" onClick={() => { window.location.hash = `custom-nodes/${item.id}`; }}><EditIcon /></WorkspaceTableAction>
       <WorkspaceTableAction label="Duplicate" loading={duplicatingId === item.id} disabled={duplicatingId !== null && duplicatingId !== item.id} onClick={() => void duplicate(item)}><DuplicateIcon /></WorkspaceTableAction>
       <WorkspaceTableAction label="Delete" color="hiveError" onClick={() => void requestDelete(item)}><TrashIcon /></WorkspaceTableAction>
     </WorkspaceTableActions></Table.Td>

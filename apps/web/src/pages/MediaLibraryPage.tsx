@@ -4,10 +4,12 @@ import { apiFetch, apiUrl } from "../apiClient";
 import { formatFileSize } from "../formatters";
 import { useFlashMessages } from "../components/FlashMessages";
 import { ConfirmActionModal } from "../components/ConfirmActionModal";
+import { PaginatedTableFooter } from "../components/PaginatedTableFooter";
 
 type Media = { id: string; displayName: string; dataTypeId: string; mediaType: string; byteSize: number; createdAt: string; runId: string | null; savedToLibrary: boolean };
 type MediaFilter = "all" | "image" | "audio" | "video";
 type MediaSaveFilter = "all" | "saved" | "not-saved";
+const PAGE_SIZE = 10;
 
 function Preview({ item }: { item: Media }) {
   const url = apiUrl(`/api/artifacts/${item.id}/preview`);
@@ -35,6 +37,7 @@ export function MediaLibraryPage() {
   const [saveFilter, setSaveFilter] = useState<MediaSaveFilter>("all");
   const [file, setFile] = useState<File | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Media | null>(null);
@@ -60,7 +63,10 @@ export function MediaLibraryPage() {
     const matchesSaveStatus = saveFilter === "all" || (saveFilter === "saved" ? item.savedToLibrary : !item.savedToLibrary);
     return matchesType && matchesSaveStatus;
   }), [filter, items, saveFilter]);
-  const selectedItem = filteredItems.find((item) => item.id === selectedId) ?? filteredItems[0] ?? null;
+  const totalPages = Math.max(1, Math.ceil(filteredItems.length / PAGE_SIZE));
+  const pageItems = filteredItems.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  useEffect(() => { if (page > totalPages) setPage(totalPages); }, [page, totalPages]);
+  const selectedItem = pageItems.find((item) => item.id === selectedId) ?? pageItems[0] ?? null;
 
   async function upload() {
     if (!file || !type) return;
@@ -129,8 +135,8 @@ export function MediaLibraryPage() {
       <Group className="inventory-toolbar media-toolbar" justify="space-between" wrap="wrap">
         <Group gap="xs"><Title order={2} size="h5">Library assets</Title><Badge variant="light" color="gray">{filteredItems.length} items</Badge></Group>
         <Group className="media-filters" gap="xs" wrap="wrap">
-          <Select aria-label="Filter media type" className="media-filter" data={filterOptions} value={filter} onChange={(value) => setFilter((value as MediaFilter | null) ?? "all")} allowDeselect={false} />
-          <Select aria-label="Filter save status" className="media-save-filter" data={saveFilterOptions} value={saveFilter} onChange={(value) => setSaveFilter((value as MediaSaveFilter | null) ?? "all")} allowDeselect={false} />
+          <Select aria-label="Filter media type" className="media-filter" data={filterOptions} value={filter} onChange={(value) => { setFilter((value as MediaFilter | null) ?? "all"); setPage(1); }} allowDeselect={false} />
+          <Select aria-label="Filter save status" className="media-save-filter" data={saveFilterOptions} value={saveFilter} onChange={(value) => { setSaveFilter((value as MediaSaveFilter | null) ?? "all"); setPage(1); }} allowDeselect={false} />
         </Group>
       </Group>
       {loading ? <Group justify="center" p="xl"><Loader size="sm" /></Group>
@@ -141,7 +147,7 @@ export function MediaLibraryPage() {
                 <Table className="inventory-table media-inventory-table" highlightOnHover withRowBorders>
                   <Table.Thead><Table.Tr><Table.Th>File</Table.Th><Table.Th>Type</Table.Th><Table.Th>Size</Table.Th><Table.Th>Added</Table.Th></Table.Tr></Table.Thead>
                   <Table.Tbody>
-                    {filteredItems.map((item) => <Table.Tr
+                    {pageItems.map((item) => <Table.Tr
                       key={item.id}
                       className={selectedItem?.id === item.id ? "inventory-row-selected" : undefined}
                       tabIndex={0}
@@ -149,13 +155,14 @@ export function MediaLibraryPage() {
                       onClick={() => setSelectedId(item.id)}
                       onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setSelectedId(item.id); } }}
                     >
-                      <Table.Td><Text fw={600} size="sm" lineClamp={1}>{item.displayName}</Text><Text size="xs" c="dimmed">{item.savedToLibrary ? "Saved to library" : item.runId ? "Run output" : "Workflow input"}</Text></Table.Td>
+                      <Table.Td><Text className="inventory-row-title" fw={600} size="sm" lineClamp={1}>{item.displayName}</Text><Text size="xs" c="dimmed">{item.savedToLibrary ? "Saved to library" : item.runId ? "Run output" : "Workflow input"}</Text></Table.Td>
                       <Table.Td><Badge variant="light" color="gray" size="sm">{mediaKind(item)}</Badge></Table.Td>
                       <Table.Td className="inventory-nowrap">{formatFileSize(item.byteSize)}</Table.Td>
                       <Table.Td className="media-date-cell">{formatDate(item.createdAt)}</Table.Td>
                     </Table.Tr>)}
                   </Table.Tbody>
                 </Table>
+                <PaginatedTableFooter total={filteredItems.length} itemName="item" page={page} pageSize={PAGE_SIZE} totalPages={totalPages} onPageChange={(nextPage) => { setPage(nextPage); setSelectedId(filteredItems[(nextPage - 1) * PAGE_SIZE]?.id ?? null); }} />
               </div>
               {selectedItem && <Paper className="media-detail-panel" radius="md" p="sm">
                 <Group justify="space-between" wrap="nowrap" mb="xs">

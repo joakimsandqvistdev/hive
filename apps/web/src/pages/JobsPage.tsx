@@ -3,8 +3,10 @@ import { ActionIcon, Alert, Badge, Button, Group, Loader, Modal, NumberInput, Pa
 import { apiFetch } from "../apiClient";
 import type { AppView } from "../navigation/navigationState";
 import { useFlashMessages } from "../components/FlashMessages";
+import { PaginatedTableFooter } from "../components/PaginatedTableFooter";
 
 type WorkflowChoice = { id: string; name: string };
+const PAGE_SIZE = 10;
 type JobStatus = "active" | "paused" | "completed" | "failed";
 type Job = {
   id: string; name: string; workflowId: string; workflowName: string; status: JobStatus;
@@ -36,6 +38,7 @@ function currentActivity(job: Job) {
 export function JobsPage({ onNavigate }: { onNavigate: (view: AppView) => void }) {
   const { showFlash } = useFlashMessages();
   const [jobs, setJobs] = useState<Job[]>([]);
+  const [page, setPage] = useState(1);
   const [workflows, setWorkflows] = useState<WorkflowChoice[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -143,12 +146,14 @@ export function JobsPage({ onNavigate }: { onNavigate: (view: AppView) => void }
     finally { setMutatingId(null); }
   };
 
-  const rows = jobs.map((job) => {
+  const totalPages = Math.max(1, Math.ceil(jobs.length / PAGE_SIZE));
+  useEffect(() => { if (page > totalPages) setPage(totalPages); }, [page, totalPages]);
+  const rows = jobs.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE).map((job) => {
     const activity = currentActivity(job);
     const status = job.status === "active" ? "Active" : job.status === "paused" ? "Paused" : job.status === "completed" ? "Completed" : "Needs attention";
     const color = job.status === "active" ? "hiveSuccess" : job.status === "failed" ? "hiveError" : "gray";
     return <Table.Tr key={job.id}>
-      <Table.Td><Text fw={600} size="sm">{job.name}</Text><Text size="xs" c="dimmed">{job.workflowName}</Text></Table.Td>
+      <Table.Td><Text className="inventory-row-title" fw={600} size="sm">{job.name}</Text><Text size="xs" c="dimmed">{job.workflowName}</Text></Table.Td>
       <Table.Td><Badge color={color} variant="light">{status}</Badge>{activity && <Text size="xs" c="dimmed" mt={4}>{activity}</Text>}{job.lastError && <Text size="xs" c="hiveError.7" mt={4} maw={360}>{job.lastError}</Text>}</Table.Td>
       <Table.Td><Text size="sm">{job.repeatCount === 1 ? "Once" : intervalLabel(job.intervalSeconds ?? 3600)}</Text><Text size="xs" c="dimmed">{job.repeatCount === null ? job.completedRuns + " completed · no limit" : job.completedRuns + " of " + job.repeatCount + " runs"}</Text></Table.Td>
       <Table.Td><Text size="sm">{activity ?? formatDate(job.nextRunAt)}</Text></Table.Td>
@@ -171,7 +176,7 @@ export function JobsPage({ onNavigate }: { onNavigate: (view: AppView) => void }
     <Paper className="inventory-list workspace-table-panel" withBorder radius="md">
       {loading ? <Group justify="center" p="xl"><Loader size="sm" /><Text size="sm" c="dimmed">Loading jobs…</Text></Group>
         : jobs.length === 0 ? <Stack className="workspace-empty" align="center" gap="sm"><Badge color="hiveSky" variant="light">Workflow automation</Badge><Title order={2} size="h3">No jobs yet</Title><Text c="dimmed" ta="center" maw={520}>Create a job to run a saved workflow once or repeat it on an interval. Repeats are queued only after the previous run finishes, so each job has at most one queued or active run.</Text>{workflows.length ? <Button variant="light" onClick={() => { setForm(initialForm()); setFormOpen(true); }}>Create your first job</Button> : <Button variant="light" onClick={() => onNavigate("workflows")}>Create a workflow first</Button>}</Stack>
-          : <><Table.ScrollContainer minWidth={900}><Table className="inventory-table" highlightOnHover withRowBorders><Table.Thead><Table.Tr><Table.Th>Job</Table.Th><Table.Th>Status</Table.Th><Table.Th>Repeat</Table.Th><Table.Th>Next run</Table.Th><Table.Th>Actions</Table.Th></Table.Tr></Table.Thead><Table.Tbody>{rows}</Table.Tbody></Table></Table.ScrollContainer><Text size="xs" c="dimmed" p="sm">A repeating job waits its configured interval after the previous run finishes before queueing another run.</Text></>}
+          : <><Text size="xs" c="dimmed" px="sm" pt="sm">A repeating job waits its configured interval after the previous run finishes before queueing another run.</Text><Table.ScrollContainer minWidth={900}><Table className="inventory-table" highlightOnHover withRowBorders><Table.Thead><Table.Tr><Table.Th>Job</Table.Th><Table.Th>Status</Table.Th><Table.Th>Repeat</Table.Th><Table.Th>Next run</Table.Th><Table.Th>Actions</Table.Th></Table.Tr></Table.Thead><Table.Tbody>{rows}</Table.Tbody></Table></Table.ScrollContainer><PaginatedTableFooter total={jobs.length} itemName="job" page={page} pageSize={PAGE_SIZE} totalPages={totalPages} onPageChange={setPage} /></>}
     </Paper>
     <Modal opened={formOpen} onClose={() => { if (!saving) setFormOpen(false); }} title="Create job" centered>
       <form onSubmit={(event) => void createJob(event)}><Stack gap="md">

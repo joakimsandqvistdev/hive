@@ -4,12 +4,11 @@ import { Alert, Badge, Button, Group, Loader, Modal, Paper, Stack, Table, Text, 
 import { apiFetch } from "../apiClient";
 import { ConfirmActionModal } from "../components/ConfirmActionModal";
 import { PaginatedTableFooter } from "../components/PaginatedTableFooter";
-import { DuplicateIcon, EditIcon, PlayIcon, TrashIcon, WebhookIcon, WorkspaceTableAction, WorkspaceTableActions } from "../components/WorkspaceTableActions";
+import { DuplicateIcon, PlayIcon, TrashIcon, WorkspaceTableAction, WorkspaceTableActions } from "../components/WorkspaceTableActions";
 import type { AppView } from "../navigation/navigationState";
 import { emptyWorkflowForm, type Workflow, type WorkflowForm } from "./workflowTypes";
 import { startWorkflowRun } from "./startWorkflowRun";
 import { useFlashMessages } from "../components/FlashMessages";
-import { WorkflowTriggersModal } from "./WorkflowTriggersModal";
 
 const PAGE_SIZE = 10;
 type WorkflowPageResult = { items: Workflow[]; page: number; pageSize: number; total: number; totalPages: number };
@@ -30,7 +29,6 @@ export function WorkflowLibrary({ onNavigate }: { onNavigate: (view: AppView) =>
   const [deleting, setDeleting] = useState(false);
   const [startingRunId, setStartingRunId] = useState<string | null>(null);
   const [duplicatingWorkflowId, setDuplicatingWorkflowId] = useState<string | null>(null);
-  const [triggerTarget, setTriggerTarget] = useState<Workflow | null>(null);
 
   const loadWorkflows = useCallback(async (requestedPage: number) => {
     setLoading(true); setLoadError(null);
@@ -100,16 +98,14 @@ export function WorkflowLibrary({ onNavigate }: { onNavigate: (view: AppView) =>
     finally { setDeleting(false); }
   };
 
-  const rows = result?.items.map((item) => <Table.Tr key={item.id}>
-    <Table.Td><Group gap="xs" wrap="nowrap"><Text fw={600} size="sm">{item.name}</Text>{item.needsAttention && <Tooltip label="Repair or update a custom node before running this workflow."><Badge color="hiveWarning" variant="light">Needs attention</Badge></Tooltip>}</Group></Table.Td>
+  const rows = result?.items.map((item) => <Table.Tr key={item.id} className="inventory-row-navigable" tabIndex={0} aria-label={`Open workflow ${item.name}`} title={`Open workflow ${item.name}`} onClick={() => openEdit(item)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); openEdit(item); } }}>
+    <Table.Td><Group gap="xs" wrap="nowrap"><Text className="inventory-row-title" fw={600} size="sm">{item.name}</Text>{item.needsAttention && <Tooltip label="Repair or update a custom node before running this workflow."><Badge color="hiveWarning" variant="light">Needs attention</Badge></Tooltip>}</Group></Table.Td>
     <Table.Td><Text size="sm" c={item.description ? undefined : "dimmed"} lineClamp={2}>{item.description || "No description"}</Text></Table.Td>
     <Table.Td><Text size="sm">{item.nodeCount} {item.nodeCount === 1 ? "node" : "nodes"}</Text></Table.Td>
     <Table.Td><Text size="sm" c="dimmed">{formatDate(item.updatedAt)}</Text></Table.Td>
-    <Table.Td><WorkspaceTableActions>
+    <Table.Td onClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()}><WorkspaceTableActions>
       <WorkspaceTableAction label="Run" tooltip={item.needsAttention ? "Resolve custom node changes before running" : "Run"} color="hiveSuccess" loading={startingRunId === item.id} disabled={startingRunId !== null || item.needsAttention} onClick={() => void startRun(item)}><PlayIcon /></WorkspaceTableAction>
-      <WorkspaceTableAction label="Edit" onClick={() => openEdit(item)}><EditIcon /></WorkspaceTableAction>
       <WorkspaceTableAction label="Duplicate" loading={duplicatingWorkflowId === item.id} disabled={duplicatingWorkflowId !== null} onClick={() => void duplicateWorkflow(item)}><DuplicateIcon /></WorkspaceTableAction>
-      <WorkspaceTableAction label="Webhooks" tooltip="Webhooks" onClick={() => setTriggerTarget(item)}><WebhookIcon /></WorkspaceTableAction>
       <WorkspaceTableAction label="Delete" tooltip={item.activeRunCount ? "Workflow is currently running" : "Delete"} color="hiveError" disabled={(item.activeRunCount ?? 0) > 0} onClick={() => { setDeleteTarget(item); }}><TrashIcon /></WorkspaceTableAction>
     </WorkspaceTableActions></Table.Td>
   </Table.Tr>);
@@ -128,6 +124,5 @@ export function WorkflowLibrary({ onNavigate }: { onNavigate: (view: AppView) =>
     <ConfirmActionModal opened={deleteTarget !== null} onClose={() => setDeleteTarget(null)} title="Confirm workflow removal" confirmLabel="Remove workflow" onConfirm={() => void removeWorkflow()} loading={deleting} disabled={(deleteTarget?.activeRunCount ?? 0) > 0}>
       {deleteTarget && <><Text>Are you sure you want to remove <Text component="span" fw={600}>{deleteTarget.name}</Text>?</Text><Text size="sm" c="dimmed">Its nodes and connections will be deleted. This cannot be undone.</Text>{(deleteTarget.activeRunCount ?? 0) > 0 && <Alert color="hiveWarning" title="Workflow is in use">This workflow has {deleteTarget.activeRunCount} queued or running {deleteTarget.activeRunCount === 1 ? "run" : "runs"} and can’t be removed.</Alert>}</>}
     </ConfirmActionModal>
-    <WorkflowTriggersModal workflow={triggerTarget} opened={triggerTarget !== null} onClose={() => setTriggerTarget(null)} />
   </Stack>;
 }

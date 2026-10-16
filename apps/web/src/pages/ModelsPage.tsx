@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
 import { Alert, Badge, Button, Group, Loader, Paper, Progress, ScrollArea, Stack, Table, Tabs, Text, Title } from "@mantine/core";
 import { apiFetch } from "../apiClient";
+import { PaginatedTableFooter } from "../components/PaginatedTableFooter";
 import { formatModelSize, modelDetails, modelGroups, type ModelId } from "../modelCatalog";
 
 type ModelStatus = "not_downloaded" | "queued" | "downloading" | "cancelling" | "downloaded" | "failed" | "unavailable";
 type ModelState = { id: ModelId; status: ModelStatus; downloadedBytes?: number; totalBytes?: number; error?: string };
+const PAGE_SIZE = 10;
 
 const statusLabels: Record<ModelStatus, string> = {
   not_downloaded: "Available",
@@ -31,6 +33,7 @@ export function ModelsPage() {
   const [cancelling, setCancelling] = useState<ModelId | null>(null);
   const [category, setCategory] = useState<string>(modelGroups[0].id);
   const [selectedId, setSelectedId] = useState<ModelId | null>(modelGroups[0].modelIds[0] ?? null);
+  const [page, setPage] = useState(1);
 
   const refresh = useCallback(async () => {
     try {
@@ -93,7 +96,10 @@ export function ModelsPage() {
 
   const activeGroup = modelGroups.find((group) => group.id === category) ?? modelGroups[0];
   const visibleDetails = modelDetails.filter((detail) => activeGroup.modelIds.includes(detail.id));
-  const selectedDetail = visibleDetails.find((detail) => detail.id === selectedId) ?? visibleDetails[0];
+  const totalPages = Math.max(1, Math.ceil(visibleDetails.length / PAGE_SIZE));
+  const pageDetails = visibleDetails.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  useEffect(() => { if (page > totalPages) setPage(totalPages); }, [page, totalPages]);
+  const selectedDetail = pageDetails.find((detail) => detail.id === selectedId) ?? pageDetails[0];
   const selectedState = selectedDetail ? models.find((model) => model.id === selectedDetail.id) : undefined;
   const selectedStatus = selectedState?.status ?? "unavailable";
   const busy = selectedStatus === "queued" || selectedStatus === "downloading" || selectedStatus === "cancelling";
@@ -113,6 +119,7 @@ export function ModelsPage() {
       if (!value) return;
       const nextGroup = modelGroups.find((group) => group.id === value);
       setCategory(value);
+      setPage(1);
       setSelectedId(nextGroup?.modelIds[0] ?? null);
     }} keepMounted={false}>
       <Tabs.List aria-label="Model categories">
@@ -131,7 +138,7 @@ export function ModelsPage() {
                 <Table className="inventory-table model-inventory-table" highlightOnHover withRowBorders>
                   <Table.Thead><Table.Tr><Table.Th>Model</Table.Th><Table.Th>Download</Table.Th><Table.Th>Status</Table.Th></Table.Tr></Table.Thead>
                   <Table.Tbody>
-                    {modelDetails.filter((detail) => group.modelIds.includes(detail.id)).map((detail) => {
+                    {(category === group.id ? pageDetails : []).map((detail) => {
                       const state = models.find((model) => model.id === detail.id);
                       const status = state?.status ?? "unavailable";
                       return <Table.Tr
@@ -142,7 +149,7 @@ export function ModelsPage() {
                         onClick={() => setSelectedId(detail.id)}
                         onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setSelectedId(detail.id); } }}
                       >
-                        <Table.Td><Text fw={600} size="sm">{detail.name}</Text><Text size="xs" c="dimmed" lineClamp={1}>{detail.summary}</Text></Table.Td>
+                        <Table.Td><Text className="inventory-row-title" fw={600} size="sm">{detail.name}</Text><Text size="xs" c="dimmed" lineClamp={1}>{detail.summary}</Text></Table.Td>
                         <Table.Td className="inventory-nowrap">{formatModelSize(detail.sizeBytes)}</Table.Td>
                         <Table.Td><Badge color={statusColor(status)} variant="light" size="sm">{loading ? "Checking…" : statusLabels[status]}</Badge></Table.Td>
                       </Table.Tr>;
@@ -150,6 +157,7 @@ export function ModelsPage() {
                   </Table.Tbody>
                 </Table>
               </ScrollArea>
+              <PaginatedTableFooter total={visibleDetails.length} itemName="model" page={page} pageSize={PAGE_SIZE} totalPages={totalPages} onPageChange={(nextPage) => { setPage(nextPage); setSelectedId(visibleDetails[(nextPage - 1) * PAGE_SIZE]?.id ?? null); }} />
             </Paper>
 
             {selectedDetail && <Paper className="inventory-preview" withBorder radius="md" p="md">
