@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ActionIcon, Alert, Badge, Button, Group, Image, Loader, Modal, Paper, SimpleGrid, Stack, Table, Text, Textarea, Title, Tooltip } from "@mantine/core";
+import { ActionIcon, Alert, Badge, Button, Group, Image, Loader, Modal, MultiSelect, Paper, Popover, SimpleGrid, Stack, Table, Text, Textarea, Title, Tooltip } from "@mantine/core";
 import { apiFetch, apiUrl } from "../apiClient";
 import { ConfirmActionModal } from "../components/ConfirmActionModal";
 import { PaginatedTableFooter } from "../components/PaginatedTableFooter";
@@ -82,6 +82,11 @@ export function RunsPage({ onNavigate }: { onNavigate: (view: AppView) => void }
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [retryingDeletionId, setRetryingDeletionId] = useState<string | null>(null);
+  const [bulkSelectorOpen, setBulkSelectorOpen] = useState(false);
+  const [bulkConfirmOpen, setBulkConfirmOpen] = useState(false);
+  const [bulkStatuses, setBulkStatuses] = useState<string[]>([]);
+  const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [bulkMessage, setBulkMessage] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
 
   const loadRuns = useCallback(async (requestedPage = page) => {
@@ -183,6 +188,23 @@ export function RunsPage({ onNavigate }: { onNavigate: (view: AppView) => void }
     finally { setRetryingDeletionId(null); }
   };
 
+  const deleteRunsByStatus = async () => {
+    if (!bulkStatuses.length) return;
+    setBulkDeleting(true); setDeleteError(null); setBulkMessage(null);
+    try {
+      const response = await apiFetch("/api/runs/bulk-delete", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ statuses: bulkStatuses }) });
+      const body = await response.json().catch(() => ({})) as { queued_count?: number; skipped_profile_count?: number; already_deleting_count?: number };
+      if (!response.ok) throw new Error("Could not queue the selected runs for deletion.");
+      const parts = [`${body.queued_count ?? 0} ${body.queued_count === 1 ? "run" : "runs"} queued for deletion`];
+      if (body.already_deleting_count) parts.push(`${body.already_deleting_count} already being removed`);
+      if (body.skipped_profile_count) parts.push(`${body.skipped_profile_count} skipped because a run image is in use as an Instagram profile photo`);
+      setBulkMessage(`${parts.join(" · ")}.`);
+      setBulkConfirmOpen(false); setBulkSelectorOpen(false); setBulkStatuses([]);
+      await loadRuns(page);
+    } catch (cause) { setDeleteError(cause instanceof Error ? cause.message : "Could not delete the selected runs."); }
+    finally { setBulkDeleting(false); }
+  };
+
   const updatePublication = async (action: "save" | "publish" | "discard") => {
     const publication = detail?.publication;
     if (!publication) return;
@@ -231,9 +253,10 @@ export function RunsPage({ onNavigate }: { onNavigate: (view: AppView) => void }
   </Table.Tr>);
 
   return <Stack className="workspace-page" gap="lg">
-    <Group justify="space-between" align="end"><Stack gap={3}><Text className="page-eyebrow">Workspace</Text><Title order={1} className="page-title">Runs</Title></Stack><Group><Button variant="light" onClick={() => void loadRuns(page)}>Refresh</Button><Button onClick={() => onNavigate("workflows")}>Browse workflows</Button></Group></Group>
+    <Group justify="space-between" align="end"><Stack gap={3}><Text className="page-eyebrow">Workspace</Text><Title order={1} className="page-title">Runs</Title></Stack><Group><Popover opened={bulkSelectorOpen} onChange={setBulkSelectorOpen} position="bottom-end" withArrow shadow="md"><Popover.Target><Button color="hiveError" variant="light" onClick={() => setBulkMessage(null)}>Delete runs</Button></Popover.Target><Popover.Dropdown w={320}><Stack gap="sm"><MultiSelect label="Run statuses" placeholder="Choose statuses" data={[{ value: "failed", label: "Failed" }, { value: "succeeded", label: "Succeeded" }, { value: "cancelled", label: "Cancelled" }]} value={bulkStatuses} onChange={setBulkStatuses} searchable={false} clearable /><Text size="xs" c="dimmed">Only matching completed runs are included. Queued, running, and awaiting-publication runs are excluded.</Text><Button color="hiveError" variant="light" disabled={!bulkStatuses.length} onClick={() => { setBulkSelectorOpen(false); setBulkConfirmOpen(true); }}>Review deletion</Button></Stack></Popover.Dropdown></Popover><Button variant="light" onClick={() => void loadRuns(page)}>Refresh</Button><Button onClick={() => onNavigate("workflows")}>Browse workflows</Button></Group></Group>
     {error && <Alert color="hiveError" title="Run history unavailable">{error}</Alert>}
     {deleteError && <Alert color="hiveError" title="Run deletion">{deleteError}</Alert>}
+    {bulkMessage && <Alert color="hiveSuccess" title="Bulk deletion">{bulkMessage}</Alert>}
     <Paper className="workspace-table-panel" withBorder>
       {loading ? <Group justify="center" p="xl"><Loader size="sm" /><Text size="sm" c="dimmed">Loading runs…</Text></Group>
         : result?.total === 0 ? <Stack className="workspace-empty" align="center" gap="sm"><Badge color="hiveSky" variant="light">Run history</Badge><Title order={2} size="h3">No runs yet</Title><Text c="dimmed" ta="center" maw={480}>Open a saved workflow and choose Run workflow to queue its current definition for execution.</Text><Button variant="light" onClick={() => onNavigate("workflows")}>Browse workflows</Button></Stack>
@@ -241,6 +264,9 @@ export function RunsPage({ onNavigate }: { onNavigate: (view: AppView) => void }
     </Paper>
     <ConfirmActionModal opened={deleteTarget !== null} onClose={() => { if (!deletingId) setDeleteTarget(null); }} title="Delete run?" confirmLabel="Delete run" loading={deletingId !== null} onConfirm={() => void deleteRun()}>
       <Text>{deleteTarget?.status === "queued" ? <>Cancel and delete the queued run for <strong>{deleteTarget.workflowSnapshotJson?.name ?? "Workflow"}</strong>?</> : <>Delete the run for <strong>{deleteTarget?.workflowSnapshotJson?.name ?? "Workflow"}</strong>?</>} Its run history and generated media will be permanently removed. Uploaded input files are removed only when no workflow or other run still uses them.</Text>
+    </ConfirmActionModal>
+    <ConfirmActionModal opened={bulkConfirmOpen} onClose={() => { if (!bulkDeleting) setBulkConfirmOpen(false); }} title="Delete matching runs?" confirmLabel="Delete matching runs" loading={bulkDeleting} onConfirm={() => void deleteRunsByStatus()}>
+      <Text>This will queue every <strong>{bulkStatuses.map((status) => status[0]?.toUpperCase() + status.slice(1)).join(", ")}</strong> run in your history for deletion, including its generated media. This applies across all Runs pages. Queued, running, awaiting-publication, and profile-photo runs will not be deleted.</Text>
     </ConfirmActionModal>
     <Modal opened={selectedId !== null} onClose={() => setSelectedId(null)} title="Run details" size="xl" centered>
       {!detail && !detailError ? <Group justify="center" p="xl"><Loader size="sm" /></Group> : detailError ? <Alert color="hiveError" title="Could not load run">{detailError}</Alert> : detail && <Stack gap="md">
