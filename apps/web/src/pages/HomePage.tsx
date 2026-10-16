@@ -39,7 +39,7 @@ export function HomePage({ onNavigate }: { onNavigate: (view: AppView) => void }
           <Text fw={600}>Models</Text><Text size="sm" c="dimmed">Check requirements and download supported image models to the local runner.</Text><Button variant="subtle" onClick={(event) => { event.stopPropagation(); onNavigate("models"); }}>Browse models</Button>
         </Paper>
         <Paper className="workspace-shortcut" withBorder onClick={() => onNavigate("workflows")} role="button" tabIndex={0} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") onNavigate("workflows"); }}>
-          <Text fw={600}>Workflows</Text><Text size="sm" c="dimmed">Connect typed inputs, AI models, and Processing operations; duplicate nodes or workflows to reuse a setup.</Text><Button variant="subtle" onClick={(event) => { event.stopPropagation(); onNavigate("workflows"); }}>Browse workflows</Button>
+          <Text fw={600}>Workflows</Text><Text size="sm" c="dimmed">Connect typed inputs, AI models, and Processing operations; duplicate or import complete workflows to reuse a setup.</Text><Button variant="subtle" onClick={(event) => { event.stopPropagation(); onNavigate("workflows"); }}>Browse workflows</Button>
         </Paper>
         <Paper className="workspace-shortcut" withBorder onClick={() => onNavigate("jobs")} role="button" tabIndex={0} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") onNavigate("jobs"); }}>
           <Text fw={600}>Jobs</Text><Text size="sm" c="dimmed">Run a workflow once or repeat it after each previous run finishes. Pause or remove jobs any time.</Text><Button variant="subtle" onClick={(event) => { event.stopPropagation(); onNavigate("jobs"); }}>Manage jobs</Button>
