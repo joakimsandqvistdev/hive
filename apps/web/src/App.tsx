@@ -48,7 +48,7 @@ function AppContent({ view, onNavigate, sidebarCollapsed, workflowEditorActive, 
                 : view === "accounts" ? <AccountsPage />
                 : view === "media" ? <MediaLibraryPage />
                 : view === "licenses" ? <LicensesPage />
-                  : <HomePage />}
+                  : <HomePage onNavigate={onNavigate} />}
     </AppLayout>
   );
 }

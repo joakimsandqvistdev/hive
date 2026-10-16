@@ -196,7 +196,7 @@ async function processInstagramPublication(): Promise<boolean> {
   } catch (error) {
     const message = error instanceof Error ? error.message.slice(0, 1000) : "Instagram publishing failed.";
     await db.transaction(async (tx) => {
-      // Keep the run non-terminal so a repeating Job cannot advance until a user resolves publication.
+      // Keep the publication in review; Jobs advance based on workflow completion independently.
       await tx.update(instagramPublications).set({ status: "awaiting_review", errorSummary: message, updatedAt: new Date() }).where(eq(instagramPublications.id, publication.id));
     });
   }

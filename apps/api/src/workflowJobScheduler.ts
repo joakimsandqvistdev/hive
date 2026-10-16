@@ -4,14 +4,16 @@ import { loadDataTypes, loadModelIoContracts } from "./modelContracts.js";
 import { runs, workflowJobs } from "./schema.js";
 import { createWorkflowRunInTransaction, workflowRunErrorMessage } from "./workflowRunService.js";
 
-const terminalRunStatuses = ["succeeded", "failed", "cancelled"] as const;
+// A run awaiting Instagram review/publication has finished workflow execution.
+// Keep its publication attached to the run, but allow the Job to advance.
+const completedJobRunStatuses = ["succeeded", "failed", "cancelled", "awaiting_publish"] as const;
 
 export async function processWorkflowJobTick(): Promise<void> {
   await db.transaction(async (tx) => {
     const [row] = await tx.select({ job: workflowJobs, runStatus: runs.status, runFinishedAt: runs.finishedAt })
       .from(workflowJobs).leftJoin(runs, eq(runs.id, workflowJobs.currentRunId))
       .where(or(
-        and(isNotNull(workflowJobs.currentRunId), or(isNull(runs.id), inArray(runs.status, terminalRunStatuses))),
+        and(isNotNull(workflowJobs.currentRunId), or(isNull(runs.id), inArray(runs.status, completedJobRunStatuses))),
         and(eq(workflowJobs.status, "active"), isNotNull(workflowJobs.nextRunAt), lte(workflowJobs.nextRunAt, new Date())),
       )).orderBy(asc(workflowJobs.nextRunAt)).limit(1).for("update", { of: workflowJobs, skipLocked: true });
     if (!row) return;

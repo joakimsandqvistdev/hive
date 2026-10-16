@@ -1,32 +1,90 @@
-import { Button, Paper, Stack, Text, Title } from "@mantine/core";
+import { Badge, Button, Group, Paper, SimpleGrid, Stack, Text, ThemeIcon, Title } from "@mantine/core";
 import { useAuth } from "../auth";
+import type { AppView } from "../navigation/navigationState";
 
-export function HomePage() {
+const capabilities = [
+  { icon: "workflow", title: "Visual workflows", description: "Connect inputs, AI models, and processing steps in one flow." },
+  { icon: "custom", title: "Reusable Custom Nodes", description: "Package workflow logic and update it in one place." },
+  { icon: "models", title: "Model library", description: "Download supported models and use them in your workflows." },
+  { icon: "media", title: "Media Library", description: "Upload, organize, and reuse assets across workflows." },
+  { icon: "publish", title: "Instagram publishing", description: "Publish posts and Reels automatically or after review." },
+  { icon: "jobs", title: "Jobs and Runs", description: "Schedule repeat runs, track progress, and manage outputs." },
+] as const;
+
+type CapabilityIcon = typeof capabilities[number]["icon"];
+
+export function HomePage({ onNavigate }: { onNavigate: (view: AppView) => void }) {
   const { user, openLoginModal } = useAuth();
-  return (
-    <Stack className="home-page" gap="lg">
-      <Stack className="welcome-copy" gap="md">
-        <Stack gap="xs">
-          <Title order={2} className="welcome-title">Build workflows from models, inputs, and processing nodes.</Title>
-          <Text className="welcome-description">
-            Build workflows from typed inputs, downloadable AI models, reusable Custom Nodes with named public inputs and outputs, and deterministic Processing operations. Edit custom node logic once and reuse it across workflows, with interface changes flagged for attention. Overlay text on images or turn a still image into a 9:16 MP4 with optional soundtrack. Manage uploaded and generated files in the Media Library, publish Instagram posts and Reels, and schedule workflows as Jobs.
-          </Text>
+
+  return <Stack className="home-page" gap="xl">
+    <Paper className="home-hero" withBorder>
+      <Stack className="home-hero-copy" gap="md">
+        <Badge className="home-eyebrow" variant="light" color="hiveSky" leftSection={<span className="home-eyebrow-mark" aria-hidden="true" />}>Creative workflow automation</Badge>
+        <Stack gap="sm">
+          <Title order={1} className="home-title">Turn ideas into repeatable workflows.</Title>
+          <Text className="home-description">Bring AI models, media processing, and publishing together in one visual workspace. Build reusable flows, schedule runs, and keep every output easy to find.</Text>
         </Stack>
-        {!user && <Button w="fit-content" onClick={openLoginModal}>Log in to get started</Button>}
+        <Group gap="sm" className="home-actions">
+          {user
+            ? <Button onClick={() => onNavigate("workflows")}>Open workflows</Button>
+            : <Button onClick={openLoginModal}>Sign in to Hive</Button>}
+          {!user && <Text size="sm" c="dimmed">Your workspace is private to your account.</Text>}
+        </Group>
       </Stack>
-      {user ? <Paper className="home-note" withBorder>
-        <span className="note-mark" aria-hidden="true" />
-        <Stack gap={2}>
-          <Text fw={600} size="sm">Your workspace is ready.</Text>
-          <Text size="sm" c="dimmed">Manage models, build workflows, browse and preserve media, publish to Instagram, schedule Jobs, and review run outputs.</Text>
+
+      <Paper className="home-flow-card" withBorder>
+        <Group justify="space-between" align="center">
+          <Text className="home-flow-label">A connected workflow</Text>
+          <span className="home-flow-status"><span aria-hidden="true" /> Ready to run</span>
+        </Group>
+        <Stack className="home-flow-steps" gap={0}>
+          <FlowStep number="01" title="Build" description="Connect models and media" />
+          <FlowStep number="02" title="Run" description="Generate and process outputs" />
+          <FlowStep number="03" title="Publish" description="Review or automate delivery" last />
         </Stack>
-      </Paper> : <Paper className="home-note" withBorder>
-        <span className="note-mark" aria-hidden="true" />
-        <Stack gap={2}>
-          <Text fw={600} size="sm">Sign in to access your private workspace.</Text>
-          <Text size="sm" c="dimmed">Download models, build workflows with built-in Processing operations, save media, schedule Jobs, connect Instagram, and review generated media after you log in.</Text>
-        </Stack>
-      </Paper>}
+        <Text className="home-flow-footnote">From a single run to a scheduled job</Text>
+      </Paper>
+    </Paper>
+
+    <Stack className="home-capabilities" gap="md">
+      <Stack gap={4}>
+        <Text className="page-eyebrow">One workspace</Text>
+        <Title order={2} className="home-section-title">Everything around your workflow</Title>
+      </Stack>
+      <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="sm">
+        {capabilities.map((item) => <Paper className="home-capability" withBorder key={item.title}>
+          <Group align="flex-start" wrap="nowrap" gap="sm">
+            <ThemeIcon className="home-capability-icon" variant="light" color="hiveSky" size={38} radius="sm"><CapabilityGlyph type={item.icon} /></ThemeIcon>
+            <Stack gap={4}>
+              <Text className="home-capability-title">{item.title}</Text>
+              <Text className="home-capability-description">{item.description}</Text>
+            </Stack>
+          </Group>
+        </Paper>)}
+      </SimpleGrid>
     </Stack>
-  );
+  </Stack>;
+}
+
+function FlowStep({ number, title, description, last = false }: { number: string; title: string; description: string; last?: boolean }) {
+  return <Group className="home-flow-step" wrap="nowrap" align="stretch" gap="sm">
+    <Stack className="home-flow-marker-column" align="center" gap={0}>
+      <span className="home-flow-marker">{number}</span>
+      {!last && <span className="home-flow-connector" aria-hidden="true" />}
+    </Stack>
+    <Stack className="home-flow-step-copy" gap={2}>
+      <Text className="home-flow-step-title">{title}</Text>
+      <Text className="home-flow-step-description">{description}</Text>
+    </Stack>
+  </Group>;
+}
+
+function CapabilityGlyph({ type }: { type: CapabilityIcon }) {
+  const shared = { width: 19, height: 19, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.7, strokeLinecap: "round" as const, strokeLinejoin: "round" as const, "aria-hidden": true as const };
+  if (type === "workflow") return <svg {...shared}><rect x="3.5" y="4" width="6" height="5" rx="1.5"/><rect x="14.5" y="15" width="6" height="5" rx="1.5"/><path d="M9.5 6.5h3a2 2 0 0 1 2 2v2.5m0 0h-2m2 0v2m0 2h-2"/></svg>;
+  if (type === "custom") return <svg {...shared}><rect x="4" y="4" width="7" height="7" rx="1.5"/><rect x="13" y="13" width="7" height="7" rx="1.5"/><path d="M14 7h3m-1.5-1.5v3"/></svg>;
+  if (type === "models") return <svg {...shared}><path d="m12 3 8 4.5v9L12 21l-8-4.5v-9L12 3Z"/><path d="m4.5 7.8 7.5 4.4 7.5-4.4M12 12.2V21"/></svg>;
+  if (type === "media") return <svg {...shared}><rect x="3.5" y="4.5" width="17" height="15" rx="2"/><circle cx="9" cy="10" r="1.5"/><path d="m5 17 4.5-4 3.5 3 2.5-2 3.5 3"/></svg>;
+  if (type === "publish") return <svg {...shared}><path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5"/><path d="M5 13v5a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-5"/></svg>;
+  return <svg {...shared}><circle cx="12" cy="12" r="8.5"/><path d="M12 7v5l3.5 2"/></svg>;
 }
