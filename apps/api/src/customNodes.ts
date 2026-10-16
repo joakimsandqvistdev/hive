@@ -4,7 +4,7 @@ import { db } from "./db.js";
 import { loadDataTypes, loadModelIoContracts, type ModelIoContract } from "./modelContracts.js";
 import { customNodeMetadataSchema, saveCustomNodeSchema, validateWorkflowDefinition } from "./workflowDefinition.js";
 import { deriveCustomNodeInterface, hasOutdatedCustomNodeReferences, isCustomNodeInterfaceSelectionValid, loadCustomNodeCatalog, snapshotCustomNodeReferences, type CustomNodeCatalogItem } from "./customNodeCatalog.js";
-import { definitionFor } from "./workflowRunService.js";
+import { createWorkflowRun, definitionFor, workflowRunErrorMessage } from "./workflowRunService.js";
 import { artifacts, instagramAccounts, workflowEdges, workflowNodes, workflows } from "./schema.js";
 import { instagramPublishingContract } from "./processingNodes.js";
 import { parsePagination, totalPages } from "./pagination.js";
@@ -126,7 +126,13 @@ router.get("/", async (req, res, next) => {
     ]);
     const nodesByWorkflow = new Map(nodeCounts.map((row) => [row.workflowId, row.total]));
     const usesByCustomNode = new Map(usageCounts.map((row) => [row.customNodeId, row.total]));
-    res.json({ items: items.map((item) => ({ ...item, nodeCount: nodesByWorkflow.get(item.id) ?? 0, directUsageCount: usesByCustomNode.get(item.id) ?? 0 })), page, pageSize, total, totalPages: totalPages(total, pageSize) });
+    const catalog = await loadCustomNodeCatalog(ownerId);
+    const catalogById = new Map(catalog.map((item) => [item.id, item]));
+    res.json({ items: items.map((item) => {
+      const customNode = catalogById.get(item.id);
+      return { ...item, nodeCount: nodesByWorkflow.get(item.id) ?? 0, directUsageCount: usesByCustomNode.get(item.id) ?? 0,
+        runEligible: Boolean(customNode && !customNode.needsAttention && customNode.interface.signature !== "invalid" && customNode.interface.inputs.length === 0) };
+    }), page, pageSize, total, totalPages: totalPages(total, pageSize) });
   } catch (error) { next(error); }
 });
 
@@ -136,6 +142,53 @@ router.get("/:id/impact", async (req, res, next) => {
     const catalog = await loadCustomNodeCatalog(ownerId);
     if (!catalog.some((item) => item.id === req.params.id)) { res.status(404).json({ error: "custom_node_not_found" }); return; }
     res.json(await deletionImpact(req.params.id, ownerId, catalog));
+  } catch (error) { next(error); }
+});
+
+router.post("/:id/duplicate", async (req, res, next) => {
+  if (req.get("origin") !== (process.env.WEB_ORIGIN ?? "http://localhost:5173")) { res.status(403).json({ error: "invalid_origin" }); return; }
+  const ownerId = userId(res);
+  try {
+    const duplicate = await db.transaction(async (tx) => {
+      const [source] = await tx.select().from(workflows).where(and(
+        eq(workflows.id, req.params.id), eq(workflows.userId, ownerId), eq(workflows.isCustomNode, true), isNull(workflows.archivedAt),
+      )).limit(1).for("share");
+      if (!source) return null;
+      const [copy] = await tx.insert(workflows).values({
+        userId: ownerId,
+        name: `${source.name.slice(0, 94)} copy`,
+        description: source.description,
+        isCustomNode: true,
+        interfaceSelection: source.interfaceSelection,
+        needsAttention: source.needsAttention,
+      }).returning();
+      const [nodes, edges] = await Promise.all([
+        tx.select().from(workflowNodes).where(eq(workflowNodes.workflowId, source.id)),
+        tx.select().from(workflowEdges).where(eq(workflowEdges.workflowId, source.id)),
+      ]);
+      if (nodes.length) await tx.insert(workflowNodes).values(nodes.map((node) => ({ ...node, workflowId: copy!.id })));
+      if (edges.length) await tx.insert(workflowEdges).values(edges.map((edge) => ({ ...edge, workflowId: copy!.id })));
+      return { ...copy!, nodeCount: nodes.length, directUsageCount: 0 };
+    });
+    if (!duplicate) { res.status(404).json({ error: "custom_node_not_found" }); return; }
+    res.status(201).json({ customNode: duplicate });
+  } catch (error) { next(error); }
+});
+
+router.post("/:id/runs", async (req, res, next) => {
+  if (req.get("origin") !== (process.env.WEB_ORIGIN ?? "http://localhost:5173")) { res.status(403).json({ error: "invalid_origin" }); return; }
+  const ownerId = userId(res);
+  try {
+    const [customNode] = await db.select({ id: workflows.id }).from(workflows).where(and(
+      eq(workflows.id, req.params.id), eq(workflows.userId, ownerId), eq(workflows.isCustomNode, true), isNull(workflows.archivedAt),
+    )).limit(1);
+    if (!customNode) { res.status(404).json({ error: "custom_node_not_found" }); return; }
+    const result = await createWorkflowRun(customNode.id, ownerId);
+    if (!result.ok) {
+      const status = result.error === "workflow_not_found" ? 404 : result.error === "model_not_downloaded" ? 409 : 400;
+      res.status(status).json({ error: result.error, message: workflowRunErrorMessage(result.error) }); return;
+    }
+    res.status(202).json({ run: result.run });
   } catch (error) { next(error); }
 });
 

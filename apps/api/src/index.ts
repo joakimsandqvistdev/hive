@@ -9,6 +9,8 @@ import { modelsRouter } from "./models.js";
 import { workflowJobsRouter } from "./workflowJobs.js";
 import { instagramRouter } from "./instagram.js";
 import { customNodesRouter } from "./customNodes.js";
+import { navigationRouter } from "./navigation.js";
+import { notificationsRouter } from "./notifications.js";
 
 const app = express();
 const port = Number(process.env.API_PORT ?? 3001);
@@ -17,6 +19,8 @@ app.use(cors({ origin: process.env.WEB_ORIGIN ?? "http://localhost:5173", creden
 app.use(express.json({ limit: "2mb" }));
 app.use("/api/auth", authRouter);
 app.use("/api/instagram", instagramRouter);
+app.use("/api/navigation", requireAuthenticatedUser, navigationRouter);
+app.use("/api/notifications", requireAuthenticatedUser, notificationsRouter);
 app.use("/api/custom-nodes", requireAuthenticatedUser, customNodesRouter);
 app.use("/api/workflows", requireAuthenticatedUser, workflowsRouter);
 app.use("/api/jobs", requireAuthenticatedUser, workflowJobsRouter);

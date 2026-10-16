@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { ActionIcon, Alert, Badge, Button, Group, Loader, Modal, NumberInput, Paper, Select, Stack, Table, Text, TextInput, Title, Tooltip } from "@mantine/core";
 import { apiFetch } from "../apiClient";
 import type { AppView } from "../navigation/navigationState";
+import { useFlashMessages } from "../components/FlashMessages";
 
 type WorkflowChoice = { id: string; name: string };
 type JobStatus = "active" | "paused" | "completed" | "failed";
@@ -33,6 +34,7 @@ function currentActivity(job: Job) {
 }
 
 export function JobsPage({ onNavigate }: { onNavigate: (view: AppView) => void }) {
+  const { showFlash } = useFlashMessages();
   const [jobs, setJobs] = useState<Job[]>([]);
   const [workflows, setWorkflows] = useState<WorkflowChoice[]>([]);
   const [loading, setLoading] = useState(true);
@@ -42,13 +44,27 @@ export function JobsPage({ onNavigate }: { onNavigate: (view: AppView) => void }
   const [saving, setSaving] = useState(false);
   const [mutatingId, setMutatingId] = useState<string | null>(null);
   const [confirmRemove, setConfirmRemove] = useState<Job | null>(null);
+  const previousJobStates = useRef<Map<string, { currentRunStatus: string | null; status: JobStatus }>>(new Map());
+  const hasLoadedJobStates = useRef(false);
 
   const refresh = useCallback(async (includeWorkflows = false) => {
     try {
       const jobsResponse = await apiFetch("/api/jobs");
       const jobsBody = await jobsResponse.json() as { jobs?: Job[] };
       if (!jobsResponse.ok) throw new Error("Could not load jobs.");
-      setJobs(jobsBody.jobs ?? []);
+      const nextJobs = jobsBody.jobs ?? [];
+      if (hasLoadedJobStates.current) {
+        for (const job of nextJobs) {
+          const previous = previousJobStates.current.get(job.id);
+          const wasActive = previous?.currentRunStatus === "queued" || previous?.currentRunStatus === "running" || previous?.currentRunStatus === "cancel_requested";
+          const isActive = job.currentRunStatus === "queued" || job.currentRunStatus === "running" || job.currentRunStatus === "cancel_requested";
+          if (isActive && !wasActive) showFlash({ tone: "success", title: "Run started", message: `“${job.name}” was added to the run queue.` });
+          if (job.status === "failed" && previous?.status !== "failed") showFlash({ tone: "error", title: "Job run failed", message: job.lastError ?? `The latest run for “${job.name}” could not start.` });
+        }
+      }
+      previousJobStates.current = new Map(nextJobs.map((job) => [job.id, { currentRunStatus: job.currentRunStatus, status: job.status }]));
+      hasLoadedJobStates.current = true;
+      setJobs(nextJobs);
       if (includeWorkflows) {
         const firstResponse = await apiFetch("/api/workflows?page=1&pageSize=50");
         const firstPage = await firstResponse.json() as { items?: WorkflowChoice[]; totalPages?: number };
@@ -66,7 +82,7 @@ export function JobsPage({ onNavigate }: { onNavigate: (view: AppView) => void }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Could not load jobs.");
     } finally { setLoading(false); }
-  }, []);
+  }, [showFlash]);
 
   useEffect(() => { void refresh(true); }, [refresh]);
   const needsPolling = jobs.some((job) => job.status === "active" || currentActivity(job) !== null);
@@ -96,8 +112,10 @@ export function JobsPage({ onNavigate }: { onNavigate: (view: AppView) => void }
         const body = await response.json().catch(() => ({})) as { message?: string };
         throw new Error(body.message ?? "Could not create this job. Check the workflow and schedule.");
       }
+      const jobName = form.name.trim();
       setFormOpen(false); setForm(initialForm()); await refresh();
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not create this job."); }
+      showFlash({ tone: "neutral", title: "Job scheduled", message: `“${jobName}” is ready. Its first run will start at the scheduled time.` });
+    } catch (cause) { showFlash({ tone: "error", title: "Could not create job", message: cause instanceof Error ? cause.message : "Could not create this job." }); }
     finally { setSaving(false); }
   };
 
@@ -107,7 +125,8 @@ export function JobsPage({ onNavigate }: { onNavigate: (view: AppView) => void }
       const response = await apiFetch("/api/jobs/" + job.id, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ status }) });
       if (!response.ok) throw new Error("Could not update this job.");
       await refresh();
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not update this job."); }
+      showFlash({ tone: "success", title: status === "paused" ? "Job paused" : "Job resumed", message: `“${job.name}” was ${status === "paused" ? "paused" : "resumed"}.` });
+    } catch (cause) { showFlash({ tone: "error", title: "Could not update job", message: cause instanceof Error ? cause.message : "Could not update this job." }); }
     finally { setMutatingId(null); }
   };
 
@@ -117,8 +136,10 @@ export function JobsPage({ onNavigate }: { onNavigate: (view: AppView) => void }
     try {
       const response = await apiFetch("/api/jobs/" + confirmRemove.id, { method: "DELETE", headers: { "content-type": "application/json" }, body: JSON.stringify({ cancelQueuedRun: true }) });
       if (!response.ok) throw new Error("Could not remove this job.");
+      const jobName = confirmRemove.name;
       setConfirmRemove(null); await refresh();
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not remove this job."); }
+      showFlash({ tone: "success", title: "Job removed", message: `“${jobName}” was removed.` });
+    } catch (cause) { showFlash({ tone: "error", title: "Could not remove job", message: cause instanceof Error ? cause.message : "Could not remove this job." }); }
     finally { setMutatingId(null); }
   };
 

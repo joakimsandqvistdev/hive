@@ -1,8 +1,43 @@
 import { AppShell, Box, Burger, Group, Stack, Text } from "@mantine/core";
+import { useEffect, useState } from "react";
 import { NavigationButton } from "./NavigationButton";
 import { AppIcon } from "./AppIcon";
 import type { AppView } from "../navigation/navigationState";
 import { useAuth } from "../auth";
+import { apiFetch } from "../apiClient";
+
+type NavigationSummary = {
+  workflowsNeedAttention: boolean;
+  customNodesNeedAttention: boolean;
+  jobsNeedAttention: boolean;
+  runsNeedAttention: boolean;
+  succeededRuns: number;
+  awaitingPublishRuns: number;
+};
+
+const emptySummary: NavigationSummary = {
+  workflowsNeedAttention: false,
+  customNodesNeedAttention: false,
+  jobsNeedAttention: false,
+  runsNeedAttention: false,
+  succeededRuns: 0,
+  awaitingPublishRuns: 0,
+};
+
+function AttentionIcon() {
+  return <svg className="navigation-attention-icon" aria-hidden="true" viewBox="0 0 16 16" width="16" height="16"><path d="M8 1.5a6.5 6.5 0 1 0 0 13 6.5 6.5 0 0 0 0-13Zm0 3.1v4.1m0 2.25v.05" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" /></svg>;
+}
+
+function AttentionIndicator({ label }: { label: string }) {
+  return <span className="navigation-attention" title={`${label} needs attention`}><AttentionIcon /></span>;
+}
+
+function RunCountIndicators({ succeeded, awaitingPublish }: { succeeded: number; awaitingPublish: number }) {
+  return <span className="navigation-run-counts">
+    <span className="navigation-run-count navigation-run-count-succeeded" aria-label={`${succeeded} succeeded runs`} title={`${succeeded} succeeded`}>{succeeded}</span>
+    <span className="navigation-run-count navigation-run-count-awaiting" aria-label={`${awaitingPublish} awaiting publishing runs`} title={`${awaitingPublish} awaiting publishing`}>{awaitingPublish}</span>
+  </span>;
+}
 
 type SideNavigationProps = {
   compact: boolean;
@@ -24,6 +59,26 @@ export function SideNavigation({
   onViewChange,
 }: SideNavigationProps) {
   const { user, loading } = useAuth();
+  const [summary, setSummary] = useState<NavigationSummary>(emptySummary);
+
+  useEffect(() => {
+    if (!user) { setSummary(emptySummary); return; }
+    let mounted = true;
+    const refresh = async () => {
+      try {
+        const response = await apiFetch("/api/navigation/summary");
+        if (!response.ok) return;
+        const next = await response.json() as NavigationSummary;
+        if (mounted) setSummary(next);
+      } catch { /* Keep the most recent navigation status if the API is temporarily unavailable. */ }
+    };
+    void refresh();
+    const interval = window.setInterval(() => void refresh(), 30_000);
+    window.addEventListener("focus", refresh);
+    return () => { mounted = false; window.clearInterval(interval); window.removeEventListener("focus", refresh); };
+  }, [user, activeView]);
+
+  const attentionRightSection = (needsAttention: boolean, label: string) => needsAttention ? <AttentionIndicator label={label} /> : undefined;
   return (
     <Stack className="side-navigation" data-compact={compact || undefined} justify="space-between" h="100%" gap="xl">
       <Stack gap="xl">
@@ -66,10 +121,10 @@ export function SideNavigation({
             {!loading && user && <NavigationButton label="Media Library" active={activeView === "media"} icon={<AppIcon name="media" />} compact={compact} onClick={() => { onViewChange("media"); onNavigate(); }} />}
             <NavigationButton label="Models" active={activeView === "models"} icon={<AppIcon name="models" />} compact={compact} onClick={() => { onViewChange("models"); onNavigate(); }} />
             {!loading && user && <>
-              <NavigationButton label="Workflows" active={activeView === "workflows"} icon={<AppIcon name="workflows" />} compact={compact} onClick={() => { onViewChange("workflows"); onNavigate(); }} />
-              <NavigationButton label="Custom Nodes" active={activeView === "custom-nodes"} icon={<AppIcon name="customNodes" />} compact={compact} onClick={() => { onViewChange("custom-nodes"); onNavigate(); }} />
-              <NavigationButton label="Jobs" active={activeView === "jobs"} icon={<AppIcon name="jobs" />} compact={compact} onClick={() => { onViewChange("jobs"); onNavigate(); }} />
-              <NavigationButton label="Runs" active={activeView === "runs"} icon={<AppIcon name="runs" />} compact={compact} onClick={() => { onViewChange("runs"); onNavigate(); }} />
+              <NavigationButton label="Workflows" active={activeView === "workflows"} icon={<AppIcon name="workflows" />} compact={compact} rightSection={attentionRightSection(summary.workflowsNeedAttention, "Workflows")} ariaLabel={`Workflows${summary.workflowsNeedAttention ? ", needs attention" : ""}`} onClick={() => { onViewChange("workflows"); onNavigate(); }} />
+              <NavigationButton label="Custom Nodes" active={activeView === "custom-nodes"} icon={<AppIcon name="customNodes" />} compact={compact} rightSection={attentionRightSection(summary.customNodesNeedAttention, "Custom Nodes")} ariaLabel={`Custom Nodes${summary.customNodesNeedAttention ? ", needs attention" : ""}`} onClick={() => { onViewChange("custom-nodes"); onNavigate(); }} />
+              <NavigationButton label="Jobs" active={activeView === "jobs"} icon={<AppIcon name="jobs" />} compact={compact} rightSection={attentionRightSection(summary.jobsNeedAttention, "Jobs")} ariaLabel={`Jobs${summary.jobsNeedAttention ? ", needs attention" : ""}`} onClick={() => { onViewChange("jobs"); onNavigate(); }} />
+              <NavigationButton label="Runs" active={activeView === "runs"} icon={<AppIcon name="runs" />} compact={compact} rightSection={<RunCountIndicators succeeded={summary.succeededRuns} awaitingPublish={summary.awaitingPublishRuns} />} ariaLabel={`Runs, ${summary.succeededRuns} succeeded, ${summary.awaitingPublishRuns} awaiting publishing${summary.runsNeedAttention ? ", needs attention" : ""}`} onClick={() => { onViewChange("runs"); onNavigate(); }} />
             </>}
             </Stack>
           </Box>

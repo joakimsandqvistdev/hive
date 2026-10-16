@@ -284,3 +284,20 @@ export const instagramPublications = pgTable("instagram_publications", {
   uniqueIndex("instagram_publications_run_node_unique").on(table.runId, table.nodeId),
   index("instagram_publications_queue_idx").on(table.status, table.createdAt),
 ]);
+
+export type RunNotificationType = "run_failed" | "run_succeeded" | "run_awaiting_publish";
+export const notifications = pgTable("notifications", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  runId: uuid("run_id").notNull(),
+  type: text("type").$type<RunNotificationType>().notNull(),
+  workflowName: text("workflow_name").notNull(),
+  message: text("message").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  readAt: timestamp("read_at", { withTimezone: true }),
+}, (table): PgTableExtraConfigValue[] => [
+  foreignKey({ columns: [table.runId, table.userId], foreignColumns: [runs.id, runs.userId], name: "notifications_run_owner_fk" }).onDelete("cascade"),
+  check("notifications_type_check", sql`${table.type} in ('run_failed', 'run_succeeded', 'run_awaiting_publish')`),
+  uniqueIndex("notifications_run_type_unique").on(table.runId, table.type),
+  index("notifications_user_created_idx").on(table.userId, table.createdAt),
+]);

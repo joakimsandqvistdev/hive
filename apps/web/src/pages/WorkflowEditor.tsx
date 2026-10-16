@@ -9,7 +9,8 @@ import { defaultAudioModelParameters } from "../components/AudioModelParametersF
 import { defaultTextModelParameters } from "../components/TextModelParametersFields";
 import { WorkflowNodeConfiguration } from "./WorkflowNodeConfiguration";
 import { ConfirmActionModal } from "../components/ConfirmActionModal";
-import { startWorkflowRun } from "./startWorkflowRun";
+import { startCustomNodeRun, startWorkflowRun } from "./startWorkflowRun";
+import { useFlashMessages } from "../components/FlashMessages";
 import type { AppView } from "../navigation/navigationState";
 import type { ModelIoContract } from "../modelIoTypes";
 import type { DataType, Definition, Workflow, WorkflowNode, WorkflowNodeData } from "./workflowTypes";
@@ -21,6 +22,7 @@ type CustomNodeOption = { id: string; name: string; description: string; needsAt
 type InterfaceSelection = { inputs: Array<{ nodeId: string; portKey: string; label: string }>; outputs: Array<{ nodeId: string; portKey: string; label: string }> };
 
 export function WorkflowEditor({ workflowId, onClose, onNavigate, customNodeEditor = false }: { workflowId: string; onClose: () => void; onNavigate: (view: AppView) => void; customNodeEditor?: boolean }) {
+  const { showFlash } = useFlashMessages();
   const [workflow, setWorkflow] = useState<Workflow | null>(null);
   const [contracts, setContracts] = useState<ModelIoContract[]>([]);
   const [customNodes, setCustomNodes] = useState<CustomNodeOption[]>([]);
@@ -45,13 +47,13 @@ export function WorkflowEditor({ workflowId, onClose, onNavigate, customNodeEdit
   const [exportOpen, setExportOpen] = useState(false);
   const [exportName, setExportName] = useState("");
   const [exportDescription, setExportDescription] = useState("");
-  const [exportError, setExportError] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
   const [exportedWorkflow, setExportedWorkflow] = useState<Workflow | null>(null);
   const [removeOpen, setRemoveOpen] = useState(false);
   const [detailsOpen, setDetailsOpen] = useState(false);
   const [interfaceOpen, setInterfaceOpen] = useState(false);
   const [interfaceSelection, setInterfaceSelection] = useState<InterfaceSelection>({ inputs: [], outputs: [] });
+  const [customNodeRunEligible, setCustomNodeRunEligible] = useState(false);
   const [graph, setGraph] = useState<GraphDocument>(() => toIonodesGraph({ nodes: [], edges: [] }, [], [], workflowId));
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
@@ -88,6 +90,7 @@ export function WorkflowEditor({ workflowId, onClose, onNavigate, customNodeEdit
         setInstagramAccounts(accountBody.account ? [accountBody.account] : []);
         setMediaItems(mediaBody.items);
         setGraph(toIonodesGraph(flow.definition, [...catalog.models, ...(catalog.customNodes ?? []).map((item) => item.contract)], catalog.dataTypes, workflowId));
+        setCustomNodeRunEligible(Boolean(customNodeEditor && flow.customNode && !flow.customNode.needsAttention && flow.interface && flow.interface.signature !== "invalid" && flow.interface.inputs.length === 0));
         if (customNodeEditor && flow.interface) setInterfaceSelection({
         inputs: flow.interface.inputs.map((port) => ({ nodeId: port.boundaryNodeId, portKey: port.boundaryPortKey, label: port.label })),
         outputs: flow.interface.outputs.map((port) => ({ nodeId: port.boundaryNodeId, portKey: port.boundaryPortKey, label: port.label })),
@@ -272,13 +275,12 @@ export function WorkflowEditor({ workflowId, onClose, onNavigate, customNodeEdit
     if (!workflow || selectedNodeIds.length === 0) return;
     setExportName(`${workflow.name} selection`.slice(0, 100));
     setExportDescription(`Selected nodes exported from ${workflow.name}.`.slice(0, 1000));
-    setExportError(null);
     setExportedWorkflow(null);
     setExportOpen(true);
   }
   async function exportSelection() {
     if (!workflow || selectedNodeIds.length === 0) return;
-    setExporting(true); setExportError(null);
+    setExporting(true);
     try {
       const definition = toWorkflowDefinition(graph);
       const selectedIds = new Set(selectedNodeIds);
@@ -294,8 +296,9 @@ export function WorkflowEditor({ workflowId, onClose, onNavigate, customNodeEdit
       const body = await response.json().catch(() => ({})) as { workflow?: Workflow; message?: string };
       if (!response.ok || !body.workflow) throw new Error(body.message ?? "Could not create a workflow from this selection.");
       setExportedWorkflow(body.workflow);
+      showFlash({ tone: "success", title: "Workflow created", message: `“${body.workflow.name}” was created with ${body.workflow.nodeCount} ${body.workflow.nodeCount === 1 ? "node" : "nodes"} and ${body.workflow.connectionCount ?? 0} ${body.workflow.connectionCount === 1 ? "connection" : "connections"}.` });
     } catch (cause) {
-      setExportError(cause instanceof Error ? cause.message : "Could not create a workflow from this selection.");
+      showFlash({ tone: "error", title: "Could not export selection", message: cause instanceof Error ? cause.message : "Could not create a workflow from this selection." });
     } finally { setExporting(false); }
   }
   function requestRemoveNode(graphNode: GraphDocument["nodes"][number]) {
@@ -346,21 +349,24 @@ export function WorkflowEditor({ workflowId, onClose, onNavigate, customNodeEdit
       const response = await apiFetch(`${resourcePath}/${workflowId}`, { method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ name: workflow.name, description: workflow.description, definition, ...(customNodeEditor ? { interfaceSelection: savedInterfaceSelection } : {}) }) });
       const body = await response.json();
       if (!response.ok) throw new Error(body.error === "invalid_input_counts" ? "Connect all required model inputs and check connection limits." : body.error === "invalid_input" ? "Fill every text input and upload a file for each media input." : body.error === "custom_node_cycle" ? "Custom nodes cannot contain circular references." : body.error === "custom_node_missing" ? "A custom node is missing. Replace or remove it before saving." : "Could not save workflow. Check node settings and connections.");
-      setWorkflow(customNodeEditor ? body.customNode : body.workflow); setDirty(false);
+      setWorkflow(customNodeEditor ? body.customNode : body.workflow);
+      if (customNodeEditor) setCustomNodeRunEligible(savedInterfaceSelection.inputs.length === 0 && !body.customNode?.needsAttention);
+      setDirty(false);
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not save workflow."); }
     finally { setSaving(false); }
   }
   async function run() {
-    if (customNodeEditor || workflow?.needsAttention) return;
+    if (workflow?.needsAttention || (customNodeEditor && !customNodeRunEligible)) return;
     setRunning(true); setError(null);
     try {
-      await startWorkflowRun(workflowId);
-      onNavigate("runs");
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not start workflow."); }
+      if (customNodeEditor) await startCustomNodeRun(workflowId);
+      else await startWorkflowRun(workflowId);
+      showFlash({ tone: "success", title: "Run started", message: `“${workflow?.name ?? (customNodeEditor ? "Custom Node" : "Workflow")}" was added to the run queue.` });
+    } catch (cause) { showFlash({ tone: "error", title: `Could not start ${customNodeEditor ? "Custom Node" : "workflow"}`, message: cause instanceof Error ? cause.message : "Could not start this run." }); }
     finally { setRunning(false); }
   }
   return <div className="workflow-editor-page">
-    <header className="workflow-editor-header"><Group justify="space-between" className="workflow-editor-header-row"><Group className="workflow-header-leading" gap="sm"><Button variant="subtle" onClick={() => { if (!dirty || window.confirm(`Discard unsaved ${customNodeEditor ? "custom node" : "workflow"} changes?`)) onClose(); }}>Back</Button>{workflow?.needsAttention && <Alert className="workflow-header-error" color="hiveWarning" variant="light" radius="sm" p="xs" role="status">This {customNodeEditor ? "custom node" : "workflow"} needs attention. Repair or replace outdated custom node references.</Alert>}{error && <Alert className="workflow-header-error" color="hiveError" variant="light" radius="sm" p="xs" role="alert">{error}</Alert>}</Group><Group wrap="wrap"><Button size="sm" variant="light" leftSection={<AddNodeIcon />} onClick={() => { void downloaded.refresh(); setPickerOpen(true); }}>Add node</Button><Button size="sm" variant="light" onClick={() => void openImport()}>{customNodeEditor ? "Import workflow" : "Import nodes"}</Button>{customNodeEditor && <Button size="sm" variant="light" onClick={() => setInterfaceOpen(true)}>Edit interface</Button>}{!customNodeEditor && <Button size="sm" variant="light" onClick={openExportSelection} disabled={!selectedNodeIds.length || exporting}>Export selected</Button>}<Button size="sm" variant="light" color="hiveError" leftSection={<RemoveIcon />} aria-label="Remove selected connection" disabled={!selectedConnectionId || uploading} onClick={() => { if (!selectedConnectionId) return; setGraph((current) => removeConnection(current, selectedConnectionId)); setSelectedConnectionId(null); setDirty(true); }}>Remove connection</Button><Button variant="subtle" onClick={() => setDetailsOpen(true)}>Edit details</Button>{!customNodeEditor && <Button variant="light" onClick={() => void run()} loading={running} disabled={dirty || !graph.nodes.length || loading || saving || uploading || workflow?.needsAttention}>Run workflow</Button>}<Button onClick={() => void save()} loading={saving} disabled={!dirty || uploading}>Save {customNodeEditor ? "custom node" : "workflow"}</Button></Group></Group></header>
+    <header className="workflow-editor-header"><Group justify="space-between" className="workflow-editor-header-row"><Group className="workflow-header-leading" gap="sm"><Button variant="subtle" onClick={() => { if (!dirty || window.confirm(`Discard unsaved ${customNodeEditor ? "custom node" : "workflow"} changes?`)) onClose(); }}>Back</Button>{workflow?.needsAttention && <Alert className="workflow-header-error" color="hiveWarning" variant="light" radius="sm" p="xs" role="status">This {customNodeEditor ? "custom node" : "workflow"} needs attention. Repair or replace outdated custom node references.</Alert>}{error && <Alert className="workflow-header-error" color="hiveError" variant="light" radius="sm" p="xs" role="alert">{error}</Alert>}</Group><Group wrap="wrap"><Button size="sm" variant="light" leftSection={<AddNodeIcon />} onClick={() => { void downloaded.refresh(); setPickerOpen(true); }}>Add node</Button><Button size="sm" variant="light" onClick={() => void openImport()}>{customNodeEditor ? "Import workflow" : "Import nodes"}</Button>{customNodeEditor && <Button size="sm" variant="light" onClick={() => setInterfaceOpen(true)}>Edit interface</Button>}{!customNodeEditor && <Button size="sm" variant="light" onClick={openExportSelection} disabled={!selectedNodeIds.length || exporting}>Export selected</Button>}<Button size="sm" variant="light" color="hiveError" leftSection={<RemoveIcon />} aria-label="Remove selected connection" disabled={!selectedConnectionId || uploading} onClick={() => { if (!selectedConnectionId) return; setGraph((current) => removeConnection(current, selectedConnectionId)); setSelectedConnectionId(null); setDirty(true); }}>Remove connection</Button><Button variant="subtle" onClick={() => setDetailsOpen(true)}>Edit details</Button>{(!customNodeEditor || customNodeRunEligible) && <Button variant="light" onClick={() => void run()} loading={running} disabled={dirty || !graph.nodes.length || loading || saving || uploading || workflow?.needsAttention || (customNodeEditor && !customNodeRunEligible)}>{customNodeEditor ? "Run custom node" : "Run workflow"}</Button>}<Button onClick={() => void save()} loading={saving} disabled={!dirty || uploading}>Save {customNodeEditor ? "custom node" : "workflow"}</Button></Group></Group></header>
     {loading ? <Group justify="center" className="workflow-editor-loading"><Loader /><Text>Loading workflow…</Text></Group> : workflow && <div className="workflow-editor-body">
       <section className="workflow-editor-canvas" aria-label="Workflow canvas">
         <GraphEditor
@@ -418,10 +424,8 @@ export function WorkflowEditor({ workflowId, onClose, onNavigate, customNodeEdit
     <Modal opened={exportOpen} onClose={() => { if (!exporting) setExportOpen(false); }} title="Export selected nodes" centered>
       <Stack gap="md">
         {exportedWorkflow ? <>
-          <Alert color="hiveSuccess" title="Workflow created">“{exportedWorkflow.name}” was created with {exportedWorkflow.nodeCount} {exportedWorkflow.nodeCount === 1 ? "node" : "nodes"} and {exportedWorkflow.connectionCount ?? 0} {exportedWorkflow.connectionCount === 1 ? "connection" : "connections"}.</Alert>
           <Group justify="flex-end"><Button variant="default" onClick={() => setExportOpen(false)}>Stay here</Button><Button onClick={() => { window.location.hash = `workflows/${exportedWorkflow.id}`; }}>Open workflow</Button></Group>
         </> : <>
-          {exportError && <Alert color="hiveError" title="Could not export selection">{exportError}</Alert>}
           <Text size="sm">Create a separate workflow from {selectedNodeIds.length} selected {selectedNodeIds.length === 1 ? "node" : "nodes"} and the connections between them.</Text>
           <TextInput label="Workflow name" value={exportName} maxLength={100} onChange={(event) => setExportName(event.currentTarget.value)} required />
           <Textarea label="Description" value={exportDescription} maxLength={1000} onChange={(event) => setExportDescription(event.currentTarget.value)} minRows={2} autosize />

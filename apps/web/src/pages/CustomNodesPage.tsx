@@ -3,11 +3,13 @@ import { Alert, Badge, Button, Group, Loader, Modal, Paper, Stack, Table, Text, 
 import { apiFetch } from "../apiClient";
 import { ConfirmActionModal } from "../components/ConfirmActionModal";
 import { PaginatedTableFooter } from "../components/PaginatedTableFooter";
-import { EditIcon, TrashIcon, WorkspaceTableAction, WorkspaceTableActions } from "../components/WorkspaceTableActions";
+import { DuplicateIcon, EditIcon, PlayIcon, TrashIcon, WorkspaceTableAction, WorkspaceTableActions } from "../components/WorkspaceTableActions";
 import type { AppView } from "../navigation/navigationState";
 import { WorkflowEditor } from "./WorkflowEditor";
+import { startCustomNodeRun } from "./startWorkflowRun";
+import { useFlashMessages } from "../components/FlashMessages";
 
-type CustomNode = { id: string; name: string; description: string; nodeCount: number; directUsageCount: number; needsAttention: boolean; updatedAt: string };
+type CustomNode = { id: string; name: string; description: string; nodeCount: number; directUsageCount: number; needsAttention: boolean; runEligible: boolean; updatedAt: string };
 type CustomNodePageResult = { items: CustomNode[]; page: number; pageSize: number; total: number; totalPages: number };
 type Impact = { directWorkflowCount: number; directCustomNodeCount: number; affectedWorkflowCount: number; affectedCustomNodeCount: number };
 const PAGE_SIZE = 10;
@@ -16,6 +18,7 @@ function editorIdFromHash() { return window.location.hash.match(/^#custom-nodes\
 function formatDate(value: string) { return new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(new Date(value)); }
 
 export function CustomNodesPage({ onNavigate }: { onNavigate: (view: AppView) => void }) {
+  const { showFlash } = useFlashMessages();
   const [customNodeId, setCustomNodeId] = useState<string | null>(editorIdFromHash);
   const [result, setResult] = useState<CustomNodePageResult | null>(null);
   const [loading, setLoading] = useState(true);
@@ -28,6 +31,8 @@ export function CustomNodesPage({ onNavigate }: { onNavigate: (view: AppView) =>
   const [deleteTarget, setDeleteTarget] = useState<CustomNode | null>(null);
   const [impact, setImpact] = useState<Impact | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [duplicatingId, setDuplicatingId] = useState<string | null>(null);
+  const [startingRunId, setStartingRunId] = useState<string | null>(null);
 
   const load = useCallback(async (requestedPage = page) => {
     setLoading(true); setError(null);
@@ -51,7 +56,7 @@ export function CustomNodesPage({ onNavigate }: { onNavigate: (view: AppView) =>
       const body = await response.json() as { customNode?: CustomNode };
       if (!response.ok || !body.customNode) throw new Error("Could not create this custom node.");
       setCreateOpen(false); setName(""); setDescription(""); window.location.hash = `custom-nodes/${body.customNode.id}`;
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not create this custom node."); }
+    } catch (cause) { showFlash({ tone: "error", title: "Could not create Custom Node", message: cause instanceof Error ? cause.message : "Could not create this custom node." }); }
     finally { setSaving(false); }
   }
 
@@ -62,7 +67,7 @@ export function CustomNodesPage({ onNavigate }: { onNavigate: (view: AppView) =>
       const body = await response.json() as Impact;
       if (!response.ok) throw new Error("Could not check which workflows use this custom node.");
       setImpact(body);
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not check custom node usage."); setDeleteTarget(null); }
+    } catch (cause) { showFlash({ tone: "error", title: "Could not check Custom Node usage", message: cause instanceof Error ? cause.message : "Could not check custom node usage." }); setDeleteTarget(null); }
   }
 
   async function remove() {
@@ -72,8 +77,28 @@ export function CustomNodesPage({ onNavigate }: { onNavigate: (view: AppView) =>
       const response = await apiFetch(`/api/custom-nodes/${deleteTarget.id}`, { method: "DELETE" });
       if (!response.ok) throw new Error("Could not delete this custom node.");
       setDeleteTarget(null); setImpact(null); await load(page);
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not delete this custom node."); }
+    } catch (cause) { showFlash({ tone: "error", title: "Could not delete Custom Node", message: cause instanceof Error ? cause.message : "Could not delete this custom node." }); }
     finally { setDeleting(false); }
+  }
+
+  async function duplicate(node: CustomNode) {
+    setDuplicatingId(node.id); setError(null);
+    try {
+      const response = await apiFetch(`/api/custom-nodes/${node.id}/duplicate`, { method: "POST" });
+      const body = await response.json().catch(() => ({})) as { customNode?: CustomNode };
+      if (!response.ok || !body.customNode) throw new Error("Could not duplicate this custom node.");
+      setPage(1); await load(1); showFlash({ tone: "success", title: "Custom Node duplicated", message: `“${body.customNode.name}” was added to your Custom Nodes.` });
+    } catch (cause) { showFlash({ tone: "error", title: "Could not duplicate Custom Node", message: cause instanceof Error ? cause.message : "Could not duplicate this custom node." }); }
+    finally { setDuplicatingId(null); }
+  }
+
+  async function run(node: CustomNode) {
+    setStartingRunId(node.id);
+    try {
+      await startCustomNodeRun(node.id);
+      showFlash({ tone: "success", title: "Run started", message: `“${node.name}” was added to the run queue.` });
+    } catch (cause) { showFlash({ tone: "error", title: "Could not start Custom Node", message: cause instanceof Error ? cause.message : "Could not start this Custom Node." }); }
+    finally { setStartingRunId(null); }
   }
 
   const rows = result?.items.map((item) => <Table.Tr key={item.id}>
@@ -84,7 +109,9 @@ export function CustomNodesPage({ onNavigate }: { onNavigate: (view: AppView) =>
     <Table.Td><Text size="sm" c="dimmed">{formatDate(item.updatedAt)}</Text></Table.Td>
     <Table.Td>{item.needsAttention ? <Tooltip label="Repair or update nested custom nodes before using this node."><Badge color="hiveWarning" variant="light">Needs attention</Badge></Tooltip> : <Badge color="hiveSuccess" variant="light">Ready</Badge>}</Table.Td>
     <Table.Td><WorkspaceTableActions>
+      <WorkspaceTableAction label={`Run ${item.name}`} tooltip={!item.runEligible ? item.needsAttention ? "Resolve Custom Node issues before running" : "Custom Nodes with exposed inputs must be run from a workflow" : undefined} color="hiveSuccess" loading={startingRunId === item.id} disabled={!item.runEligible || startingRunId !== null} onClick={() => void run(item)}><PlayIcon /></WorkspaceTableAction>
       <WorkspaceTableAction label={`Edit ${item.name}`} onClick={() => { window.location.hash = `custom-nodes/${item.id}`; }}><EditIcon /></WorkspaceTableAction>
+      <WorkspaceTableAction label={`Duplicate ${item.name}`} loading={duplicatingId === item.id} disabled={duplicatingId !== null && duplicatingId !== item.id} onClick={() => void duplicate(item)}><DuplicateIcon /></WorkspaceTableAction>
       <WorkspaceTableAction label={`Delete ${item.name}`} color="hiveError" onClick={() => void requestDelete(item)}><TrashIcon /></WorkspaceTableAction>
     </WorkspaceTableActions></Table.Td>
   </Table.Tr>);
@@ -93,7 +120,7 @@ export function CustomNodesPage({ onNavigate }: { onNavigate: (view: AppView) =>
 
   return <Stack className="workspace-page" gap="lg">
     <Group justify="flex-end" className="page-header-actions"><Button className="page-header-button" data-header-tone="primary" variant="default" onClick={() => { setError(null); setName(""); setDescription(""); setCreateOpen(true); }}>Create custom node</Button></Group>
-    {error && <Alert color="hiveError" title="Custom nodes">{error}</Alert>}
+    {error && <Alert color="hiveError" title="Custom Nodes unavailable">{error}</Alert>}
     <Paper className="inventory-list workspace-table-panel" withBorder radius="md">
       {loading ? <Group justify="center" p="xl"><Loader size="sm" /><Text size="sm" c="dimmed">Loading custom nodes…</Text></Group>
         : result?.total === 0 ? <Stack className="workspace-empty" align="center" gap="sm"><Badge color="hiveSky" variant="light">Reusable workflow logic</Badge><Title order={2} size="h3">No custom nodes yet</Title><Text c="dimmed" ta="center" maw={520}>Create a reusable node from a blank editor, then import workflows or build its logic inside.</Text><Button variant="light" onClick={() => setCreateOpen(true)}>Create your first custom node</Button></Stack>

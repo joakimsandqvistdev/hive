@@ -7,17 +7,23 @@ import { formatFileSize } from "../formatters";
 import { RunDetailsInspector } from "../components/RunDetailsInspector";
 import { active, date, statusColor, timingLabel } from "../runFormatting";
 import type { Artifact, Detail, PageResult, Run } from "../runTypes";
+import { useFlashMessages } from "../components/FlashMessages";
 
 import type { AppView } from "../navigation/navigationState";
 
 const PAGE_SIZE = 10;
 
+function runIdFromHash() {
+  return window.location.hash.match(/^#runs\/([0-9a-f-]+)$/i)?.[1] ?? null;
+}
+
 export function RunsPage({ onNavigate }: { onNavigate: (view: AppView) => void }) {
+  const { showFlash } = useFlashMessages();
   const [page, setPage] = useState(1);
   const [result, setResult] = useState<PageResult | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(runIdFromHash);
   const [detail, setDetail] = useState<Detail | null>(null);
   const [inspectorSelection, setInspectorSelection] = useState("publication");
   const captionDirty = useRef(false);
@@ -26,14 +32,12 @@ export function RunsPage({ onNavigate }: { onNavigate: (view: AppView) => void }
   const [downloadingId, setDownloadingId] = useState<string | null>(null);
   const [cancellingId, setCancellingId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Run | null>(null);
-  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [retryingDeletionId, setRetryingDeletionId] = useState<string | null>(null);
   const [bulkSelectorOpen, setBulkSelectorOpen] = useState(false);
   const [bulkConfirmOpen, setBulkConfirmOpen] = useState(false);
   const [bulkStatuses, setBulkStatuses] = useState<string[]>([]);
   const [bulkDeleting, setBulkDeleting] = useState(false);
-  const [bulkMessage, setBulkMessage] = useState<string | null>(null);
   const [now, setNow] = useState(() => Date.now());
 
   const loadRuns = useCallback(async (requestedPage = page) => {
@@ -54,6 +58,11 @@ export function RunsPage({ onNavigate }: { onNavigate: (view: AppView) => void }
   };
 
   useEffect(() => { setLoading(true); void loadRuns(page); }, [loadRuns, page]);
+  useEffect(() => {
+    const syncSelectedRun = () => setSelectedId(runIdFromHash());
+    window.addEventListener("hashchange", syncSelectedRun);
+    return () => window.removeEventListener("hashchange", syncSelectedRun);
+  }, []);
   useEffect(() => {
     if (!result?.items.some((run) => active(run.status) || run.deletion)) return;
     const timer = window.setInterval(() => void loadRuns(page), 3000);
@@ -106,20 +115,20 @@ export function RunsPage({ onNavigate }: { onNavigate: (view: AppView) => void }
 
   const stopRun = async (id: string) => {
     setCancellingId(id);
-    setError(null);
     try {
       const response = await apiFetch(`/api/runs/${id}/cancel`, { method: "POST" });
       if (!response.ok) throw new Error(response.status === 404 ? "This run could not be found." : "Could not stop this run. Please try again.");
       await loadRuns(page);
       if (selectedId === id) await loadDetail(id);
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not stop this run."); }
+      showFlash({ tone: "neutral", title: "Cancellation requested", message: "The run will stop when its worker processes the request." });
+    } catch (cause) { showFlash({ tone: "error", title: "Could not stop run", message: cause instanceof Error ? cause.message : "Could not stop this run." }); }
     finally { setCancellingId(null); }
   };
 
   const deleteRun = async () => {
     if (!deleteTarget) return;
     const target = deleteTarget;
-    setDeletingId(target.id); setDeleteError(null);
+    setDeletingId(target.id);
     try {
       const response = await apiFetch("/api/runs/" + target.id, { method: "DELETE" });
         const body = await response.json().catch(() => ({})) as { error?: string };
@@ -131,23 +140,25 @@ export function RunsPage({ onNavigate }: { onNavigate: (view: AppView) => void }
       setDeleteTarget(null);
       if (selectedId === target.id) setSelectedId(null);
       await loadRuns(page);
-    } catch (cause) { setDeleteError(cause instanceof Error ? cause.message : "Could not delete this run."); }
+      showFlash({ tone: "success", title: "Run deletion queued", message: `Cleanup for “${target.workflowSnapshotJson?.name ?? "Workflow"}” has been queued.` });
+    } catch (cause) { showFlash({ tone: "error", title: "Could not delete run", message: cause instanceof Error ? cause.message : "Could not delete this run." }); }
     finally { setDeletingId(null); }
   };
 
   const retryDeletion = async (id: string) => {
-    setRetryingDeletionId(id); setDeleteError(null);
+    setRetryingDeletionId(id);
     try {
       const response = await apiFetch("/api/runs/" + id + "/delete/retry", { method: "POST" });
       if (!response.ok) throw new Error(response.status === 409 ? "Cleanup is already running. Please wait." : "Could not retry cleanup. Please try again.");
       await loadRuns(page);
-    } catch (cause) { setDeleteError(cause instanceof Error ? cause.message : "Could not retry cleanup."); }
+      showFlash({ tone: "neutral", title: "Cleanup retry queued", message: "Hive will retry removing the run and its unsaved generated media." });
+    } catch (cause) { showFlash({ tone: "error", title: "Could not retry cleanup", message: cause instanceof Error ? cause.message : "Could not retry cleanup." }); }
     finally { setRetryingDeletionId(null); }
   };
 
   const deleteRunsByStatus = async () => {
     if (!bulkStatuses.length) return;
-    setBulkDeleting(true); setDeleteError(null); setBulkMessage(null);
+    setBulkDeleting(true);
     try {
       const response = await apiFetch("/api/runs/bulk-delete", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ statuses: bulkStatuses }) });
       const body = await response.json().catch(() => ({})) as { queued_count?: number; skipped_profile_count?: number; skipped_publication_count?: number; already_deleting_count?: number };
@@ -156,10 +167,10 @@ export function RunsPage({ onNavigate }: { onNavigate: (view: AppView) => void }
       if (body.already_deleting_count) parts.push(`${body.already_deleting_count} already being removed`);
       if (body.skipped_profile_count) parts.push(`${body.skipped_profile_count} skipped because a run image is in use as an Instagram profile photo`);
       if (body.skipped_publication_count) parts.push(`${body.skipped_publication_count} skipped because Instagram is currently publishing`);
-      setBulkMessage(`${parts.join(" · ")}.`);
+      showFlash({ tone: body.skipped_profile_count || body.skipped_publication_count ? "warning" : "success", title: "Bulk deletion", message: `${parts.join(" · ")}.` });
       setBulkConfirmOpen(false); setBulkSelectorOpen(false); setBulkStatuses([]);
       await loadRuns(page);
-    } catch (cause) { setDeleteError(cause instanceof Error ? cause.message : "Could not delete the selected runs."); }
+    } catch (cause) { showFlash({ tone: "error", title: "Could not delete runs", message: cause instanceof Error ? cause.message : "Could not delete the selected runs." }); }
     finally { setBulkDeleting(false); }
   };
 
@@ -212,15 +223,13 @@ export function RunsPage({ onNavigate }: { onNavigate: (view: AppView) => void }
       {run.deletion ? run.deletion.lastError
         ? <Tooltip label="Cleanup failed. Retry removing generated media"><ActionIcon color="hiveError" variant="subtle" aria-label="Retry run cleanup" loading={retryingDeletionId === run.id} onClick={() => void retryDeletion(run.id)}><RetryIcon /></ActionIcon></Tooltip>
         : <Badge color="hiveSky" variant="light">Removing…</Badge>
-        : <Tooltip label={run.status === "queued" ? "Cancel and delete queued run" : run.status === "awaiting_publish" ? "Delete run and discard its pending publication" : active(run.status) ? "Stop the run before deleting it" : "Delete run and generated media"}><ActionIcon color="hiveError" variant="subtle" aria-label={"Delete run for " + (run.workflowSnapshotJson?.name ?? "workflow")} disabled={active(run.status) && run.status !== "queued"} loading={deletingId === run.id} onClick={() => { setDeleteError(null); setDeleteTarget(run); }}><TrashIcon /></ActionIcon></Tooltip>}
+        : <Tooltip label={run.status === "queued" ? "Cancel and delete queued run" : run.status === "awaiting_publish" ? "Delete run and discard its pending publication" : active(run.status) ? "Stop the run before deleting it" : "Delete run and generated media"}><ActionIcon color="hiveError" variant="subtle" aria-label={"Delete run for " + (run.workflowSnapshotJson?.name ?? "workflow")} disabled={active(run.status) && run.status !== "queued"} loading={deletingId === run.id} onClick={() => setDeleteTarget(run)}><TrashIcon /></ActionIcon></Tooltip>}
     </Group></Table.Td>
   </Table.Tr>);
 
   return <Stack className="workspace-page" gap="lg">
-    <Group justify="flex-end" className="page-header-actions"><Group><Popover opened={bulkSelectorOpen} onChange={setBulkSelectorOpen} position="bottom-end" withArrow shadow="md"><Popover.Target><Button className="page-header-button" data-header-tone="danger" variant="default" aria-expanded={bulkSelectorOpen} rightSection={<svg aria-hidden="true" viewBox="0 0 16 16" width="14" height="14" style={{ transition: "transform 150ms ease", transform: bulkSelectorOpen ? "rotate(180deg)" : undefined }}><path d="m3 6 5 5 5-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>} onClick={() => { setBulkMessage(null); setBulkSelectorOpen((opened) => !opened); }}>Delete runs</Button></Popover.Target><Popover.Dropdown w={320}><Stack gap="sm"><MultiSelect label="Run statuses" placeholder="Choose statuses" data={[{ value: "failed", label: "Failed" }, { value: "succeeded", label: "Succeeded" }, { value: "cancelled", label: "Cancelled" }, { value: "awaiting_publish", label: "Awaiting publish" }]} value={bulkStatuses} onChange={setBulkStatuses} searchable={false} clearable comboboxProps={{ withinPortal: false }} /><Text size="xs" c="dimmed">Selected completed and awaiting-publication runs are included. Pending publications are discarded; runs currently publishing to Instagram are skipped. Queued, running, and profile-photo runs remain excluded.</Text><Button color="hiveError" variant="light" disabled={!bulkStatuses.length} onClick={() => { setBulkSelectorOpen(false); setBulkConfirmOpen(true); }}>Review deletion</Button></Stack></Popover.Dropdown></Popover><Button className="page-header-button" data-header-tone="neutral" variant="default" onClick={refreshRuns} loading={loading}>Refresh</Button><Button className="page-header-button" data-header-tone="neutral" variant="default" onClick={() => onNavigate("workflows")}>Browse workflows</Button></Group></Group>
+    <Group justify="flex-end" className="page-header-actions"><Group><Popover opened={bulkSelectorOpen} onChange={setBulkSelectorOpen} position="bottom-end" withArrow shadow="md"><Popover.Target><Button className="page-header-button" data-header-tone="danger" variant="default" aria-expanded={bulkSelectorOpen} rightSection={<svg aria-hidden="true" viewBox="0 0 16 16" width="14" height="14" style={{ transition: "transform 150ms ease", transform: bulkSelectorOpen ? "rotate(180deg)" : undefined }}><path d="m3 6 5 5 5-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>} onClick={() => setBulkSelectorOpen((opened) => !opened)}>Delete runs</Button></Popover.Target><Popover.Dropdown w={320}><Stack gap="sm"><MultiSelect label="Run statuses" placeholder="Choose statuses" data={[{ value: "failed", label: "Failed" }, { value: "succeeded", label: "Succeeded" }, { value: "cancelled", label: "Cancelled" }, { value: "awaiting_publish", label: "Awaiting publish" }]} value={bulkStatuses} onChange={setBulkStatuses} searchable={false} clearable comboboxProps={{ withinPortal: false }} /><Text size="xs" c="dimmed">Selected completed and awaiting-publication runs are included. Pending publications are discarded; runs currently publishing to Instagram are skipped. Queued, running, and profile-photo runs remain excluded.</Text><Button color="hiveError" variant="light" disabled={!bulkStatuses.length} onClick={() => { setBulkSelectorOpen(false); setBulkConfirmOpen(true); }}>Review deletion</Button></Stack></Popover.Dropdown></Popover><Button className="page-header-button" data-header-tone="neutral" variant="default" onClick={refreshRuns} loading={loading}>Refresh</Button><Button className="page-header-button" data-header-tone="neutral" variant="default" onClick={() => onNavigate("workflows")}>Browse workflows</Button></Group></Group>
     {error && <Alert color="hiveError" title="Run history unavailable">{error}</Alert>}
-    {deleteError && <Alert color="hiveError" title="Run deletion">{deleteError}</Alert>}
-    {bulkMessage && <Alert color="hiveSuccess" title="Bulk deletion">{bulkMessage}</Alert>}
     <Paper className="inventory-list workspace-table-panel" withBorder radius="md">
       {loading ? <Group justify="center" p="xl"><Loader size="sm" /><Text size="sm" c="dimmed">Loading runs…</Text></Group>
         : result?.total === 0 ? <Stack className="workspace-empty" align="center" gap="sm"><Badge color="hiveSky" variant="light">Run history</Badge><Title order={2} size="h3">No runs yet</Title><Text c="dimmed" ta="center" maw={480}>Open a saved workflow and choose Run workflow to queue its current definition for execution.</Text><Button variant="light" onClick={() => onNavigate("workflows")}>Browse workflows</Button></Stack>
@@ -234,7 +243,10 @@ export function RunsPage({ onNavigate }: { onNavigate: (view: AppView) => void }
     </ConfirmActionModal>
     <Modal
       opened={selectedId !== null}
-      onClose={() => setSelectedId(null)}
+      onClose={() => {
+        setSelectedId(null);
+        if (runIdFromHash()) window.location.hash = "runs";
+      }}
       title="Run details"
       size={1100}
       centered

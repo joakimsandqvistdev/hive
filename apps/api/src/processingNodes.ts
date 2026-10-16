@@ -1,9 +1,20 @@
 import { z } from "zod";
 import type { ModelIoContract } from "./modelContracts.js";
 
+export const textOverlayFontFamilies = [
+  "Liberation Sans",
+  "Liberation Sans Narrow",
+  "Liberation Serif",
+  "Liberation Mono",
+  "DejaVu Sans",
+  "DejaVu Serif",
+  "DejaVu Sans Mono",
+  "Lato",
+] as const;
+
 export const textOverlaySettingsSchema = z.object({
   operationId: z.literal("text-overlay").default("text-overlay"),
-  fontFamily: z.enum(["Liberation Sans", "Liberation Serif", "Liberation Mono"]).default("Liberation Sans"),
+  fontFamily: z.enum(textOverlayFontFamilies).default("Liberation Sans"),
   fontSize: z.number().int().min(8).max(256).default(48),
   fontWeight: z.union([z.literal(400), z.literal(700)]).default(700),
   color: z.string().regex(/^#[0-9a-fA-F]{6}$/).default("#ffffff"),

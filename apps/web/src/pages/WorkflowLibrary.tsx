@@ -8,6 +8,7 @@ import { DuplicateIcon, EditIcon, PlayIcon, TrashIcon, WorkspaceTableAction, Wor
 import type { AppView } from "../navigation/navigationState";
 import { emptyWorkflowForm, type Workflow, type WorkflowForm } from "./workflowTypes";
 import { startWorkflowRun } from "./startWorkflowRun";
+import { useFlashMessages } from "../components/FlashMessages";
 
 const PAGE_SIZE = 10;
 type WorkflowPageResult = { items: Workflow[]; page: number; pageSize: number; total: number; totalPages: number };
@@ -15,6 +16,7 @@ type WorkflowPageResult = { items: Workflow[]; page: number; pageSize: number; t
 function formatDate(value: string) { return new Intl.DateTimeFormat(undefined, { dateStyle: "medium" }).format(new Date(value)); }
 
 export function WorkflowLibrary({ onNavigate }: { onNavigate: (view: AppView) => void }) {
+  const { showFlash } = useFlashMessages();
   const [page, setPage] = useState(1);
   const [result, setResult] = useState<WorkflowPageResult | null>(null);
   const [loading, setLoading] = useState(true);
@@ -24,13 +26,9 @@ export function WorkflowLibrary({ onNavigate }: { onNavigate: (view: AppView) =>
   const [formError, setFormError] = useState<string | null>(null);
   const [savingForm, setSavingForm] = useState(false);
   const [deleteTarget, setDeleteTarget] = useState<Workflow | null>(null);
-  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [startingRunId, setStartingRunId] = useState<string | null>(null);
   const [duplicatingWorkflowId, setDuplicatingWorkflowId] = useState<string | null>(null);
-  const [runError, setRunError] = useState<string | null>(null);
-  const [duplicateError, setDuplicateError] = useState<string | null>(null);
-  const [duplicateSuccess, setDuplicateSuccess] = useState<string | null>(null);
 
   const loadWorkflows = useCallback(async (requestedPage: number) => {
     setLoading(true); setLoadError(null);
@@ -50,22 +48,22 @@ export function WorkflowLibrary({ onNavigate }: { onNavigate: (view: AppView) =>
   const openEdit = (item: Workflow) => { window.location.hash = `workflows/${item.id}`; };
 
   const startRun = async (item: Workflow) => {
-    setStartingRunId(item.id); setRunError(null);
+    setStartingRunId(item.id);
     try {
       await startWorkflowRun(item.id);
-      onNavigate("runs");
-    } catch (error) { setRunError(error instanceof Error ? error.message : "Could not start workflow."); }
+      showFlash({ tone: "success", title: "Run started", message: `“${item.name}” was added to the run queue.` });
+    } catch (error) { showFlash({ tone: "error", title: "Could not start workflow", message: error instanceof Error ? error.message : "Could not start workflow." }); }
     finally { setStartingRunId(null); }
   };
 
   const duplicateWorkflow = async (item: Workflow) => {
-    setDuplicatingWorkflowId(item.id); setDuplicateError(null); setDuplicateSuccess(null);
+    setDuplicatingWorkflowId(item.id);
     try {
       const response = await apiFetch(`/api/workflows/${item.id}/duplicate`, { method: "POST" });
       const body = await response.json().catch(() => ({})) as { workflow?: Workflow };
       if (!response.ok || !body.workflow) throw new Error(response.status === 401 ? "Sign in to duplicate workflows." : "Could not duplicate this workflow.");
-      setPage(1); await loadWorkflows(1); setDuplicateSuccess(`“${body.workflow.name}” was added to your workflows.`);
-    } catch (error) { setDuplicateError(error instanceof Error ? error.message : "Could not duplicate this workflow."); }
+      setPage(1); await loadWorkflows(1); showFlash({ tone: "success", title: "Workflow duplicated", message: `“${body.workflow.name}” was added to your workflows.` });
+    } catch (error) { showFlash({ tone: "error", title: "Could not duplicate workflow", message: error instanceof Error ? error.message : "Could not duplicate this workflow." }); }
     finally { setDuplicatingWorkflowId(null); }
   };
 
@@ -83,7 +81,7 @@ export function WorkflowLibrary({ onNavigate }: { onNavigate: (view: AppView) =>
 
   const removeWorkflow = async () => {
     if (!deleteTarget || (deleteTarget.activeRunCount ?? 0) > 0) return;
-    setDeleting(true); setDeleteError(null);
+    setDeleting(true);
     try {
       const response = await apiFetch(`/api/workflows/${deleteTarget.id}`, { method: "DELETE" });
       if (response.status === 409) {
@@ -96,7 +94,7 @@ export function WorkflowLibrary({ onNavigate }: { onNavigate: (view: AppView) =>
       }
       if (!response.ok && response.status !== 404) throw new Error("Could not remove this workflow.");
       setDeleteTarget(null); await loadWorkflows(page);
-    } catch (error) { setDeleteError(error instanceof Error ? error.message : "Could not remove this workflow."); }
+    } catch (error) { showFlash({ tone: "error", title: "Could not remove workflow", message: error instanceof Error ? error.message : "Could not remove this workflow." }); }
     finally { setDeleting(false); }
   };
 
@@ -109,15 +107,12 @@ export function WorkflowLibrary({ onNavigate }: { onNavigate: (view: AppView) =>
       <WorkspaceTableAction label={`Run ${item.name}`} tooltip={item.needsAttention ? "Resolve custom node changes before running" : undefined} color="hiveSuccess" loading={startingRunId === item.id} disabled={startingRunId !== null || item.needsAttention} onClick={() => void startRun(item)}><PlayIcon /></WorkspaceTableAction>
       <WorkspaceTableAction label={`Edit ${item.name}`} onClick={() => openEdit(item)}><EditIcon /></WorkspaceTableAction>
       <WorkspaceTableAction label={`Duplicate ${item.name}`} loading={duplicatingWorkflowId === item.id} disabled={duplicatingWorkflowId !== null} onClick={() => void duplicateWorkflow(item)}><DuplicateIcon /></WorkspaceTableAction>
-      <WorkspaceTableAction label={item.activeRunCount ? "This workflow is currently running" : `Remove ${item.name}`} color="hiveError" disabled={(item.activeRunCount ?? 0) > 0} onClick={() => { setDeleteTarget(item); setDeleteError(null); }}><TrashIcon /></WorkspaceTableAction>
+      <WorkspaceTableAction label={item.activeRunCount ? "This workflow is currently running" : `Remove ${item.name}`} color="hiveError" disabled={(item.activeRunCount ?? 0) > 0} onClick={() => { setDeleteTarget(item); }}><TrashIcon /></WorkspaceTableAction>
     </WorkspaceTableActions></Table.Td>
   </Table.Tr>);
 
   return <Stack className="workspace-page" gap="lg">
     <Group justify="flex-end" className="page-header-actions"><Button className="page-header-button" data-header-tone="neutral" variant="default" onClick={() => onNavigate("models")}>Manage models</Button><Button className="page-header-button" data-header-tone="primary" variant="default" onClick={openCreate}>Create workflow</Button></Group>
-    {runError && <Alert color="hiveError" title="Could not start workflow" withCloseButton onClose={() => setRunError(null)}>{runError}</Alert>}
-    {duplicateError && <Alert color="hiveError" title="Could not duplicate workflow" withCloseButton onClose={() => setDuplicateError(null)}>{duplicateError}</Alert>}
-    {duplicateSuccess && <Alert color="hiveSuccess" withCloseButton onClose={() => setDuplicateSuccess(null)}>{duplicateSuccess}</Alert>}
     {loadError && <Alert color="hiveError" title="Workflow list unavailable">{loadError}</Alert>}
     <Paper className="inventory-list workspace-table-panel" withBorder radius="md">
       {loading ? <Group justify="center" p="xl"><Loader size="sm" /><Text size="sm" c="dimmed">Loading workflows…</Text></Group>
@@ -128,7 +123,7 @@ export function WorkflowLibrary({ onNavigate }: { onNavigate: (view: AppView) =>
       <form onSubmit={(event) => void createWorkflow(event)}><Stack gap="md">{formError && <Alert color="hiveError" title="Could not create workflow">{formError}</Alert>}<><TextInput label="Name" placeholder="e.g. Create a video from a script" value={form.name} maxLength={100} onChange={(event) => { const name = event.currentTarget.value; setForm((current) => ({ ...current, name })); }} required autoFocus /><Textarea label="Description" placeholder="What should this workflow do?" value={form.description} maxLength={1000} onChange={(event) => { const description = event.currentTarget.value; setForm((current) => ({ ...current, description })); }} minRows={3} autosize /><Group justify="flex-end"><Button variant="default" type="button" onClick={() => setFormOpened(false)}>Cancel</Button><Button type="submit" loading={savingForm}>Create workflow</Button></Group></></Stack></form>
     </Modal>
     <ConfirmActionModal opened={deleteTarget !== null} onClose={() => setDeleteTarget(null)} title="Confirm workflow removal" confirmLabel="Remove workflow" onConfirm={() => void removeWorkflow()} loading={deleting} disabled={(deleteTarget?.activeRunCount ?? 0) > 0}>
-      {deleteTarget && <>{deleteError && <Alert color="hiveError" title="Could not remove workflow">{deleteError}</Alert>}<Text>Are you sure you want to remove <Text component="span" fw={600}>{deleteTarget.name}</Text>?</Text><Text size="sm" c="dimmed">Its nodes and connections will be deleted. This cannot be undone.</Text>{(deleteTarget.activeRunCount ?? 0) > 0 && <Alert color="hiveWarning" title="Workflow is in use">This workflow has {deleteTarget.activeRunCount} queued or running {deleteTarget.activeRunCount === 1 ? "run" : "runs"} and can’t be removed.</Alert>}</>}
+      {deleteTarget && <><Text>Are you sure you want to remove <Text component="span" fw={600}>{deleteTarget.name}</Text>?</Text><Text size="sm" c="dimmed">Its nodes and connections will be deleted. This cannot be undone.</Text>{(deleteTarget.activeRunCount ?? 0) > 0 && <Alert color="hiveWarning" title="Workflow is in use">This workflow has {deleteTarget.activeRunCount} queued or running {deleteTarget.activeRunCount === 1 ? "run" : "runs"} and can’t be removed.</Alert>}</>}
     </ConfirmActionModal>
   </Stack>;
 }
