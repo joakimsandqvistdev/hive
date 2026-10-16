@@ -6,6 +6,7 @@ import { workflowExecutionOrder } from "./workflowExecutionOrder.js";
 import { parsePagination, totalPages } from "./pagination.js";
 
 const router = Router();
+const bulkDeleteStatuses = ["failed", "succeeded", "cancelled"] as const;
 
 router.post("/:id/cancel", async (req, res, next) => {
   if (req.get("origin") !== (process.env.WEB_ORIGIN ?? "http://localhost:5173")) { res.status(403).json({ error: "invalid_origin" }); return; }
@@ -68,6 +69,59 @@ router.delete("/:id", async (req, res, next) => {
       "ON CONFLICT (run_id) DO NOTHING", [req.params.id, ownerId]);
     await client.query("COMMIT");
     res.status(202).json({ status: "deleting" });
+  } catch (error) {
+    await client.query("ROLLBACK");
+    next(error);
+  } finally { client.release(); }
+});
+
+router.post("/bulk-delete", async (req, res, next) => {
+  if (req.get("origin") !== (process.env.WEB_ORIGIN ?? "http://localhost:5173")) { res.status(403).json({ error: "invalid_origin" }); return; }
+  const statuses = req.body?.statuses;
+  if (!Array.isArray(statuses) || statuses.length === 0 || statuses.some((status: unknown) => typeof status !== "string" || !bulkDeleteStatuses.includes(status as typeof bulkDeleteStatuses[number]))) {
+    res.status(400).json({ error: "invalid_statuses" }); return;
+  }
+  const ownerId = res.locals.userId as string;
+  const selectedStatuses = [...new Set(statuses as Array<typeof bulkDeleteStatuses[number]>)];
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const result = await client.query<{ matched_count: number; queued_count: number; skipped_profile_count: number; already_deleting_count: number }>(`
+      WITH matching AS MATERIALIZED (
+        SELECT run.id FROM runs AS run
+        WHERE run.user_id=$1 AND run.status::text = ANY($2::text[])
+        ORDER BY run.created_at, run.id
+        FOR UPDATE
+      ),
+      protected_runs AS MATERIALIZED (
+        SELECT matching.id FROM matching
+        WHERE EXISTS (
+          SELECT 1 FROM artifacts AS artifact
+          JOIN instagram_accounts AS account ON account.profile_image_artifact_id=artifact.id
+          WHERE artifact.run_id=matching.id AND account.user_id=$1
+        )
+      ),
+      eligible AS MATERIALIZED (
+        SELECT matching.id FROM matching
+        WHERE NOT EXISTS (SELECT 1 FROM protected_runs WHERE protected_runs.id=matching.id)
+      ),
+      inserted AS (
+        INSERT INTO run_deletions (run_id, user_id, storage_keys, candidate_upload_ids)
+        SELECT eligible.id, $1,
+          COALESCE((SELECT array_agg(artifact.storage_key) FROM artifacts AS artifact WHERE artifact.run_id=eligible.id AND artifact.user_id=$1), ARRAY[]::text[]),
+          COALESCE((SELECT array_agg(DISTINCT node.input_artifact_id) FROM run_nodes AS node WHERE node.run_id=eligible.id AND node.user_id=$1 AND node.input_artifact_id IS NOT NULL), ARRAY[]::uuid[])
+        FROM eligible
+        ON CONFLICT (run_id) DO NOTHING
+        RETURNING run_id
+      )
+      SELECT
+        (SELECT count(*)::int FROM matching) AS matched_count,
+        (SELECT count(*)::int FROM inserted) AS queued_count,
+        (SELECT count(*)::int FROM protected_runs) AS skipped_profile_count,
+        ((SELECT count(*) FROM eligible) - (SELECT count(*) FROM inserted))::int AS already_deleting_count
+    `, [ownerId, selectedStatuses]);
+    await client.query("COMMIT");
+    res.status(202).json(result.rows[0]);
   } catch (error) {
     await client.query("ROLLBACK");
     next(error);
