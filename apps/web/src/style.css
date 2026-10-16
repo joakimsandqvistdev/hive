@@ -134,7 +134,7 @@ body { color: var(--mantine-color-text); background: var(--mantine-color-gray-0)
 .notification-bell { position: relative; overflow: visible; color: var(--mantine-color-gray-7); }
 .notification-bell svg { width: 22px; height: 22px; }
 .notification-bell:hover { color: var(--mantine-color-hiveSky-8); background: var(--mantine-color-hiveSky-0); }
-.notification-bell-count { position: absolute; right: -4px; bottom: -3px; display: flex; min-width: 16px; height: 16px; align-items: center; justify-content: center; padding-inline: 3px; border: 1.5px solid var(--mantine-color-white); border-radius: 999px; background: var(--mantine-color-hiveError-7); color: var(--mantine-color-white); font-size: 9px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
+.notification-bell-count { position: absolute; top: 7px; left: 11px; display: flex; min-width: 16px; height: 16px; align-items: center; justify-content: center; padding-inline: 3px; border: 1.5px solid var(--mantine-color-white); border-radius: 999px; background: var(--mantine-color-hiveError-7); color: var(--mantine-color-white); font-size: 9px; font-weight: 700; line-height: 1; font-variant-numeric: tabular-nums; }
 .notification-dropdown { border-color: var(--mantine-color-gray-2); }
 .notification-header { min-height: 48px; padding: 0 0 var(--mantine-spacing-xs); border-bottom: 1px solid var(--mantine-color-gray-2); }
 .notification-header .mantine-Button-root { flex: 0 0 auto; }
@@ -148,9 +148,9 @@ body { color: var(--mantine-color-text); background: var(--mantine-color-gray-0)
 .notification-status-failed { background: var(--mantine-color-hiveError-6); }
 .notification-row-content { min-width: 0; flex: 1; }
 .notification-row-heading { min-height: 16px; }
-.notification-workflow-name { min-width: 0; color: var(--mantine-color-gray-8); font-size: 0.75rem; }
+.notification-workflow-name { min-width: 0; color: var(--mantine-color-gray-8); font-size: 0.75rem; overflow-wrap: anywhere; }
 .notification-time { flex: 0 0 auto; font-size: 0.625rem; }
-.notification-summary { margin-top: 1px; overflow: hidden; font-size: 0.6875rem; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
+.notification-summary { margin-top: 1px; overflow-wrap: anywhere; font-size: 0.6875rem; line-height: 1.35; }
 .notification-row-actions { margin-top: 3px; }
 .notification-row-actions .mantine-Button-root { min-height: 24px; height: 24px; padding-inline: 6px; font-size: 0.6875rem; }
 .hive-flash-region { position: fixed; z-index: 5000; top: 76px; right: 20px; width: min(420px, calc(100vw - 32px)); overflow: visible; pointer-events: none; }

@@ -102,7 +102,7 @@ export function NotificationsBell() {
         {unreadCount > 0 && <span className="notification-bell-count" aria-hidden="true">{unreadCount > 99 ? "99+" : unreadCount}</span>}
       </ActionIcon>
     </Popover.Target>
-    <Popover.Dropdown className="notification-dropdown" w={390} maw="calc(100vw - 24px)">
+    <Popover.Dropdown className="notification-dropdown" w={460} maw="calc(100vw - 24px)">
       <Stack gap={0}>
         <Group className="notification-header" justify="space-between" align="center" wrap="nowrap">
           <div><Text fw={650} size="sm">Activity</Text><Text size="xs" c="dimmed">{unreadCount} unread notifications</Text></div>
@@ -122,7 +122,7 @@ export function NotificationsBell() {
                         <Text className="notification-workflow-name" size="xs" fw={600} lineClamp={1}>{notification.workflowName}</Text>
                         <Text className="notification-time" size="xs" c="dimmed">{formatNotificationDate(notification.createdAt)}</Text>
                       </Group>
-                      <Text className="notification-summary" size="xs" c="dimmed" lineClamp={1}><span className="sr-only">{tone.label}: </span>{notification.message}</Text>
+                      <Text className="notification-summary" size="xs" c="dimmed" lineClamp={2}><span className="sr-only">{tone.label}: </span>{notification.message}</Text>
                       <Group className="notification-row-actions" justify="flex-end" gap="xs">
                         <Button variant="subtle" size="xs" loading={busyId === notification.id} disabled={busyId !== null} onClick={() => void markRead(notification, false)}>Mark read</Button>
                         <Button variant="subtle" size="xs" color="hiveSky" loading={busyId === notification.id} disabled={busyId !== null} onClick={() => void markRead(notification, true)}>View run</Button>
