@@ -96,9 +96,10 @@ export function RunDetailsInspector({
             const selected = inspectorSelection === node.nodeId;
             const label = node.nodeSnapshotJson?.name ?? node.nodeId;
             const modality = node.nodeSnapshotJson?.kind === "processing" ? "Text Overlay" : nodeTypeLabel(node.nodeSnapshotJson?.modality ?? node.nodeSnapshotJson?.kind ?? "input", node.parameters?.modelId ?? node.nodeSnapshotJson?.parameters?.modelId);
+            const usedSeed = node.resolvedInputJson?.modelParameters?.seed;
             return <button key={node.nodeId} type="button" className={`run-inspector-step${selected ? " is-selected" : ""}`} aria-current={selected ? "step" : undefined} onClick={() => setInspectorSelection(node.nodeId)}>
               <span className={`run-step-dot status-${node.status}`} aria-hidden="true" />
-              <span className="run-step-copy"><strong>{label}</strong><small>{modality} · {timingLabel(node.startedAt, node.finishedAt, now)}</small></span>
+              <span className="run-step-copy"><strong>{label}</strong><small>{modality} · {timingLabel(node.startedAt, node.finishedAt, now)}{typeof usedSeed === "number" ? ` · Seed ${usedSeed}` : ""}</small></span>
               <Badge size="xs" variant="light" color={statusColor(node.status)}>{node.status.replaceAll("_", " ")}</Badge>
             </button>;
           })}
@@ -136,10 +137,11 @@ export function RunDetailsInspector({
           const node = detail.nodes.find((item) => item.nodeId === inspectorSelection);
           if (!node) return <Text size="sm" c="dimmed">Select a run step or output to inspect its details.</Text>;
           const label = node.nodeSnapshotJson?.name ?? node.nodeId;
+          const usedSeed = node.resolvedInputJson?.modelParameters?.seed;
           const artifact = node.outputJson?.artifactId ? detail.artifacts.find((item) => item.id === node.outputJson?.artifactId) : undefined;
           const mediaType = artifact?.mediaType ?? `${node.outputJson?.dataTypeId ?? "application"}/unknown`;
           return <Stack gap="sm">
-            <Group justify="space-between" align="start"><div><Text fw={600} size="sm">{label}</Text><Text size="xs" c="dimmed">{node.nodeSnapshotJson?.kind === "processing" ? "Text Overlay" : nodeTypeLabel(node.nodeSnapshotJson?.modality ?? node.nodeSnapshotJson?.kind ?? "input", node.parameters?.modelId ?? node.nodeSnapshotJson?.parameters?.modelId)}</Text><Text size="xs" c="dimmed" mt={3}>{timingLabel(node.startedAt, node.finishedAt, now)}</Text></div><Badge variant="light" color={statusColor(node.status)}>{node.status.replaceAll("_", " ")}</Badge></Group>
+            <Group justify="space-between" align="start"><div><Text fw={600} size="sm">{label}</Text><Text size="xs" c="dimmed">{node.nodeSnapshotJson?.kind === "processing" ? "Text Overlay" : nodeTypeLabel(node.nodeSnapshotJson?.modality ?? node.nodeSnapshotJson?.kind ?? "input", node.parameters?.modelId ?? node.nodeSnapshotJson?.parameters?.modelId)}</Text><Text size="xs" c="dimmed" mt={3}>{timingLabel(node.startedAt, node.finishedAt, now)}{typeof usedSeed === "number" ? ` · Seed ${usedSeed}` : ""}</Text></div><Badge variant="light" color={statusColor(node.status)}>{node.status.replaceAll("_", " ")}</Badge></Group>
             {node.errorSummary && <Alert color="hiveError" title="Step failed">{node.errorSummary}</Alert>}
             {node.outputJson?.text && <Paper className="run-inspector-text-output" withBorder radius="sm" p="sm"><Text size="xs" c="dimmed" mb={4}>Text output</Text><Text size="sm" style={{ whiteSpace: "pre-wrap" }}>{node.outputJson.text}</Text></Paper>}
             {artifact && <ArtifactPreview className="run-inspector-preview" artifactId={artifact.id} label={label} mediaType={mediaType} />}
