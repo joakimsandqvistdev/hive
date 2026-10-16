@@ -84,6 +84,35 @@ export function WorkflowEditor({ workflowId, onClose, onNavigate }: { workflowId
       position: { x: 90 + (graph.nodes.length % 3) * 280, y: 90 + Math.floor(graph.nodes.length / 3) * 190 } };
     setGraph((current) => addWorkflowNode(current, node, contracts, types)); setSelectedNodeId(node.id); setSelectedConnectionId(null); setDirty(true); setPickerOpen(false); setChoice(null);
   }
+  function updateSelectedNode(patch: Partial<WorkflowNodeData>) {
+    if (!selected) return;
+    setGraph((current) => ({
+      ...current,
+      nodes: current.nodes.map((node) => {
+        if (node.id !== selected.id) return node;
+        const { label, inputText, artifactId, parameters } = patch;
+        const metadata = {
+          ...(node.metadata ?? {}),
+          ...(inputText !== undefined ? { inputText } : {}),
+          ...(artifactId !== undefined ? { artifactId } : {}),
+          ...(parameters !== undefined ? { parameters } : {}),
+        };
+        const nextLabel = label ?? node.title;
+        const nextArtifactId = artifactId !== undefined ? artifactId : selected.data.artifactId;
+        const nextParameters = parameters ?? selected.data.parameters;
+        const description = selected.data.kind === "input"
+          ? selected.data.dataTypeId === "text" ? "Text input" : nextArtifactId ? "Media selected" : "Input not set"
+          : selected.data.kind === "processing"
+            ? `Processing · ${nextParameters.operationId === "still-image-video" ? "Still Image Video" : "Text Overlay"}`
+            : selected.data.kind === "publishing"
+              ? selected.data.parameters.operationId === "instagram-reel" ? "Instagram Reel" : "Instagram Post"
+              : selected.data.contract?.name ?? "Model";
+        return { ...node, title: nextLabel, description, metadata };
+      }),
+    }));
+    setDirty(true);
+    setError(null);
+  }
   function duplicateNode(graphNode: GraphDocument["nodes"][number]) {
     const source = toWorkflowNode(graphNode, contracts);
     const nodeId = createId("node");
@@ -159,17 +188,45 @@ export function WorkflowEditor({ workflowId, onClose, onNavigate }: { workflowId
   return <div className="workflow-editor-page">
     <header className="workflow-editor-header"><Group justify="space-between" className="workflow-editor-header-row"><Group className="workflow-header-leading" gap="sm"><Button variant="subtle" onClick={() => { if (!dirty || window.confirm("Discard unsaved workflow changes?")) onClose(); }}>Back</Button>{error && <Alert className="workflow-header-error" color="hiveError" variant="light" radius="sm" p="xs" role="alert">{error}</Alert>}</Group><Group wrap="wrap"><Button size="sm" variant="light" leftSection={<AddNodeIcon />} onClick={() => { void downloaded.refresh(); setPickerOpen(true); }}>Add node</Button><Button size="sm" variant="light" color="hiveError" leftSection={<RemoveIcon />} aria-label="Remove selected connection" disabled={!selectedConnectionId || uploading} onClick={() => { if (!selectedConnectionId) return; setGraph((current) => removeConnection(current, selectedConnectionId)); setSelectedConnectionId(null); setDirty(true); }}>Remove connection</Button><Button variant="subtle" onClick={() => setDetailsOpen(true)}>Edit details</Button><Button variant="light" onClick={() => void run()} loading={running} disabled={dirty || !graph.nodes.length || loading || saving || uploading}>Run workflow</Button><Button onClick={() => void save()} loading={saving} disabled={!dirty || uploading}>Save workflow</Button></Group></Group></header>
     {loading ? <Group justify="center" className="workflow-editor-loading"><Loader /><Text>Loading workflow…</Text></Group> : workflow && <div className="workflow-editor-body">
-      <section className="workflow-editor-canvas" aria-label="Workflow canvas"><GraphEditor graph={graph} graphTitle={workflow?.name ?? "Workflow"} selectedNodeId={selectedNodeId} onChange={(next) => { setGraph(next); setDirty(true); setError(null); }} onSelectionChange={({ nodeIds, connectionIds }) => { setSelectedNodeId(nodeIds[0] ?? null); setSelectedConnectionId(connectionIds[0] ?? null); }} validateConnection={validateWorkflowConnection} showConnectionWarnings={false} showEmptyState={false} showPalette={false} showInspector={false} showStatusBar={false} className="hive-ionodes" nodeEditorLabel="Configure" renderNodeActions={(graphNode) => <><Tooltip label={`Duplicate ${graphNode.title}`}><ActionIcon className="nodrag nopan" variant="subtle" color="hiveSky" size="sm" aria-label={`Duplicate ${graphNode.title}`} disabled={uploading} onClick={(event) => { event.stopPropagation(); duplicateNode(graphNode); }}><DuplicateIcon /></ActionIcon></Tooltip><Tooltip label={`Remove ${graphNode.title}`}><ActionIcon className="nodrag nopan" variant="subtle" color="hiveError" size="sm" aria-label={`Remove ${graphNode.title}`} disabled={uploading} onClick={(event) => { event.stopPropagation(); requestRemoveNode(graphNode); }}><RemoveIcon /></ActionIcon></Tooltip></>} renderNodeEditor={(graphNode, updateGraphNode) => {
-        const node = toWorkflowNode(graphNode, contracts);
-        const updateNode = (patch: Partial<WorkflowNodeData>) => {
-          const { label, inputText, artifactId, parameters } = patch;
-          const metadata = { ...graphNode.metadata as object, ...(inputText !== undefined ? { inputText } : {}), ...(artifactId !== undefined ? { artifactId } : {}), ...(parameters !== undefined ? { parameters } : {}) };
-          const nextLabel = label ?? graphNode.title;
-          const description = node.data.kind === "input" ? node.data.dataTypeId === "text" ? "Text input" : (artifactId ?? node.data.artifactId) ? "Media selected" : "Input not set" : node.data.kind === "processing" ? `Processing · ${parameters?.operationId === "still-image-video" ? "Still Image Video" : "Text Overlay"}` : node.data.contract?.name ?? "Model";
-          updateGraphNode({ title: nextLabel, description, metadata }); setDirty(true);
-        };
-        return <WorkflowNodeConfiguration selected={node} types={types} instagramAccounts={instagramAccounts} downloadedModelIds={downloaded.modelIds} mediaItems={mediaItems} uploading={uploading} onUpdate={updateNode} onUpload={(file) => void upload(file, node)} onImportUrl={(url) => void importUrl(url, node)} />;
-      }} theme={{ "--ionodes-bg": "var(--hive-canvas-background)", "--ionodes-surface": "var(--hive-canvas-surface)", "--ionodes-text": "var(--hive-canvas-text)", "--ionodes-muted": "var(--hive-canvas-muted)", "--ionodes-border": "var(--hive-canvas-border)", "--ionodes-accent": "var(--hive-canvas-accent)", "--ionodes-danger": "var(--hive-canvas-danger)" }} canvas={{ hideAttribution: true, backgroundColor: "#e0e5eb", miniMapMaskColor: "rgba(124, 135, 148, 0.16)", miniMapNodeColor: (_node, invalid) => invalid ? "#ba514d" : "#4285f4" }} /></section>
+      <section className="workflow-editor-canvas" aria-label="Workflow canvas">
+        <GraphEditor
+          graph={graph}
+          graphTitle={workflow?.name ?? "Workflow"}
+          selectedNodeId={selectedNodeId}
+          onChange={(next) => { setGraph(next); setDirty(true); setError(null); }}
+          onSelectionChange={({ nodeIds, connectionIds }) => { setSelectedNodeId(nodeIds[0] ?? null); setSelectedConnectionId(connectionIds[0] ?? null); }}
+          validateConnection={validateWorkflowConnection}
+          showConnectionWarnings={false}
+          showEmptyState={false}
+          showPalette={false}
+          showInspector={false}
+          showStatusBar={false}
+          className="hive-ionodes"
+          renderNodeActions={(graphNode) => <>
+            <Tooltip label={`Duplicate ${graphNode.title}`}>
+              <ActionIcon className="nodrag nopan" variant="subtle" color="hiveSky" size="sm" aria-label={`Duplicate ${graphNode.title}`} disabled={uploading} onClick={(event) => { event.stopPropagation(); duplicateNode(graphNode); }}><DuplicateIcon /></ActionIcon>
+            </Tooltip>
+            <Tooltip label={`Remove ${graphNode.title}`}>
+              <ActionIcon className="nodrag nopan" variant="subtle" color="hiveError" size="sm" aria-label={`Remove ${graphNode.title}`} disabled={uploading} onClick={(event) => { event.stopPropagation(); requestRemoveNode(graphNode); }}><RemoveIcon /></ActionIcon>
+            </Tooltip>
+          </>}
+          theme={{ "--ionodes-bg": "var(--hive-canvas-background)", "--ionodes-surface": "var(--hive-canvas-surface)", "--ionodes-text": "var(--hive-canvas-text)", "--ionodes-muted": "var(--hive-canvas-muted)", "--ionodes-border": "var(--hive-canvas-border)", "--ionodes-accent": "var(--hive-canvas-accent)", "--ionodes-danger": "var(--hive-canvas-danger)" }}
+          canvas={{ hideAttribution: true, backgroundColor: "#e0e5eb", miniMapMaskColor: "rgba(124, 135, 148, 0.16)", miniMapNodeColor: (_node, invalid) => invalid ? "#ba514d" : "#4285f4" }}
+        />
+      </section>
+      {selected && <aside className="workflow-config-panel" aria-label="Node configuration">
+        <WorkflowNodeConfiguration
+          selected={selected}
+          types={types}
+          instagramAccounts={instagramAccounts}
+          downloadedModelIds={downloaded.modelIds}
+          mediaItems={mediaItems}
+          uploading={uploading}
+          onUpdate={updateSelectedNode}
+          onUpload={(file) => void upload(file)}
+          onImportUrl={(url) => void importUrl(url)}
+        />
+      </aside>}
       </div>}
     <Modal opened={pickerOpen} onClose={() => setPickerOpen(false)} title="Add node" centered><Stack><Select label="Node" placeholder="Choose an input or downloaded model" data={options} value={choice} onChange={setChoice} searchable /><Text size="xs" c="dimmed">Only downloaded models are available here. Download additional models from Models.</Text>{downloaded.status === "unavailable" && <Alert color="hiveWarning">Could not check model downloads. Input nodes remain available.</Alert>}<Button onClick={addNode} disabled={!choice}>Add node</Button></Stack></Modal>
     <ConfirmActionModal opened={removeOpen} onClose={() => setRemoveOpen(false)} title="Remove node" confirmLabel="Remove node" onConfirm={() => { if (!selected) return; setGraph((current) => removeNode(current, selected.id)); setSelectedNodeId(null); setSelectedConnectionId(null); setDirty(true); setRemoveOpen(false); }}>
