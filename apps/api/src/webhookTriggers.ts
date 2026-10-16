@@ -291,13 +291,22 @@ router.get("/", async (_req, res, next) => {
         .where(and(eq(workflows.userId, ownerId(res)), inArray(workflows.id, workflowIds)))
       : [];
     const names = new Map(ownedWorkflows.map((workflow) => [workflow.id, workflow.name]));
-    const latestDeliveries = await Promise.all(triggers.map(async (trigger) => {
-      const [delivery] = await db.select({ id: webhookDeliveries.id, eventId: webhookDeliveries.eventId, outcome: webhookDeliveries.outcome, statusCode: webhookDeliveries.statusCode, errorCode: webhookDeliveries.errorCode, runId: webhookDeliveries.runId, receivedAt: webhookDeliveries.receivedAt })
-        .from(webhookDeliveries).where(and(eq(webhookDeliveries.triggerId, trigger.id), eq(webhookDeliveries.userId, ownerId(res))))
-        .orderBy(desc(webhookDeliveries.receivedAt)).limit(1);
-      return [trigger.id, delivery ?? null] as const;
-    }));
-    const deliveryByTrigger = new Map(latestDeliveries);
+    const latestDeliveries = triggers.length
+      ? await db.selectDistinctOn([webhookDeliveries.triggerId], {
+        id: webhookDeliveries.id,
+        triggerId: webhookDeliveries.triggerId,
+        eventId: webhookDeliveries.eventId,
+        outcome: webhookDeliveries.outcome,
+        statusCode: webhookDeliveries.statusCode,
+        errorCode: webhookDeliveries.errorCode,
+        runId: webhookDeliveries.runId,
+        receivedAt: webhookDeliveries.receivedAt,
+      })
+        .from(webhookDeliveries)
+        .where(and(eq(webhookDeliveries.userId, ownerId(res)), inArray(webhookDeliveries.triggerId, triggers.map((trigger) => trigger.id))))
+        .orderBy(webhookDeliveries.triggerId, desc(webhookDeliveries.receivedAt), desc(webhookDeliveries.id))
+      : [];
+    const deliveryByTrigger = new Map(latestDeliveries.map((delivery) => [delivery.triggerId, delivery]));
     res.json({ items: triggers.map((trigger) => {
       const workflowName = names.get(trigger.workflowId) ?? trigger.workflowName;
       return { ...safeTrigger({ ...trigger, workflowName }), workflowId: trigger.workflowId, lastDelivery: deliveryByTrigger.get(trigger.id) ?? null };

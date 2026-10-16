@@ -13,6 +13,24 @@ type Trigger = { id: string; name: string; workflowName: string; enabled: boolea
 type MediaItem = { id: string; dataTypeId: string; displayName: string; mediaType: string; byteSize: number };
 type InputSource = { mode: "library"; artifactId: string } | { mode: "unchanged" };
 type TriggerPage = { workflow: { id: string; name: string }; inputNodes: InputNode[]; webhookTextInputs: WebhookTextInput[]; triggers: Trigger[]; publicApiConfigured: boolean };
+type IssuedCredentials = { secret: string; endpointUrl: string };
+
+function WebhookConnectionDetails({ endpointUrl, issued }: { endpointUrl: string | null; issued: IssuedCredentials | null }) {
+  const resolvedEndpointUrl = issued?.endpointUrl ?? endpointUrl;
+  return <section className="webhook-connection-section" aria-label="Webhook connection details">
+    <Group className="webhook-connection-heading webhook-section-heading" justify="space-between" align="center" wrap="wrap" gap="xs"><Group gap="xs"><Text className="webhook-section-title" size="sm" fw={600}>Connection details</Text><Badge size="sm" variant="light" color="hiveSky">POST · HMAC-SHA256</Badge></Group>{issued && <Badge size="sm" variant="light" color="hiveWarning">Secret shown once</Badge>}</Group>
+    <div className="webhook-credential-row webhook-credential-inline"><Text className="webhook-credential-label" size="xs" fw={500}>Endpoint</Text><Code className="webhook-credential-value">{resolvedEndpointUrl ?? "Loading endpoint…"}</Code>{resolvedEndpointUrl && <CopyButton value={resolvedEndpointUrl} timeout={1600}>{({ copied, copy }) => <Tooltip label={copied ? "URL copied" : "Copy URL"}><ActionIcon size={28} variant="default" color={copied ? "hiveSuccess" : "gray"} aria-label={copied ? "URL copied" : "Copy webhook URL"} onClick={() => void copy()}><CopyIcon /></ActionIcon></Tooltip>}</CopyButton>}</div>
+    <div className="webhook-credential-row webhook-credential-inline"><Text className="webhook-credential-label" size="xs" fw={500}>Signing secret</Text>{issued ? <Code className="webhook-credential-value">{issued.secret}</Code> : <Text className="webhook-credential-value webhook-secret-stored" size="xs">Stored securely · rotate to replace</Text>}{issued && <CopyButton value={issued.secret} timeout={1600}>{({ copied, copy }) => <Tooltip label={copied ? "Secret copied" : "Copy secret"}><ActionIcon size={28} variant="default" color={copied ? "hiveSuccess" : "gray"} aria-label={copied ? "Secret copied" : "Copy signing secret"} onClick={() => void copy()}><CopyIcon /></ActionIcon></Tooltip>}</CopyButton>}</div>
+    {issued && <Text className="webhook-credential-footnote" size="xs" c="dimmed">Hive shows the signing secret only after creation or rotation. Copy it somewhere safe.</Text>}
+  </section>;
+}
+
+function WebhookSigningGuide() {
+  return <details className="webhook-signing-guide webhook-compact-signing-guide">
+    <summary><span>Request signing</span><Text component="span" size="xs" c="dimmed">Headers · HMAC-SHA256</Text></summary>
+    <Stack gap="xs" mt="xs"><Text size="xs">Include <Code>X-Hive-Timestamp</Code>, <Code>X-Hive-Event-Id</Code>, and <Code>X-Hive-Signature</Code>. The signature covers the exact raw body digest to support safe retries.</Text><Code block className="webhook-signature-code">HMAC-SHA256(secret, "v1\n" + timestamp + "\n" + eventId + "\n" + sha256Hex(rawBody))</Code><Text size="xs" c="dimmed">Send the signature as v1=&lt;lowercase hex&gt;. Timestamps may be at most five minutes from Hive’s clock. Reuse an event ID only when retrying the same request.</Text></Stack>
+  </details>;
+}
 
 function pathValue(value: unknown, path: string): unknown {
   let current = value;
@@ -69,7 +87,7 @@ export function WebhookTriggerDrawerContent({ workflow, opened, initialTriggerId
   const sampleEdited = useRef(false);
   const configPanelRef = useRef<HTMLDivElement>(null);
   const [preview, setPreview] = useState<Array<{ nodeId?: string; label: string; value: string }> | null>(null);
-  const [issued, setIssued] = useState<{ secret: string; endpointUrl: string } | null>(initialCredentials);
+  const [issued, setIssued] = useState<IssuedCredentials | null>(initialCredentials);
   const [editingTriggerId, setEditingTriggerId] = useState<string | null>(null);
   const [initialTriggerApplied, setInitialTriggerApplied] = useState(false);
   const [testRunTarget, setTestRunTarget] = useState<Trigger | null>(null);
@@ -210,16 +228,8 @@ export function WebhookTriggerDrawerContent({ workflow, opened, initialTriggerId
       <Stack className="webhook-trigger-drawer-scroll" gap="xs">
       {error && <Alert color="hiveError" title="Webhook action failed">{error}</Alert>}
       {activeTrigger && !activeTrigger.enabled && <div className="webhook-paused-notice"><span className="webhook-paused-dot" /><div className="webhook-paused-copy"><Text size="xs" fw={600}>Setup incomplete</Text><Text size="xs">Configure inputs, save, then enable from the list.</Text></div></div>}
-      <section className="webhook-connection-section" aria-label="Webhook connection details">
-        <Group className="webhook-connection-heading webhook-section-heading" justify="space-between" align="center" wrap="wrap" gap="xs"><Group gap="xs"><Text className="webhook-section-title" size="sm" fw={600}>Connection details</Text><Badge size="sm" variant="light" color="hiveSky">POST · HMAC-SHA256</Badge></Group>{issued && <Badge size="sm" variant="light" color="hiveWarning">Secret shown once</Badge>}</Group>
-        <div className="webhook-credential-row webhook-credential-inline"><Text className="webhook-credential-label" size="xs" fw={500}>Endpoint</Text><Code className="webhook-credential-value">{issued?.endpointUrl ?? activeTrigger?.endpointUrl ?? "Loading endpoint…"}</Code>{(issued?.endpointUrl ?? activeTrigger?.endpointUrl) && <CopyButton value={issued?.endpointUrl ?? activeTrigger!.endpointUrl!} timeout={1600}>{({ copied, copy }) => <Tooltip label={copied ? "URL copied" : "Copy URL"}><ActionIcon size={28} variant="default" color={copied ? "hiveSuccess" : "gray"} aria-label={copied ? "URL copied" : "Copy webhook URL"} onClick={() => void copy()}><CopyIcon /></ActionIcon></Tooltip>}</CopyButton>}</div>
-        <div className="webhook-credential-row webhook-credential-inline"><Text className="webhook-credential-label" size="xs" fw={500}>Signing secret</Text>{issued ? <Code className="webhook-credential-value">{issued.secret}</Code> : <Text className="webhook-credential-value webhook-secret-stored" size="xs">Stored securely · rotate to replace</Text>}{issued && <CopyButton value={issued.secret} timeout={1600}>{({ copied, copy }) => <Tooltip label={copied ? "Secret copied" : "Copy secret"}><ActionIcon size={28} variant="default" color={copied ? "hiveSuccess" : "gray"} aria-label={copied ? "Secret copied" : "Copy signing secret"} onClick={() => void copy()}><CopyIcon /></ActionIcon></Tooltip>}</CopyButton>}</div>
-        {issued && <Text className="webhook-credential-footnote" size="xs" c="dimmed">Hive shows the signing secret only after creation or rotation. Copy it somewhere safe.</Text>}
-      </section>
-      <details className="webhook-signing-guide webhook-compact-signing-guide">
-        <summary><span>Request signing</span><Text component="span" size="xs" c="dimmed">Headers · HMAC-SHA256</Text></summary>
-        <Stack gap="xs" mt="xs"><Text size="xs">Include <Code>X-Hive-Timestamp</Code>, <Code>X-Hive-Event-Id</Code>, and <Code>X-Hive-Signature</Code>. The signature covers the exact raw body digest to support safe retries.</Text><Code block className="webhook-signature-code">HMAC-SHA256(secret, "v1\n" + timestamp + "\n" + eventId + "\n" + sha256Hex(rawBody))</Code><Text size="xs" c="dimmed">Send the signature as v1=&lt;lowercase hex&gt;. Timestamps may be at most five minutes from Hive’s clock. Reuse an event ID only when retrying the same request.</Text></Stack>
-      </details>
+      <WebhookConnectionDetails endpointUrl={activeTrigger?.endpointUrl ?? null} issued={issued} />
+      <WebhookSigningGuide />
 
       <div className="webhook-section-divider" />
       <section ref={configPanelRef} className="webhook-trigger-config-panel"><Stack gap={0}>
@@ -245,13 +255,12 @@ export function WebhookTriggerDrawerContent({ workflow, opened, initialTriggerId
       </Stack>
       {editingTriggerId && <Group className="webhook-trigger-drawer-footer" justify="space-between" wrap="wrap">
         <Group gap="xs">
-          {(() => { const trigger = page?.triggers.find((item) => item.id === editingTriggerId); return trigger ? <><Button size="xs" variant="default" onClick={() => void previewTrigger(trigger)}>Validate</Button><Button size="xs" variant="default" disabled={!trigger.enabled || busy} onClick={() => setTestRunTarget(trigger)}>Test run</Button></> : null; })()}
-          {(() => { const trigger = page?.triggers.find((item) => item.id === editingTriggerId); return trigger ? <Button size="xs" variant="default" onClick={() => void rotateSecret(trigger)}>Rotate secret</Button> : null; })()}
+          {activeTrigger && <><Button size="xs" variant="default" onClick={() => void previewTrigger(activeTrigger)}>Validate</Button><Button size="xs" variant="default" disabled={!activeTrigger.enabled || busy} onClick={() => setTestRunTarget(activeTrigger)}>Test run</Button><Button size="xs" variant="default" onClick={() => void rotateSecret(activeTrigger)}>Rotate secret</Button></>}
         </Group>
         <Button size="xs" onClick={() => void saveTrigger()} loading={busy} disabled={!name.trim() || !editingTriggerId}>Save trigger</Button>
       </Group>}
     </div>}
-    <ConfirmActionModal modalClassName="webhook-flow-modal-content" opened={testRunTarget !== null} onClose={() => { if (!busy) setTestRunTarget(null); }} title="Start a real workflow run?" confirmLabel="Start test run" loading={busy} color="hiveWarning" onConfirm={() => { if (testRunTarget) void startTestRun(testRunTarget); }}>
+    <ConfirmActionModal modalClassName="webhook-flow-modal-content" size="sm" stackGap="sm" opened={testRunTarget !== null} onClose={() => { if (!busy) setTestRunTarget(null); }} title="Start a real workflow run?" confirmLabel="Start test run" loading={busy} color="hiveWarning" onConfirm={() => { if (testRunTarget) void startTestRun(testRunTarget); }}>
       <Text size="sm">This queues a real run for “{testRunTarget?.name}”. The workflow may publish to Instagram or cause other configured external side effects.</Text>
     </ConfirmActionModal>
   </>;
