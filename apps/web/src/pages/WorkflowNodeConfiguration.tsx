@@ -62,10 +62,18 @@ export function WorkflowNodeConfiguration({ selected, types, instagramAccounts, 
       <Text fw={600}>Text Overlay</Text>
       <Text size="sm" c="dimmed">Connect one image and one text input. Text is rendered directly; no model is used.</Text>
       <Select label="Font" data={[
-        { value: "Liberation Sans", label: "Sans serif" },
-        { value: "Liberation Serif", label: "Serif" },
-        { value: "Liberation Mono", label: "Monospace" },
-      ]} value={String(selected.data.parameters.fontFamily ?? textOverlayDefaults.fontFamily)} onChange={(fontFamily) => fontFamily && onUpdate({ parameters: { ...selected.data.parameters, fontFamily } })} />
+        { value: "Liberation Sans", label: "Liberation Sans" },
+        { value: "Liberation Sans Narrow", label: "Liberation Sans Narrow" },
+        { value: "Liberation Serif", label: "Liberation Serif" },
+        { value: "Liberation Mono", label: "Liberation Mono" },
+        { value: "DejaVu Sans", label: "DejaVu Sans" },
+        { value: "DejaVu Serif", label: "DejaVu Serif" },
+        { value: "DejaVu Sans Mono", label: "DejaVu Sans Mono" },
+        { value: "Lato", label: "Lato" },
+      ]} renderOption={({ option }) => <Stack gap={0} py={2}>
+        <Text size="sm" fw={500}>{option.label}</Text>
+        <Text size="xs" c="dimmed" style={{ fontFamily: `"${option.value}", sans-serif` }}>Aa Bb 123 — The quick brown fox</Text>
+      </Stack>} value={String(selected.data.parameters.fontFamily ?? textOverlayDefaults.fontFamily)} onChange={(fontFamily) => fontFamily && onUpdate({ parameters: { ...selected.data.parameters, fontFamily } })} />
       <NumberInput label="Font size" min={8} max={256} value={Number(selected.data.parameters.fontSize ?? textOverlayDefaults.fontSize)} onChange={(fontSize) => typeof fontSize === "number" && onUpdate({ parameters: { ...selected.data.parameters, fontSize } })} />
       <Select label="Weight" data={[{ value: "400", label: "Regular" }, { value: "700", label: "Bold" }]} value={String(selected.data.parameters.fontWeight ?? textOverlayDefaults.fontWeight)} onChange={(fontWeight) => fontWeight && onUpdate({ parameters: { ...selected.data.parameters, fontWeight: Number(fontWeight) } })} />
       <ColorInput label="Text color" format="hex" value={String(selected.data.parameters.color ?? textOverlayDefaults.color)} onChange={(color) => onUpdate({ parameters: { ...selected.data.parameters, color: /^#[0-9a-fA-F]{6}$/.test(color) ? color : textOverlayDefaults.color } })} />

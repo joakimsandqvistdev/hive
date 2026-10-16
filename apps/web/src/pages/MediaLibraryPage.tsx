@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Alert, Badge, Button, FileInput, Group, Image, Loader, Paper, Select, Stack, Table, Text, Title } from "@mantine/core";
 import { apiFetch, apiUrl } from "../apiClient";
 import { formatFileSize } from "../formatters";
+import { useFlashMessages } from "../components/FlashMessages";
 
 type Media = { id: string; displayName: string; dataTypeId: string; mediaType: string; byteSize: number; createdAt: string; runId: string | null; savedToLibrary: boolean };
 type MediaFilter = "all" | "image" | "audio" | "video";
@@ -26,6 +27,7 @@ function mediaKind(item: Media) {
 }
 
 export function MediaLibraryPage() {
+  const { showFlash } = useFlashMessages();
   const [items, setItems] = useState<Media[]>([]);
   const [type, setType] = useState<string | null>("image");
   const [filter, setFilter] = useState<MediaFilter>("all");
@@ -61,14 +63,16 @@ export function MediaLibraryPage() {
   async function upload() {
     if (!file || !type) return;
     setBusyId("upload"); setError(null);
+    const uploadedName = file.name;
     try {
       const response = await apiFetch(`/api/artifacts/upload?scope=library&dataTypeId=${type}&name=${encodeURIComponent(file.name)}`, { method: "POST", headers: { "content-type": "application/octet-stream" }, body: file });
       const body = await response.json() as { message?: string };
       if (!response.ok) throw new Error(body.message ?? "Could not upload media.");
       setFile(null);
       await refresh();
+      showFlash({ tone: "success", title: "Media uploaded", message: `“${uploadedName}” was added to your library.` });
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Could not upload media.");
+      showFlash({ tone: "error", title: "Could not upload media", message: cause instanceof Error ? cause.message : "Could not upload media." });
     } finally {
       setBusyId(null);
     }
@@ -76,12 +80,14 @@ export function MediaLibraryPage() {
 
   async function perform(id: string, action: "save-to-library" | "delete") {
     setBusyId(id); setError(null);
+    const itemName = items.find((item) => item.id === id)?.displayName ?? "Media";
     try {
       const response = await apiFetch(`/api/artifacts/${id}${action === "save-to-library" ? "/save-to-library" : ""}`, { method: action === "delete" ? "DELETE" : "POST" });
       if (!response.ok) throw new Error(response.status === 409 ? "This media is referenced by a workflow, run input, profile image, or Instagram publication. Remove those references first." : "Could not update this media.");
       await refresh();
+      showFlash({ tone: "success", title: action === "delete" ? "Media deleted" : "Saved to library", message: action === "delete" ? `“${itemName}” and its stored file were deleted.` : `“${itemName}” will be kept when its run is deleted.` });
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Could not update media.");
+      showFlash({ tone: "error", title: action === "delete" ? "Could not delete media" : "Could not save media", message: cause instanceof Error ? cause.message : "Could not update media." });
     } finally {
       setBusyId(null);
     }
@@ -113,7 +119,7 @@ export function MediaLibraryPage() {
       </Group>
     </Paper>
 
-    {error && <Alert color="hiveError" title="Media update" onClose={() => setError(null)} withCloseButton>{error}</Alert>}
+    {error && <Alert color="hiveError" title="Media library unavailable" onClose={() => setError(null)} withCloseButton>{error}</Alert>}
 
     <Paper className="inventory-list" withBorder radius="md">
       <Group className="inventory-toolbar media-toolbar" justify="space-between" wrap="wrap">

@@ -1,6 +1,7 @@
-import { Alert, Avatar, Button, Divider, Loader, Menu, Modal, Stack, Text, UnstyledButton } from "@mantine/core";
+import { Alert, Avatar, Button, Divider, Group, Loader, Menu, Modal, Stack, Text, UnstyledButton } from "@mantine/core";
 import { useEffect, useState } from "react";
 import { API_BASE, useAuth } from "../auth";
+import { NotificationsBell } from "./NotificationsBell";
 
 function UserGlyph() {
   return (
@@ -27,6 +28,8 @@ export function AuthControl() {
 
   if (user) {
     return (
+      <Group className="account-header-controls" gap="md" wrap="nowrap">
+      <NotificationsBell />
       <Menu position="bottom-end" withinPortal>
         <Menu.Target>
           <UnstyledButton className="user-menu-trigger" aria-label={`User menu for ${user.name || user.email}`} title="Account menu">
@@ -72,6 +75,7 @@ export function AuthControl() {
           {logoutError && <Text size="xs" c="red" px="sm" pb="xs">{logoutError}</Text>}
         </Menu.Dropdown>
       </Menu>
+      </Group>
     );
   }
 

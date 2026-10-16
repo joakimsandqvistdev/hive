@@ -4,12 +4,12 @@ import type { AppView } from "../navigation/navigationState";
 import { AppIcon } from "../components/AppIcon";
 
 const capabilities = [
-  { icon: "workflows", title: "Visual workflows", description: "Connect inputs, AI models, and processing steps in one flow." },
-  { icon: "customNodes", title: "Reusable Custom Nodes", description: "Package workflow logic and update it in one place." },
+  { icon: "workflows", title: "Visual workflows", description: "Connect inputs, AI models, and styled media processing in one flow." },
+  { icon: "customNodes", title: "Reusable Custom Nodes", description: "Reuse, duplicate, and run self-contained logic." },
   { icon: "models", title: "Model library", description: "Download supported models and use them in your workflows." },
   { icon: "media", title: "Media Library", description: "Upload, organize, and reuse assets across workflows." },
   { icon: "publish", title: "Instagram publishing", description: "Publish posts and Reels automatically or after review." },
-  { icon: "jobs", title: "Jobs and Runs", description: "Schedule repeat runs, track progress, and manage outputs." },
+  { icon: "jobs", title: "Jobs and Runs", description: "Schedule repeat runs, track progress, receive completion alerts, and manage outputs." },
 ] as const;
 
 export function HomePage({ onNavigate }: { onNavigate: (view: AppView) => void }) {

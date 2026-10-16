@@ -28,7 +28,6 @@ export async function createWorkflowRunInTransaction(
 ): Promise<WorkflowRunCreation> {
   const [workflow] = await tx.select().from(workflows).where(and(eq(workflows.id, workflowId), eq(workflows.userId, ownerId))).limit(1).for("share");
   if (!workflow || workflow.archivedAt) return { ok: false, error: "workflow_not_found" };
-  if (workflow.isCustomNode) return { ok: false, error: "custom_node_cannot_run" };
   if (workflow.needsAttention) return { ok: false, error: "workflow_needs_attention" };
   const nodes = await tx.select().from(workflowNodes).where(eq(workflowNodes.workflowId, workflow.id));
   if (!nodes.length) return { ok: false, error: "workflow_has_no_nodes" };
@@ -36,6 +35,12 @@ export async function createWorkflowRunInTransaction(
   const ids = nodes.flatMap((node) => node.artifactId ? [node.artifactId] : []);
   const uploads = ids.length ? await tx.select().from(artifacts).where(and(eq(artifacts.userId, ownerId), inArray(artifacts.id, ids))) : [];
   const catalog = await loadCustomNodeCatalog(ownerId);
+  if (workflow.isCustomNode) {
+    const customNode = catalog.find((item) => item.id === workflow.id);
+    if (!customNode || customNode.interface.signature === "invalid") return { ok: false, error: "custom_node_missing" };
+    if (customNode.interface.inputs.length > 0) return { ok: false, error: "custom_node_requires_no_inputs" };
+    if (customNode.needsAttention) return { ok: false, error: "workflow_needs_attention" };
+  }
   const definition = snapshotCustomNodeReferences(definitionFor(nodes, edges), catalog);
   if (hasOutdatedCustomNodeReferences(definition, catalog)) return { ok: false, error: "workflow_needs_attention" };
   const customContracts = catalog.map((item) => item.contract);
@@ -92,7 +97,7 @@ export function workflowRunErrorMessage(error: string): string {
     custom_node_interface_outdated: "A custom node interface is out of date. Open the workflow, update the custom node interface, and save before running.",
     custom_node_cycle: "Custom nodes cannot contain circular references.",
     custom_node_graph_too_large: "This workflow expands beyond the supported size after including its custom nodes.",
-    custom_node_cannot_run: "Custom nodes are reusable definitions. Add one to a workflow to run it.",
+    custom_node_requires_no_inputs: "This Custom Node has exposed inputs. Add it to a workflow and connect its inputs before running.",
     workflow_has_no_nodes: "Add at least one node before running this workflow.",
     invalid_parameters: "Check the workflow’s model settings.",
     invalid_model_contract: "The workflow uses a model with an invalid input or output definition.",

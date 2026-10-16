@@ -1,18 +1,19 @@
 import { useCallback, useEffect, useState } from "react";
 import { Alert, Avatar, Button, Card, Group, Image, Loader, Select, Stack, Text, Title } from "@mantine/core";
 import { apiFetch, apiUrl } from "../apiClient";
+import { useFlashMessages } from "../components/FlashMessages";
 
 type Account = { id: string; username: string; profileImageArtifactId: string | null };
 type Asset = { id: string; displayName: string; mediaType: string; createdAt: string; runId: string | null };
 
 export function AccountsPage() {
+  const { showFlash } = useFlashMessages();
   const [account, setAccount] = useState<Account | null>(null);
   const [assets, setAssets] = useState<Asset[]>([]);
   const [selectedAsset, setSelectedAsset] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -29,19 +30,19 @@ export function AccountsPage() {
   const connect = async () => {
     setError(null);
     try { const response = await apiFetch("/api/instagram/connect"); const body = await response.json() as { url?: string }; if (response.status === 503) throw new Error("Instagram Login is not configured. Add INSTAGRAM_APP_ID, INSTAGRAM_APP_SECRET, and INSTAGRAM_TOKEN_ENCRYPTION_KEY to .env, then restart with npm run local."); if (!response.ok || !body.url) throw new Error("Could not start Instagram Login. Check the API logs and Meta app configuration."); window.location.assign(body.url); }
-    catch (cause) { setError(cause instanceof Error ? cause.message : "Could not connect Instagram."); }
+    catch (cause) { showFlash({ tone: "error", title: "Could not connect Instagram", message: cause instanceof Error ? cause.message : "Could not connect Instagram." }); }
   };
   const save = async () => {
-    setSaving(true); setError(null); setMessage(null);
-    try { const response = await apiFetch("/api/instagram/account", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ profileImageArtifactId: selectedAsset }) }); if (!response.ok) throw new Error("Could not save the profile picture selection."); setMessage("Profile picture selection saved."); }
-    catch (cause) { setError(cause instanceof Error ? cause.message : "Could not save the profile picture selection."); }
+    setSaving(true);
+    try { const response = await apiFetch("/api/instagram/account", { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ profileImageArtifactId: selectedAsset }) }); if (!response.ok) throw new Error("Could not save the profile picture selection."); showFlash({ tone: "success", title: "Profile picture selection saved", message: "Your Instagram profile picture selection was saved." }); }
+    catch (cause) { showFlash({ tone: "error", title: "Could not save profile picture", message: cause instanceof Error ? cause.message : "Could not save the profile picture selection." }); }
     finally { setSaving(false); }
   };
   const disconnect = async () => {
     if (!window.confirm("Disconnect this Instagram account? Publishing nodes using it will need a different connected account.")) return;
     const response = await apiFetch("/api/instagram/account", { method: "DELETE" });
-    if (!response.ok) { setError(response.status === 409 ? "Resolve or delete this account’s publication history from Runs before disconnecting it." : "Could not disconnect Instagram."); return; }
-    setAccount(null); setMessage("Instagram account disconnected.");
+    if (!response.ok) { showFlash({ tone: "error", title: "Could not disconnect Instagram", message: response.status === 409 ? "Resolve or delete this account’s publication history from Runs before disconnecting it." : "Could not disconnect Instagram." }); return; }
+    setAccount(null); showFlash({ tone: "success", title: "Instagram disconnected", message: "The account was disconnected from Hive." });
   };
   const downloadSquareCrop = async () => {
     if (!selectedAsset) return;
@@ -57,13 +58,14 @@ export function AccountsPage() {
       URL.revokeObjectURL(objectUrl);
       const blob = await new Promise<Blob>((resolve, reject) => canvas.toBlob((result) => result ? resolve(result) : reject(new Error("Could not export profile image.")), "image/png"));
       const url = URL.createObjectURL(blob); const link = document.createElement("a"); link.href = url; link.download = "instagram-profile.png"; link.click(); URL.revokeObjectURL(url);
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not prepare profile image."); }
+      showFlash({ tone: "success", title: "Profile image downloaded", message: "The square crop is ready to upload to Instagram." });
+    } catch (cause) { showFlash({ tone: "error", title: "Could not prepare profile image", message: cause instanceof Error ? cause.message : "Could not prepare profile image." }); }
   };
 
   if (loading) return <Group justify="center" py="xl"><Loader /><Text>Loading accounts…</Text></Group>;
   return <Stack maw={900} mx="auto" w="100%">
     <Text c="dimmed">Connect a professional Instagram account for workflow publishing and prepare a profile picture from your Hive assets.</Text>
-    {error && <Alert color="hiveError">{error}</Alert>}{message && <Alert color="hiveSuccess">{message}</Alert>}
+    {error && <Alert color="hiveError" title="Instagram settings unavailable">{error}</Alert>}
     {!account ? <Card withBorder><Stack><Text fw={600}>Instagram</Text><Text size="sm" c="dimmed">Connect one Business or Creator account to publish posts and Reels from workflows.</Text><Button w="fit-content" onClick={() => void connect()}>Connect Instagram</Button></Stack></Card> : <>
       <Card withBorder><Group justify="space-between"><Group><Avatar radius="xl">@</Avatar><div><Text fw={600}>@{account.username}</Text><Text size="sm" c="dimmed">Connected professional account</Text></div></Group><Button color="hiveError" variant="light" onClick={() => void disconnect()}>Disconnect</Button></Group></Card>
       <Card withBorder><Stack><div><Text fw={600}>Profile picture</Text><Text size="sm" c="dimmed">Choose an image already in your Hive assets. Hive prepares a centered square crop for download; upload it to Instagram manually.</Text></div>

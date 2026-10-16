@@ -14,6 +14,7 @@ import { MediaLibraryPage } from "./pages/MediaLibraryPage";
 import { CustomNodesPage } from "./pages/CustomNodesPage";
 import { useAppNavigation } from "./navigation/useAppNavigation";
 import type { AppView } from "./navigation/navigationState";
+import { FlashMessagesProvider } from "./components/FlashMessages";
 
 export default function App() {
   const { view, sidebarCollapsed, workflowEditorActive, navigate, toggleSidebar } = useAppNavigation();
@@ -21,7 +22,9 @@ export default function App() {
   return (
     <MantineProvider theme={theme} forceColorScheme="light">
       <AuthProvider>
-        <AppContent view={view} onNavigate={navigate} sidebarCollapsed={sidebarCollapsed} workflowEditorActive={workflowEditorActive} onToggleNavigation={toggleSidebar} />
+        <FlashMessagesProvider>
+          <AppContent view={view} onNavigate={navigate} sidebarCollapsed={sidebarCollapsed} workflowEditorActive={workflowEditorActive} onToggleNavigation={toggleSidebar} />
+        </FlashMessagesProvider>
       </AuthProvider>
     </MantineProvider>
   );
