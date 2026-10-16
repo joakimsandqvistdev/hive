@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Alert, Button, Group, Loader, Modal, Select, Stack, Text, Textarea, TextInput } from "@mantine/core";
+import { ActionIcon, Alert, Button, Group, Loader, Modal, Select, Stack, Text, Textarea, TextInput, Tooltip } from "@mantine/core";
 import { GraphEditor, createId, removeConnection, removeNode, type GraphDocument } from "ionodes";
 import { apiFetch } from "../apiClient";
 import { useDownloadedModels } from "../hooks/useDownloadedModels";
@@ -84,22 +84,25 @@ export function WorkflowEditor({ workflowId, onClose, onNavigate }: { workflowId
       position: { x: 90 + (graph.nodes.length % 3) * 280, y: 90 + Math.floor(graph.nodes.length / 3) * 190 } };
     setGraph((current) => addWorkflowNode(current, node, contracts, types)); setSelectedNodeId(node.id); setSelectedConnectionId(null); setDirty(true); setPickerOpen(false); setChoice(null);
   }
-  function duplicateSelectedNode() {
-    if (!selectedGraphNode || !selected) return;
+  function duplicateNode(graphNode: GraphDocument["nodes"][number]) {
+    const source = toWorkflowNode(graphNode, contracts);
     const nodeId = createId("node");
     const nodeDefinition: Definition["nodes"][number] = {
       id: nodeId,
-      kind: selected.data.kind,
-      label: `${selected.data.label.slice(0, 94)} copy`,
-      modelId: selected.data.modelId,
-      dataTypeId: selected.data.dataTypeId,
-      inputText: selected.data.inputText,
-      artifactId: selected.data.artifactId,
-      parameters: structuredClone(selected.data.parameters),
-      position: { x: Math.min(selected.position.x + 48, 999_900), y: Math.min(selected.position.y + 48, 999_900) },
+      kind: source.data.kind,
+      label: `${source.data.label.slice(0, 94)} copy`,
+      modelId: source.data.modelId,
+      dataTypeId: source.data.dataTypeId,
+      inputText: source.data.inputText,
+      artifactId: source.data.artifactId,
+      parameters: structuredClone(source.data.parameters),
+      position: { x: Math.min(source.position.x + 48, 999_900), y: Math.min(source.position.y + 48, 999_900) },
     };
     const next = addWorkflowNode(graph, nodeDefinition, contracts, types);
     setGraph(next); setSelectedNodeId(nodeId); setSelectedConnectionId(null); setDirty(true); setError(null);
+  }
+  function requestRemoveNode(graphNode: GraphDocument["nodes"][number]) {
+    setSelectedNodeId(graphNode.id); setSelectedConnectionId(null); setRemoveOpen(true);
   }
   async function upload(file: File | null, target: WorkflowNode | undefined = selected) {
     if (!file || !target) return;
@@ -154,9 +157,9 @@ export function WorkflowEditor({ workflowId, onClose, onNavigate }: { workflowId
     finally { setRunning(false); }
   }
   return <div className="workflow-editor-page">
-    <header className="workflow-editor-header"><Group justify="space-between" className="workflow-editor-header-row"><Group className="workflow-header-leading" gap="sm"><Button variant="subtle" onClick={() => { if (!dirty || window.confirm("Discard unsaved workflow changes?")) onClose(); }}>Back</Button>{error && <Alert className="workflow-header-error" color="hiveError" variant="light" radius="sm" p="xs" role="alert">{error}</Alert>}</Group><Group wrap="wrap"><Button size="sm" variant="light" leftSection={<AddNodeIcon />} onClick={() => { void downloaded.refresh(); setPickerOpen(true); }}>Add node</Button><Button size="sm" variant="light" color="hiveSky" leftSection={<DuplicateIcon />} aria-label="Duplicate selected node" disabled={!selected || uploading} onClick={duplicateSelectedNode}>Duplicate</Button><Button size="sm" variant="light" color="hiveError" leftSection={<RemoveIcon />} disabled={(!selected && !selectedConnectionId) || uploading} onClick={() => { if (selected) setRemoveOpen(true); else if (selectedConnectionId) { setGraph((current) => removeConnection(current, selectedConnectionId)); setSelectedConnectionId(null); setDirty(true); } }}>Remove selected</Button><Button variant="subtle" onClick={() => setDetailsOpen(true)}>Edit details</Button><Button variant="light" onClick={() => void run()} loading={running} disabled={dirty || !graph.nodes.length || loading || saving || uploading}>Run workflow</Button><Button onClick={() => void save()} loading={saving} disabled={!dirty || uploading}>Save workflow</Button></Group></Group></header>
+    <header className="workflow-editor-header"><Group justify="space-between" className="workflow-editor-header-row"><Group className="workflow-header-leading" gap="sm"><Button variant="subtle" onClick={() => { if (!dirty || window.confirm("Discard unsaved workflow changes?")) onClose(); }}>Back</Button>{error && <Alert className="workflow-header-error" color="hiveError" variant="light" radius="sm" p="xs" role="alert">{error}</Alert>}</Group><Group wrap="wrap"><Button size="sm" variant="light" leftSection={<AddNodeIcon />} onClick={() => { void downloaded.refresh(); setPickerOpen(true); }}>Add node</Button><Button size="sm" variant="light" color="hiveError" leftSection={<RemoveIcon />} aria-label="Remove selected connection" disabled={!selectedConnectionId || uploading} onClick={() => { if (!selectedConnectionId) return; setGraph((current) => removeConnection(current, selectedConnectionId)); setSelectedConnectionId(null); setDirty(true); }}>Remove connection</Button><Button variant="subtle" onClick={() => setDetailsOpen(true)}>Edit details</Button><Button variant="light" onClick={() => void run()} loading={running} disabled={dirty || !graph.nodes.length || loading || saving || uploading}>Run workflow</Button><Button onClick={() => void save()} loading={saving} disabled={!dirty || uploading}>Save workflow</Button></Group></Group></header>
     {loading ? <Group justify="center" className="workflow-editor-loading"><Loader /><Text>Loading workflow…</Text></Group> : workflow && <div className="workflow-editor-body">
-      <section className="workflow-editor-canvas" aria-label="Workflow canvas"><GraphEditor graph={graph} graphTitle={workflow?.name ?? "Workflow"} onChange={(next) => { setGraph(next); setDirty(true); setError(null); }} onSelectionChange={({ nodeIds, connectionIds }) => { setSelectedNodeId(nodeIds[0] ?? null); setSelectedConnectionId(connectionIds[0] ?? null); }} validateConnection={validateWorkflowConnection} showConnectionWarnings={false} showEmptyState={false} showPalette={false} showInspector={false} showStatusBar={false} className="hive-ionodes" nodeEditorLabel="Configure" renderNodeEditor={(graphNode, updateGraphNode) => {
+      <section className="workflow-editor-canvas" aria-label="Workflow canvas"><GraphEditor graph={graph} graphTitle={workflow?.name ?? "Workflow"} onChange={(next) => { setGraph(next); setDirty(true); setError(null); }} onSelectionChange={({ nodeIds, connectionIds }) => { setSelectedNodeId(nodeIds[0] ?? null); setSelectedConnectionId(connectionIds[0] ?? null); }} validateConnection={validateWorkflowConnection} showConnectionWarnings={false} showEmptyState={false} showPalette={false} showInspector={false} showStatusBar={false} className="hive-ionodes" nodeEditorLabel="Configure" renderNodeActions={(graphNode) => <><Tooltip label={`Duplicate ${graphNode.title}`}><ActionIcon className="nodrag nopan" variant="subtle" color="hiveSky" size="sm" aria-label={`Duplicate ${graphNode.title}`} disabled={uploading} onClick={() => duplicateNode(graphNode)}><DuplicateIcon /></ActionIcon></Tooltip><Tooltip label={`Remove ${graphNode.title}`}><ActionIcon className="nodrag nopan" variant="subtle" color="hiveError" size="sm" aria-label={`Remove ${graphNode.title}`} disabled={uploading} onClick={() => requestRemoveNode(graphNode)}><RemoveIcon /></ActionIcon></Tooltip></>} renderNodeEditor={(graphNode, updateGraphNode) => {
         const node = toWorkflowNode(graphNode, contracts);
         const updateNode = (patch: Partial<WorkflowNodeData>) => {
           const { label, inputText, artifactId, parameters } = patch;
@@ -166,7 +169,7 @@ export function WorkflowEditor({ workflowId, onClose, onNavigate }: { workflowId
           updateGraphNode({ title: nextLabel, description, metadata }); setDirty(true);
         };
         return <WorkflowNodeConfiguration selected={node} types={types} instagramAccounts={instagramAccounts} downloadedModelIds={downloaded.modelIds} mediaItems={mediaItems} uploading={uploading} onUpdate={updateNode} onUpload={(file) => void upload(file, node)} onImportUrl={(url) => void importUrl(url, node)} />;
-      }} theme={{ "--ionodes-bg": "var(--hive-canvas-background)", "--ionodes-surface": "var(--hive-canvas-surface)", "--ionodes-text": "var(--hive-canvas-text)", "--ionodes-muted": "var(--hive-canvas-muted)", "--ionodes-border": "var(--hive-canvas-border)", "--ionodes-accent": "var(--hive-canvas-accent)", "--ionodes-danger": "var(--hive-canvas-danger)" }} canvas={{ hideAttribution: true, backgroundColor: "#d6dde5", miniMapMaskColor: "rgba(124, 135, 148, 0.16)", miniMapNodeColor: (_node, invalid) => invalid ? "#ba514d" : "#4285f4" }} /></section>
+      }} theme={{ "--ionodes-bg": "var(--hive-canvas-background)", "--ionodes-surface": "var(--hive-canvas-surface)", "--ionodes-text": "var(--hive-canvas-text)", "--ionodes-muted": "var(--hive-canvas-muted)", "--ionodes-border": "var(--hive-canvas-border)", "--ionodes-accent": "var(--hive-canvas-accent)", "--ionodes-danger": "var(--hive-canvas-danger)" }} canvas={{ hideAttribution: true, backgroundColor: "#e0e5eb", miniMapMaskColor: "rgba(124, 135, 148, 0.16)", miniMapNodeColor: (_node, invalid) => invalid ? "#ba514d" : "#4285f4" }} /></section>
       </div>}
     <Modal opened={pickerOpen} onClose={() => setPickerOpen(false)} title="Add node" centered><Stack><Select label="Node" placeholder="Choose an input or downloaded model" data={options} value={choice} onChange={setChoice} searchable /><Text size="xs" c="dimmed">Only downloaded models are available here. Download additional models from Models.</Text>{downloaded.status === "unavailable" && <Alert color="hiveWarning">Could not check model downloads. Input nodes remain available.</Alert>}<Button onClick={addNode} disabled={!choice}>Add node</Button></Stack></Modal>
     <ConfirmActionModal opened={removeOpen} onClose={() => setRemoveOpen(false)} title="Remove node" confirmLabel="Remove node" onConfirm={() => { if (!selected) return; setGraph((current) => removeNode(current, selected.id)); setSelectedNodeId(null); setSelectedConnectionId(null); setDirty(true); setRemoveOpen(false); }}>
