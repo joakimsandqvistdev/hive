@@ -1,30 +1,8 @@
 import { AppShell, Box, Burger, Group, Stack, Text } from "@mantine/core";
 import { NavigationButton } from "./NavigationButton";
+import { AppIcon } from "./AppIcon";
 import type { AppView } from "../navigation/navigationState";
 import { useAuth } from "../auth";
-
-function WorkflowIcon() { return <svg width="19" height="19" viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="3.5" y="4" width="6" height="6" rx="1.5" stroke="currentColor" strokeWidth="1.7"/><rect x="14.5" y="14" width="6" height="6" rx="1.5" stroke="currentColor" strokeWidth="1.7"/><path d="M9.5 7h4a2 2 0 0 1 2 2v5M14.5 17h-4a2 2 0 0 1-2-2v-5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"/></svg>; }
-function CustomNodesIcon() { return <svg width="19" height="19" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 6h5v5H4zM15 13h5v5h-5zM9 8.5h4a2 2 0 0 1 2 2V13M15 15.5h-2a2 2 0 0 1-2-2v-2" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round" strokeLinecap="round"/><circle cx="6.5" cy="8.5" r=".75" fill="currentColor"/><circle cx="17.5" cy="15.5" r=".75" fill="currentColor"/></svg>; }
-function RunsIcon() { return <svg width="19" height="19" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 5.5h14M5 12h14M5 18.5h14" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"/><circle cx="8" cy="5.5" r="2" fill="currentColor"/><circle cx="16" cy="12" r="2" fill="currentColor"/><circle cx="10" cy="18.5" r="2" fill="currentColor"/></svg>; }
-function JobsIcon() { return <svg width="19" height="19" viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="4" y="5" width="16" height="15" rx="2" stroke="currentColor" strokeWidth="1.7"/><path d="M8 3v4m8-4v4M4 9.5h16M8 13h3m-3 3h7" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"/></svg>; }
-function ModelsIcon() { return <svg width="19" height="19" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3.5 19.5 7v10L12 20.5 4.5 17V7L12 3.5Z" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round"/><path d="m4.8 7.2 7.2 3.5 7.2-3.5M12 10.7v9.5" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round"/></svg>; }
-function LicenseIcon() { return <svg width="19" height="19" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M7 3.75h7l4 4v12.5H7a2 2 0 0 1-2-2v-12.5a2 2 0 0 1 2-2Z" stroke="currentColor" strokeWidth="1.6" strokeLinejoin="round"/><path d="M14 4v4h4M8.5 12h7M8.5 15.5h7" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round"/></svg>; }
-function AccountsIcon() { return <svg width="19" height="19" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="12" cy="12" r="8.5" stroke="currentColor" strokeWidth="1.7"/><circle cx="12" cy="12" r="3.3" stroke="currentColor" strokeWidth="1.7"/><circle cx="18.2" cy="5.8" r="1.1" fill="currentColor"/></svg>; }
-function MediaIcon() { return <svg width="19" height="19" viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="3.5" y="4.5" width="17" height="15" rx="2" stroke="currentColor" strokeWidth="1.7"/><circle cx="9" cy="10" r="1.5" fill="currentColor"/><path d="m5 17 4.5-4 3 2.5 2.5-2 4 3.5" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round"/></svg>; }
-
-function HomeIcon() {
-  return (
-    <svg width="19" height="19" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-      <path
-        d="m3.5 10.75 8.5-7 8.5 7v9.5a.75.75 0 0 1-.75.75h-5.5v-6.5h-4.5V21h-5.5a.75.75 0 0 1-.75-.75v-9.5Z"
-        stroke="currentColor"
-        strokeWidth="1.7"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-      />
-    </svg>
-  );
-}
 
 type SideNavigationProps = {
   compact: boolean;
@@ -76,7 +54,7 @@ export function SideNavigation({
             <NavigationButton
               label="Home"
               active={activeView === "home"}
-              icon={<HomeIcon />}
+              icon={<AppIcon name="home" />}
               compact={compact}
               onClick={() => { onViewChange("home"); onNavigate(); }}
             />
@@ -84,14 +62,14 @@ export function SideNavigation({
           <Box>
             <Text className="nav-caption">Workspace</Text>
             <Stack gap={5} mt="sm">
-            {!loading && user && <NavigationButton label="Accounts" active={activeView === "accounts"} icon={<AccountsIcon />} compact={compact} onClick={() => { onViewChange("accounts"); onNavigate(); }} />}
-            {!loading && user && <NavigationButton label="Media Library" active={activeView === "media"} icon={<MediaIcon />} compact={compact} onClick={() => { onViewChange("media"); onNavigate(); }} />}
-            <NavigationButton label="Models" active={activeView === "models"} icon={<ModelsIcon />} compact={compact} onClick={() => { onViewChange("models"); onNavigate(); }} />
+            {!loading && user && <NavigationButton label="Accounts" active={activeView === "accounts"} icon={<AppIcon name="accounts" />} compact={compact} onClick={() => { onViewChange("accounts"); onNavigate(); }} />}
+            {!loading && user && <NavigationButton label="Media Library" active={activeView === "media"} icon={<AppIcon name="media" />} compact={compact} onClick={() => { onViewChange("media"); onNavigate(); }} />}
+            <NavigationButton label="Models" active={activeView === "models"} icon={<AppIcon name="models" />} compact={compact} onClick={() => { onViewChange("models"); onNavigate(); }} />
             {!loading && user && <>
-              <NavigationButton label="Workflows" active={activeView === "workflows"} icon={<WorkflowIcon />} compact={compact} onClick={() => { onViewChange("workflows"); onNavigate(); }} />
-              <NavigationButton label="Custom Nodes" active={activeView === "custom-nodes"} icon={<CustomNodesIcon />} compact={compact} onClick={() => { onViewChange("custom-nodes"); onNavigate(); }} />
-              <NavigationButton label="Jobs" active={activeView === "jobs"} icon={<JobsIcon />} compact={compact} onClick={() => { onViewChange("jobs"); onNavigate(); }} />
-              <NavigationButton label="Runs" active={activeView === "runs"} icon={<RunsIcon />} compact={compact} onClick={() => { onViewChange("runs"); onNavigate(); }} />
+              <NavigationButton label="Workflows" active={activeView === "workflows"} icon={<AppIcon name="workflows" />} compact={compact} onClick={() => { onViewChange("workflows"); onNavigate(); }} />
+              <NavigationButton label="Custom Nodes" active={activeView === "custom-nodes"} icon={<AppIcon name="customNodes" />} compact={compact} onClick={() => { onViewChange("custom-nodes"); onNavigate(); }} />
+              <NavigationButton label="Jobs" active={activeView === "jobs"} icon={<AppIcon name="jobs" />} compact={compact} onClick={() => { onViewChange("jobs"); onNavigate(); }} />
+              <NavigationButton label="Runs" active={activeView === "runs"} icon={<AppIcon name="runs" />} compact={compact} onClick={() => { onViewChange("runs"); onNavigate(); }} />
             </>}
             </Stack>
           </Box>
@@ -100,7 +78,7 @@ export function SideNavigation({
 
       <Stack gap="xs">
         <Text className="sidebar-note">Connect models and inputs in workflows, and review their runs.</Text>
-        <NavigationButton label="Licenses" active={activeView === "licenses"} icon={<LicenseIcon />} compact={compact} muted onClick={() => { onViewChange("licenses"); onNavigate(); }} />
+        <NavigationButton label="Licenses" active={activeView === "licenses"} icon={<AppIcon name="licenses" />} compact={compact} muted onClick={() => { onViewChange("licenses"); onNavigate(); }} />
       </Stack>
     </Stack>
   );

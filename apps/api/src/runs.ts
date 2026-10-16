@@ -4,9 +4,10 @@ import { db, pool } from "./db.js";
 import { artifacts, instagramPublications, runDeletions, runNodes, runs } from "./schema.js";
 import { workflowExecutionOrder } from "./workflowExecutionOrder.js";
 import { parsePagination, totalPages } from "./pagination.js";
+import { canDeleteAwaitingPublishRun } from "./runDeletionPolicy.js";
 
 const router = Router();
-const bulkDeleteStatuses = ["failed", "succeeded", "cancelled"] as const;
+const bulkDeleteStatuses = ["failed", "succeeded", "cancelled", "awaiting_publish"] as const;
 
 router.post("/:id/cancel", async (req, res, next) => {
   if (req.get("origin") !== (process.env.WEB_ORIGIN ?? "http://localhost:5173")) { res.status(403).json({ error: "invalid_origin" }); return; }
@@ -57,7 +58,23 @@ router.delete("/:id", async (req, res, next) => {
       // between a separate cancel request and the cleanup request.
       await client.query("UPDATE runs SET status='cancelled',cancel_requested_at=COALESCE(cancel_requested_at,now()),finished_at=now(),error_summary='Run stopped by user.' WHERE id=$1 AND status='queued'", [req.params.id]);
       await client.query("UPDATE run_nodes SET status='cancelled',error_code='run_cancelled',error_summary='Step cancelled because the run was stopped.',finished_at=COALESCE(finished_at,now()) WHERE run_id=$1 AND status='queued'", [req.params.id]);
-    } else if (["running", "cancel_requested", "awaiting_publish"].includes(status)) {
+    } else if (status === "awaiting_publish") {
+      const publications = await client.query<{ status: string }>(
+        "SELECT status FROM instagram_publications WHERE run_id=$1 AND user_id=$2 FOR UPDATE",
+        [req.params.id, ownerId],
+      );
+      if (!canDeleteAwaitingPublishRun(publications.rows.map((publication) => publication.status))) {
+        await client.query("ROLLBACK");
+        res.status(409).json({ error: "publication_in_progress" });
+        return;
+      }
+      // Locking and changing queued publications prevents the publisher from claiming
+      // them after this request commits but before asynchronous run cleanup begins.
+      await client.query(
+        "UPDATE instagram_publications SET status='discarded',updated_at=now() WHERE run_id=$1 AND user_id=$2 AND status IN ('queued','awaiting_review')",
+        [req.params.id, ownerId],
+      );
+    } else if (["running", "cancel_requested"].includes(status)) {
       await client.query("ROLLBACK");
       res.status(409).json({ error: "run_active" });
       return;
@@ -86,42 +103,63 @@ router.post("/bulk-delete", async (req, res, next) => {
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
-    const result = await client.query<{ matched_count: number; queued_count: number; skipped_profile_count: number; already_deleting_count: number }>(`
-      WITH matching AS MATERIALIZED (
-        SELECT run.id FROM runs AS run
+    const matching = await client.query<{ id: string; status: string }>(`
+        SELECT run.id, run.status::text AS status FROM runs AS run
         WHERE run.user_id=$1 AND run.status::text = ANY($2::text[])
         ORDER BY run.created_at, run.id
         FOR UPDATE
-      ),
-      profile_photo_runs AS MATERIALIZED (
-        SELECT matching.id FROM matching
-        WHERE EXISTS (
-          SELECT 1 FROM artifacts AS artifact
-          JOIN instagram_accounts AS account ON account.profile_image_artifact_id=artifact.id
-          WHERE artifact.run_id=matching.id AND account.user_id=$1
-        )
-      ),
-      eligible AS MATERIALIZED (
-        SELECT matching.id FROM matching
-        WHERE NOT EXISTS (SELECT 1 FROM profile_photo_runs WHERE profile_photo_runs.id=matching.id)
-      ),
-      inserted AS (
+    `, [ownerId, selectedStatuses]);
+    const matchedIds = matching.rows.map((run) => run.id);
+    const awaitingIds = matching.rows.filter((run) => run.status === "awaiting_publish").map((run) => run.id);
+    const protectedIds = matchedIds.length ? await client.query<{ id: string }>(`
+      SELECT DISTINCT artifact.run_id AS id FROM artifacts AS artifact
+      JOIN instagram_accounts AS account ON account.profile_image_artifact_id=artifact.id
+      WHERE artifact.run_id=ANY($1::uuid[]) AND account.user_id=$2
+    `, [matchedIds, ownerId]) : { rows: [] };
+    const protectedSet = new Set(protectedIds.rows.map((row) => row.id));
+    const publicationStatuses = awaitingIds.length ? await client.query<{ run_id: string; status: string }>(
+      "SELECT run_id, status FROM instagram_publications WHERE run_id=ANY($1::uuid[]) AND user_id=$2 FOR UPDATE",
+      [awaitingIds, ownerId],
+    ) : { rows: [] };
+    const statusesByRun = new Map<string, string[]>();
+    for (const publication of publicationStatuses.rows) {
+      const statuses = statusesByRun.get(publication.run_id) ?? [];
+      statuses.push(publication.status);
+      statusesByRun.set(publication.run_id, statuses);
+    }
+    const publicationBusyIds = awaitingIds.filter((id) =>
+      !protectedSet.has(id) && !canDeleteAwaitingPublishRun(statusesByRun.get(id) ?? []),
+    );
+    const publicationSafeIds = awaitingIds.filter((id) =>
+      !protectedSet.has(id) && canDeleteAwaitingPublishRun(statusesByRun.get(id) ?? []),
+    );
+    if (publicationSafeIds.length) {
+      await client.query(
+        "UPDATE instagram_publications SET status='discarded',updated_at=now() WHERE run_id=ANY($1::uuid[]) AND user_id=$2 AND status IN ('queued','awaiting_review')",
+        [publicationSafeIds, ownerId],
+      );
+    }
+    const eligibleIds = matching.rows
+      .filter((run) => !protectedSet.has(run.id) && (run.status !== "awaiting_publish" || publicationSafeIds.includes(run.id)))
+      .map((run) => run.id);
+    const inserted = eligibleIds.length ? await client.query<{ run_id: string }>(`
         INSERT INTO run_deletions (run_id, user_id, storage_keys, candidate_upload_ids)
-        SELECT eligible.id, $1,
-          COALESCE((SELECT array_agg(artifact.storage_key) FROM artifacts AS artifact WHERE artifact.run_id=eligible.id AND artifact.user_id=$1 AND artifact.saved_to_library=false), ARRAY[]::text[]),
-          COALESCE((SELECT array_agg(DISTINCT node.input_artifact_id) FROM run_nodes AS node WHERE node.run_id=eligible.id AND node.user_id=$1 AND node.input_artifact_id IS NOT NULL), ARRAY[]::uuid[])
-        FROM eligible
+        SELECT run.id, $1,
+          COALESCE((SELECT array_agg(artifact.storage_key) FROM artifacts AS artifact WHERE artifact.run_id=run.id AND artifact.user_id=$1 AND artifact.saved_to_library=false), ARRAY[]::text[]),
+          COALESCE((SELECT array_agg(DISTINCT node.input_artifact_id) FROM run_nodes AS node WHERE node.run_id=run.id AND node.user_id=$1 AND node.input_artifact_id IS NOT NULL), ARRAY[]::uuid[])
+        FROM runs AS run
+        WHERE run.id=ANY($2::uuid[]) AND run.user_id=$1
         ON CONFLICT (run_id) DO NOTHING
         RETURNING run_id
-      )
-      SELECT
-        (SELECT count(*)::int FROM matching) AS matched_count,
-        (SELECT count(*)::int FROM inserted) AS queued_count,
-        (SELECT count(*)::int FROM profile_photo_runs) AS skipped_profile_count,
-        ((SELECT count(*) FROM eligible) - (SELECT count(*) FROM inserted))::int AS already_deleting_count
-    `, [ownerId, selectedStatuses]);
+    `, [ownerId, eligibleIds]) : { rows: [] };
     await client.query("COMMIT");
-    res.status(202).json(result.rows[0]);
+    res.status(202).json({
+      matched_count: matching.rows.length,
+      queued_count: inserted.rows.length,
+      skipped_profile_count: protectedSet.size,
+      skipped_publication_count: publicationBusyIds.length,
+      already_deleting_count: eligibleIds.length - inserted.rows.length,
+    });
   } catch (error) {
     await client.query("ROLLBACK");
     next(error);

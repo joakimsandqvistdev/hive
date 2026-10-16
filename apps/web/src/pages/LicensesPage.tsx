@@ -3,7 +3,6 @@ import { Anchor, Badge, Paper, Stack, Text, Title } from "@mantine/core";
 export function LicensesPage() {
   return (
     <Stack className="workspace-page" gap="lg">
-      <Stack gap={3}><Text className="page-eyebrow">About this app</Text><Title order={1} className="page-title">Open-source licenses</Title></Stack>
       <Text c="dimmed" maw={760}>This page lists third-party software and model weights used by Hive, with links to their sources and license terms. <Anchor href="/THIRD-PARTY-NOTICES.txt" target="_blank" rel="noreferrer">View bundled dependency notices</Anchor>.</Text>
       <Paper className="license-card" withBorder>
         <Stack gap="sm">

@@ -127,7 +127,7 @@ export function JobsPage({ onNavigate }: { onNavigate: (view: AppView) => void }
     const status = job.status === "active" ? "Active" : job.status === "paused" ? "Paused" : job.status === "completed" ? "Completed" : "Needs attention";
     const color = job.status === "active" ? "hiveSuccess" : job.status === "failed" ? "hiveError" : "gray";
     return <Table.Tr key={job.id}>
-      <Table.Td><Text fw={600}>{job.name}</Text><Text size="xs" c="dimmed">{job.workflowName}</Text></Table.Td>
+      <Table.Td><Text fw={600} size="sm">{job.name}</Text><Text size="xs" c="dimmed">{job.workflowName}</Text></Table.Td>
       <Table.Td><Badge color={color} variant="light">{status}</Badge>{activity && <Text size="xs" c="dimmed" mt={4}>{activity}</Text>}{job.lastError && <Text size="xs" c="hiveError.7" mt={4} maw={360}>{job.lastError}</Text>}</Table.Td>
       <Table.Td><Text size="sm">{job.repeatCount === 1 ? "Once" : intervalLabel(job.intervalSeconds ?? 3600)}</Text><Text size="xs" c="dimmed">{job.repeatCount === null ? job.completedRuns + " completed · no limit" : job.completedRuns + " of " + job.repeatCount + " runs"}</Text></Table.Td>
       <Table.Td><Text size="sm">{activity ?? formatDate(job.nextRunAt)}</Text></Table.Td>
@@ -145,12 +145,12 @@ export function JobsPage({ onNavigate }: { onNavigate: (view: AppView) => void }
   const repeatCountValid = form.repeatMode !== "count" || (Number.isInteger(Number(form.repeatCount)) && Number(form.repeatCount) >= 2 && Number(form.repeatCount) <= 10000);
 
   return <Stack className="workspace-page" gap="lg">
-    <Group justify="space-between" align="end"><Stack gap={3}><Text className="page-eyebrow">Workspace</Text><Title order={1} className="page-title">Jobs</Title></Stack><Group><Button variant="default" onClick={() => void refresh(true)} loading={loading}>Refresh</Button><Button disabled={loading || workflows.length === 0} onClick={() => { setError(null); setForm(initialForm()); setFormOpen(true); }}>Create job</Button></Group></Group>
+    <Group justify="flex-end" className="page-header-actions"><Button className="page-header-button" data-header-tone="neutral" variant="default" onClick={() => void refresh(true)} loading={loading}>Refresh</Button><Button className="page-header-button" data-header-tone="primary" variant="default" disabled={loading || workflows.length === 0} onClick={() => { setError(null); setForm(initialForm()); setFormOpen(true); }}>Create job</Button></Group>
     {error && <Alert color="hiveError" title="Jobs unavailable" withCloseButton onClose={() => setError(null)}>{error}</Alert>}
-    <Paper className="workspace-table-panel" withBorder>
+    <Paper className="inventory-list workspace-table-panel" withBorder radius="md">
       {loading ? <Group justify="center" p="xl"><Loader size="sm" /><Text size="sm" c="dimmed">Loading jobs…</Text></Group>
         : jobs.length === 0 ? <Stack className="workspace-empty" align="center" gap="sm"><Badge color="hiveSky" variant="light">Workflow automation</Badge><Title order={2} size="h3">No jobs yet</Title><Text c="dimmed" ta="center" maw={520}>Create a job to run a saved workflow once or repeat it on an interval. Repeats are queued only after the previous run finishes, so each job has at most one queued or active run.</Text>{workflows.length ? <Button variant="light" onClick={() => { setForm(initialForm()); setFormOpen(true); }}>Create your first job</Button> : <Button variant="light" onClick={() => onNavigate("workflows")}>Create a workflow first</Button>}</Stack>
-          : <><Table.ScrollContainer minWidth={900}><Table verticalSpacing="sm" highlightOnHover><Table.Thead><Table.Tr><Table.Th>Job</Table.Th><Table.Th>Status</Table.Th><Table.Th>Repeat</Table.Th><Table.Th>Next run</Table.Th><Table.Th>Actions</Table.Th></Table.Tr></Table.Thead><Table.Tbody>{rows}</Table.Tbody></Table></Table.ScrollContainer><Text size="xs" c="dimmed" p="sm">A repeating job waits its configured interval after the previous run finishes before queueing another run.</Text></>}
+          : <><Table.ScrollContainer minWidth={900}><Table className="inventory-table" highlightOnHover withRowBorders><Table.Thead><Table.Tr><Table.Th>Job</Table.Th><Table.Th>Status</Table.Th><Table.Th>Repeat</Table.Th><Table.Th>Next run</Table.Th><Table.Th>Actions</Table.Th></Table.Tr></Table.Thead><Table.Tbody>{rows}</Table.Tbody></Table></Table.ScrollContainer><Text size="xs" c="dimmed" p="sm">A repeating job waits its configured interval after the previous run finishes before queueing another run.</Text></>}
     </Paper>
     <Modal opened={formOpen} onClose={() => { if (!saving) setFormOpen(false); }} title="Create job" centered>
       <form onSubmit={(event) => void createJob(event)}><Stack gap="md">

@@ -62,7 +62,7 @@ export function AccountsPage() {
 
   if (loading) return <Group justify="center" py="xl"><Loader /><Text>Loading accounts…</Text></Group>;
   return <Stack maw={900} mx="auto" w="100%">
-    <div><Title order={1}>Accounts</Title><Text c="dimmed" mt="xs">Connect a professional Instagram account for workflow publishing and prepare a profile picture from your Hive assets.</Text></div>
+    <Text c="dimmed">Connect a professional Instagram account for workflow publishing and prepare a profile picture from your Hive assets.</Text>
     {error && <Alert color="hiveError">{error}</Alert>}{message && <Alert color="hiveSuccess">{message}</Alert>}
     {!account ? <Card withBorder><Stack><Text fw={600}>Instagram</Text><Text size="sm" c="dimmed">Connect one Business or Creator account to publish posts and Reels from workflows.</Text><Button w="fit-content" onClick={() => void connect()}>Connect Instagram</Button></Stack></Card> : <>
       <Card withBorder><Group justify="space-between"><Group><Avatar radius="xl">@</Avatar><div><Text fw={600}>@{account.username}</Text><Text size="sm" c="dimmed">Connected professional account</Text></div></Group><Button color="hiveError" variant="light" onClick={() => void disconnect()}>Disconnect</Button></Group></Card>
