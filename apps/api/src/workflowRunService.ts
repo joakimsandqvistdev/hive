@@ -10,6 +10,7 @@ import { hasOutdatedCustomNodeReferences, loadCustomNodeCatalog, snapshotCustomN
 
 export type WorkflowDbTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 export type WorkflowRunCreation = { ok: true; run: typeof runs.$inferSelect } | { ok: false; error: string };
+export type WorkflowInputOverride = { inputText?: string; artifactId?: string };
 
 export function definitionFor(nodes: typeof workflowNodes.$inferSelect[], edges: typeof workflowEdges.$inferSelect[]) {
   return { nodes: nodes.map(({ nodeId, kind, label, modelId, dataTypeId, inputText, artifactId, parameters, positionX, positionY }) => ({
@@ -25,6 +26,7 @@ export async function createWorkflowRunInTransaction(
   contracts: Awaited<ReturnType<typeof loadModelIoContracts>>,
   dataTypes: Awaited<ReturnType<typeof loadDataTypes>>,
   job?: { id: string; scheduledFor: Date },
+  options: { inputOverrides?: Record<string, WorkflowInputOverride>; triggerId?: string } = {},
 ): Promise<WorkflowRunCreation> {
   const [workflow] = await tx.select().from(workflows).where(and(eq(workflows.id, workflowId), eq(workflows.userId, ownerId))).limit(1).for("share");
   if (!workflow || workflow.archivedAt) return { ok: false, error: "workflow_not_found" };
@@ -32,7 +34,10 @@ export async function createWorkflowRunInTransaction(
   const nodes = await tx.select().from(workflowNodes).where(eq(workflowNodes.workflowId, workflow.id));
   if (!nodes.length) return { ok: false, error: "workflow_has_no_nodes" };
   const edges = await tx.select().from(workflowEdges).where(eq(workflowEdges.workflowId, workflow.id)).orderBy(asc(workflowEdges.edgeId));
-  const ids = nodes.flatMap((node) => node.artifactId ? [node.artifactId] : []);
+  const ids = [...new Set([
+    ...nodes.flatMap((node) => node.artifactId ? [node.artifactId] : []),
+    ...Object.values(options.inputOverrides ?? {}).flatMap((override) => override.artifactId ? [override.artifactId] : []),
+  ])];
   const uploads = ids.length ? await tx.select().from(artifacts).where(and(eq(artifacts.userId, ownerId), inArray(artifacts.id, ids))) : [];
   const catalog = await loadCustomNodeCatalog(ownerId);
   if (workflow.isCustomNode) {
@@ -41,14 +46,19 @@ export async function createWorkflowRunInTransaction(
     if (customNode.interface.inputs.length > 0) return { ok: false, error: "custom_node_requires_no_inputs" };
     if (customNode.needsAttention) return { ok: false, error: "workflow_needs_attention" };
   }
-  const definition = snapshotCustomNodeReferences(definitionFor(nodes, edges), catalog);
+  const baseDefinition = definitionFor(nodes, edges);
+  const definition = snapshotCustomNodeReferences(baseDefinition, catalog);
   if (hasOutdatedCustomNodeReferences(definition, catalog)) return { ok: false, error: "workflow_needs_attention" };
   const customContracts = catalog.map((item) => item.contract);
-  const validation = validateWorkflowDefinition(definition, contracts, uploads, dataTypes.map((type) => type.id), workflow.id, customContracts);
+  const validation = validateWorkflowDefinition(definition, contracts, uploads, dataTypes.map((type) => type.id), workflow.id, customContracts, false, Boolean(options.inputOverrides));
   if (!validation.ok) return { ok: false, error: validation.error };
   let expanded: ReturnType<typeof expandCustomNodes>;
   try { expanded = expandCustomNodes({ nodes: validation.nodes, edges: validation.edges }, contracts, catalog); }
   catch (error) { return { ok: false, error: error instanceof Error ? error.message : "custom_node_missing" }; }
+  expanded.nodes = expanded.nodes.map((node) => {
+    const override = options.inputOverrides?.[node.id];
+    return node.kind === "input" && override ? { ...node, ...override } : node;
+  });
   const customArtifactIds = new Set(catalog.flatMap((item) => item.definition.nodes.flatMap((node) => node.artifactId ? [String(node.artifactId)] : [])));
   const expandedArtifactIds = [...new Set(expanded.nodes.flatMap((node) => node.artifactId ? [node.artifactId] : []))];
   const expandedUploads = expandedArtifactIds.length
@@ -77,7 +87,7 @@ export async function createWorkflowRunInTransaction(
   }
   const snapshot = buildWorkflowRunSnapshot(workflow, { nodes: executionValidation.nodes, edges: executionValidation.edges }, contracts);
   const [run] = await tx.insert(runs).values({
-    userId: ownerId, workflowId: workflow.id, jobId: job?.id ?? null, scheduledFor: job?.scheduledFor ?? null,
+    userId: ownerId, workflowId: workflow.id, jobId: job?.id ?? null, triggerId: options.triggerId ?? null, scheduledFor: job?.scheduledFor ?? null,
     status: "queued", inputJson: {}, workflowSnapshotJson: snapshot.workflowSnapshot,
   }).returning();
   await tx.insert(runNodes).values(snapshot.runNodes.map((node) => ({ ...node, runId: run!.id, userId: ownerId, status: "queued" as const })));

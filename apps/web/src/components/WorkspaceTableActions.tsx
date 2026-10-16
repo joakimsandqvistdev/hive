@@ -46,3 +46,7 @@ export function DuplicateIcon() {
 export function TrashIcon() {
   return <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3m3 0-.8 12.2a1 1 0 0 1-1 .8H7.8a1 1 0 0 1-1-.8L6 7m4 4v5m4-5v5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" /></svg>;
 }
+
+export function WebhookIcon() {
+  return <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="6" cy="12" r="2.4" stroke="currentColor" strokeWidth="1.7"/><circle cx="18" cy="6" r="2.4" stroke="currentColor" strokeWidth="1.7"/><circle cx="18" cy="18" r="2.4" stroke="currentColor" strokeWidth="1.7"/><path d="m8.2 10.8 7.5-3.7M8.3 13.2l7.4 3.7" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"/></svg>;
+}

@@ -85,7 +85,7 @@ type UploadedInput = { id: string; dataTypeId: string; runId: string | null; sav
 export type DefinitionValidation = { ok: true; nodes: WorkflowNodeRecord[]; edges: WorkflowEdgeRecord[] }
   | { ok: false; error: "invalid_parameters" | "invalid_model_contract" | "invalid_input" | "incompatible_data_types" | "invalid_input_counts" | "custom_node_missing" };
 
-export function validateWorkflowDefinition(definition: WorkflowDefinition, catalog: ModelIoContract[], uploads: UploadedInput[] = [], dataTypeIds = ["text", "image", "audio", "video"], workflowId?: string, customNodeContracts: ModelIoContract[] = [], allowOpenPorts = false) : DefinitionValidation {
+export function validateWorkflowDefinition(definition: WorkflowDefinition, catalog: ModelIoContract[], uploads: UploadedInput[] = [], dataTypeIds = ["text", "image", "audio", "video"], workflowId?: string, customNodeContracts: ModelIoContract[] = [], allowOpenPorts = false, allowUnconfiguredInputs = false, allowWebhookTextInputs = false) : DefinitionValidation {
   const catalogById = new Map(catalog.map((model) => [model.modelId, model]));
   const uploadsById = new Map(uploads.map((input) => [input.id, input]));
   const contracts = new Map<string, ModelIoContract>();
@@ -96,10 +96,14 @@ export function validateWorkflowDefinition(definition: WorkflowDefinition, catal
       const type = node.dataTypeId;
       if (!type || !dataTypeIds.includes(type) || node.modelId) return { ok: false, error: "invalid_input" };
       if (type === "text") {
-        if (!node.inputText.trim() || node.artifactId) return { ok: false, error: "invalid_input" };
+        const webhookIdentifier = node.parameters?.webhookIdentifier;
+        if (webhookIdentifier !== undefined && (typeof webhookIdentifier !== "string" || webhookIdentifier.length > 200)) return { ok: false, error: "invalid_parameters" };
+        const webhookMapped = typeof webhookIdentifier === "string" && webhookIdentifier.trim().length > 0;
+        if ((!allowUnconfiguredInputs && !node.inputText.trim() && !(allowWebhookTextInputs && webhookMapped)) || node.artifactId) return { ok: false, error: "invalid_input" };
+        parameters = webhookIdentifier === undefined ? {} : { webhookIdentifier: webhookIdentifier.trim() };
       } else {
         const upload = uploadsById.get(node.artifactId ?? "");
-        if (!upload || upload.dataTypeId !== type || upload.runId !== null || (!upload.savedToLibrary && upload.sourceWorkflowId !== workflowId) || node.inputText) return { ok: false, error: "invalid_input" };
+        if (node.artifactId && (!upload || upload.dataTypeId !== type || upload.runId !== null || (!upload.savedToLibrary && upload.sourceWorkflowId !== workflowId)) || (!node.artifactId && !allowUnconfiguredInputs) || node.inputText) return { ok: false, error: "invalid_input" };
       }
       contracts.set(node.id, { modelId: "", name: node.label, modality: "image", inputs: [], inputGroups: [],
         outputs: [{ direction: "output", portKey: "output", dataTypeId: type, dataTypeLabel: type, mediaType: type === "text" ? "text/plain" : `${type}/*`, label: type, transport: null, minCount: 1, maxCount: 1, sortOrder: 0 }] });

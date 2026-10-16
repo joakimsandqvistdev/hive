@@ -239,6 +239,13 @@
       "when": 1792165088140,
       "tag": "0033_wonderful_tag",
       "breakpoints": true
+    },
+    {
+      "idx": 34,
+      "version": "7",
+      "when": 1792169161523,
+      "tag": "0034_ancient_iron_monger",
+      "breakpoints": true
     }
   ]
 }

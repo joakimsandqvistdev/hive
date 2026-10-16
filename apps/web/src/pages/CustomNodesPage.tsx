@@ -75,7 +75,8 @@ export function CustomNodesPage({ onNavigate }: { onNavigate: (view: AppView) =>
     setDeleting(true); setError(null);
     try {
       const response = await apiFetch(`/api/custom-nodes/${deleteTarget.id}`, { method: "DELETE" });
-      if (!response.ok) throw new Error("Could not delete this custom node.");
+      const body = await response.json().catch(() => ({})) as { error?: string; message?: string };
+      if (!response.ok) throw new Error(body.message ?? (body.error === "custom_node_in_use" ? "Remove this Custom Node from its dependent definitions before deleting it." : "Could not delete this custom node."));
       setDeleteTarget(null); setImpact(null); await load(page);
     } catch (cause) { showFlash({ tone: "error", title: "Could not delete Custom Node", message: cause instanceof Error ? cause.message : "Could not delete this custom node." }); }
     finally { setDeleting(false); }
@@ -109,10 +110,10 @@ export function CustomNodesPage({ onNavigate }: { onNavigate: (view: AppView) =>
     <Table.Td><Text size="sm" c="dimmed">{formatDate(item.updatedAt)}</Text></Table.Td>
     <Table.Td>{item.needsAttention ? <Tooltip label="Repair or update nested custom nodes before using this node."><Badge color="hiveWarning" variant="light">Needs attention</Badge></Tooltip> : <Badge color="hiveSuccess" variant="light">Ready</Badge>}</Table.Td>
     <Table.Td><WorkspaceTableActions>
-      <WorkspaceTableAction label={`Run ${item.name}`} tooltip={!item.runEligible ? item.needsAttention ? "Resolve Custom Node issues before running" : "Custom Nodes with exposed inputs must be run from a workflow" : undefined} color="hiveSuccess" loading={startingRunId === item.id} disabled={!item.runEligible || startingRunId !== null} onClick={() => void run(item)}><PlayIcon /></WorkspaceTableAction>
-      <WorkspaceTableAction label={`Edit ${item.name}`} onClick={() => { window.location.hash = `custom-nodes/${item.id}`; }}><EditIcon /></WorkspaceTableAction>
-      <WorkspaceTableAction label={`Duplicate ${item.name}`} loading={duplicatingId === item.id} disabled={duplicatingId !== null && duplicatingId !== item.id} onClick={() => void duplicate(item)}><DuplicateIcon /></WorkspaceTableAction>
-      <WorkspaceTableAction label={`Delete ${item.name}`} color="hiveError" onClick={() => void requestDelete(item)}><TrashIcon /></WorkspaceTableAction>
+      <WorkspaceTableAction label="Run" tooltip={!item.runEligible ? item.needsAttention ? "Resolve Custom Node issues before running" : "Custom Nodes with exposed inputs must be run from a workflow" : "Run"} color="hiveSuccess" loading={startingRunId === item.id} disabled={!item.runEligible || startingRunId !== null} onClick={() => void run(item)}><PlayIcon /></WorkspaceTableAction>
+      <WorkspaceTableAction label="Edit" onClick={() => { window.location.hash = `custom-nodes/${item.id}`; }}><EditIcon /></WorkspaceTableAction>
+      <WorkspaceTableAction label="Duplicate" loading={duplicatingId === item.id} disabled={duplicatingId !== null && duplicatingId !== item.id} onClick={() => void duplicate(item)}><DuplicateIcon /></WorkspaceTableAction>
+      <WorkspaceTableAction label="Delete" color="hiveError" onClick={() => void requestDelete(item)}><TrashIcon /></WorkspaceTableAction>
     </WorkspaceTableActions></Table.Td>
   </Table.Tr>);
 
@@ -127,8 +128,10 @@ export function CustomNodesPage({ onNavigate }: { onNavigate: (view: AppView) =>
           : <><Table.ScrollContainer minWidth={980}><Table className="inventory-table" highlightOnHover withRowBorders><Table.Thead><Table.Tr><Table.Th>Name</Table.Th><Table.Th>Description</Table.Th><Table.Th>Nodes</Table.Th><Table.Th>Used by</Table.Th><Table.Th>Updated</Table.Th><Table.Th>Status</Table.Th><Table.Th><span className="sr-only">Actions</span></Table.Th></Table.Tr></Table.Thead><Table.Tbody>{rows}</Table.Tbody></Table></Table.ScrollContainer><PaginatedTableFooter total={result?.total ?? 0} itemName="custom node" page={page} totalPages={result?.totalPages ?? 0} onPageChange={setPage} /></>}
     </Paper>
     <Modal opened={createOpen} onClose={() => { if (!saving) setCreateOpen(false); }} title="Create custom node" centered><Stack><TextInput label="Name" value={name} onChange={(event) => setName(event.currentTarget.value)} maxLength={100} required /><Textarea label="Description" value={description} onChange={(event) => setDescription(event.currentTarget.value)} maxLength={1000} autosize minRows={2} /><Text size="sm" c="dimmed">This creates a blank custom node editor. You can import an existing workflow into it after creation.</Text><Group justify="flex-end"><Button variant="default" onClick={() => setCreateOpen(false)} disabled={saving}>Cancel</Button><Button onClick={() => void create()} loading={saving} disabled={!name.trim()}>Create and edit</Button></Group></Stack></Modal>
-    <ConfirmActionModal opened={deleteTarget !== null} onClose={() => { if (!deleting) { setDeleteTarget(null); setImpact(null); } }} title="Delete custom node?" confirmLabel="Delete custom node" loading={deleting || !impact} onConfirm={() => void remove()}>
-      {deleteTarget && impact && <Text>“{deleteTarget.name}” is used directly by {impact.directWorkflowCount} {impact.directWorkflowCount === 1 ? "workflow" : "workflows"} and {impact.directCustomNodeCount} {impact.directCustomNodeCount === 1 ? "custom node" : "custom nodes"}. Including nested dependencies, {impact.affectedWorkflowCount} {impact.affectedWorkflowCount === 1 ? "workflow" : "workflows"} and {impact.affectedCustomNodeCount} {impact.affectedCustomNodeCount === 1 ? "custom node" : "custom nodes"} will be marked Needs attention. Missing node placeholders will remain so you can replace or remove them.</Text>}
+    <ConfirmActionModal opened={deleteTarget !== null} onClose={() => { if (!deleting) { setDeleteTarget(null); setImpact(null); } }} title="Delete custom node?" confirmLabel={impact && impact.directWorkflowCount + impact.directCustomNodeCount > 0 ? "In use" : "Delete custom node"} loading={deleting || !impact} disabled={Boolean(impact && impact.directWorkflowCount + impact.directCustomNodeCount > 0)} onConfirm={() => void remove()}>
+      {deleteTarget && impact && <>{impact.directWorkflowCount + impact.directCustomNodeCount > 0
+        ? <Alert color="hiveWarning" title="This Custom Node is in use">“{deleteTarget.name}” is used directly by {impact.directWorkflowCount} {impact.directWorkflowCount === 1 ? "workflow" : "workflows"} and {impact.directCustomNodeCount} {impact.directCustomNodeCount === 1 ? "Custom Node" : "Custom Nodes"}. Including nested dependencies, {impact.affectedWorkflowCount} {impact.affectedWorkflowCount === 1 ? "workflow" : "workflows"} and {impact.affectedCustomNodeCount} {impact.affectedCustomNodeCount === 1 ? "Custom Node" : "Custom Nodes"} depend on it. Remove or replace those references before deleting it.</Alert>
+        : <Text>Are you sure you want to delete “{deleteTarget.name}”? It has no workflow or Custom Node dependencies.</Text>}</>}
     </ConfirmActionModal>
   </Stack>;
 }

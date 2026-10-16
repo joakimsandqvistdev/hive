@@ -77,7 +77,7 @@ export function RunDetailsInspector({
 }: RunDetailsInspectorProps) {
   return <Stack gap="sm" className="run-inspector">
     <Group className="run-inspector-summary" justify="space-between" align="center" wrap="wrap">
-      <div><Text fw={600} size="sm">{detail.run.workflowSnapshotJson?.name ?? "Workflow"}</Text><Text size="xs" c="dimmed">Created {date(detail.run.createdAt)} <span aria-hidden="true">·</span> {timingLabel(detail.run.startedAt, detail.run.finishedAt, now, detail.run.status === "awaiting_publish")}</Text></div>
+      <div><Text fw={600} size="sm">{detail.run.workflowSnapshotJson?.name ?? "Workflow"}</Text><Text size="xs" c="dimmed">{detail.triggerName ? `Started by ${detail.triggerName} · ` : ""}Created {date(detail.run.createdAt)} <span aria-hidden="true">·</span> {timingLabel(detail.run.startedAt, detail.run.finishedAt, now, detail.run.status === "awaiting_publish")}</Text></div>
       <Group gap="xs"><Badge variant="light" color={statusColor(detail.run.status)}>{detail.run.status.replaceAll("_", " ")}</Badge>{active(detail.run.status) && <Button size="xs" color="hiveError" variant="light" loading={cancellingId === detail.run.id} disabled={detail.run.status === "cancel_requested"} onClick={() => void stopRun(detail.run.id)}>Stop run</Button>}</Group>
     </Group>
     {detail.run.errorSummary && <Alert color={detail.run.status === "cancelled" ? "gray" : "hiveError"} title={detail.run.status === "cancelled" ? "Run stopped" : "Run failed"}>{detail.run.errorSummary}</Alert>}

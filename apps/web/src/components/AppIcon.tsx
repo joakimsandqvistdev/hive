@@ -1,6 +1,6 @@
 import type { SVGProps } from "react";
 
-export type AppIconName = "home" | "accounts" | "media" | "models" | "workflows" | "customNodes" | "jobs" | "runs" | "licenses" | "publish";
+export type AppIconName = "home" | "accounts" | "media" | "models" | "workflows" | "customNodes" | "jobs" | "runs" | "licenses" | "publish" | "webhook";
 
 const paths: Record<AppIconName, React.ReactNode> = {
   home: <><path d="m3.5 10.5 8.5-7 8.5 7"/><path d="M5.5 9.5v10a1 1 0 0 0 1 1h4v-6h3v6h3a1 1 0 0 0 1-1v-10"/></>,
@@ -13,6 +13,7 @@ const paths: Record<AppIconName, React.ReactNode> = {
   runs: <><path d="M4 6h3M4 12h3M4 18h3M11 6h9M11 12h9M11 18h9"/><circle cx="5.5" cy="6" r=".5"/><circle cx="5.5" cy="12" r=".5"/><circle cx="5.5" cy="18" r=".5"/></>,
   licenses: <><path d="M6.5 3.5h7l4 4v13h-11v-17Z"/><path d="M13.5 3.8v4h4M9 12h6M9 15.5h6"/></>,
   publish: <><path d="M12 15.5V4m0 0L7.5 8.5M12 4l4.5 4.5"/><path d="M5 13.5v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4"/></>,
+  webhook: <><circle cx="6" cy="12" r="2.4"/><circle cx="18" cy="6" r="2.4"/><circle cx="18" cy="18" r="2.4"/><path d="m8.2 10.8 7.5-3.7M8.3 13.2l7.4 3.7"/></>,
 };
 
 export function AppIcon({ name, size = 19, ...props }: { name: AppIconName; size?: number } & Omit<SVGProps<SVGSVGElement>, "name">) {

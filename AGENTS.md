@@ -42,6 +42,7 @@ Treat the existing codebase as the source of truth for implemented behavior. Tre
 ## UI and Design System
 
 - Follow `docs/DESIGN_SYSTEM.md` for all UI styling.
+- When creating visualizations, mockups, or design previews for Hive, use the current Hive visual style and theme as the default: Soft workspace light surfaces, Inter typography, Hive blue primary actions, and the established semantic success/warning/error colors. Match the current application UI unless the user explicitly asks to explore a different visual direction.
 - Reuse existing design tokens and components.
 - Do not introduce new colors or inconsistent styles without approval.
 - Check existing UI patterns before creating new components.

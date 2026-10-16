@@ -3,6 +3,7 @@ import { Alert, Badge, Button, FileInput, Group, Image, Loader, Paper, Select, S
 import { apiFetch, apiUrl } from "../apiClient";
 import { formatFileSize } from "../formatters";
 import { useFlashMessages } from "../components/FlashMessages";
+import { ConfirmActionModal } from "../components/ConfirmActionModal";
 
 type Media = { id: string; displayName: string; dataTypeId: string; mediaType: string; byteSize: number; createdAt: string; runId: string | null; savedToLibrary: boolean };
 type MediaFilter = "all" | "image" | "audio" | "video";
@@ -36,6 +37,7 @@ export function MediaLibraryPage() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<Media | null>(null);
   const [error, setError] = useState<string | null>(null);
   const refresh = useCallback(async () => {
     setError(null);
@@ -78,7 +80,7 @@ export function MediaLibraryPage() {
     }
   }
 
-  async function perform(id: string, action: "save-to-library" | "delete") {
+  async function perform(id: string, action: "save-to-library" | "delete"): Promise<boolean> {
     setBusyId(id); setError(null);
     const itemName = items.find((item) => item.id === id)?.displayName ?? "Media";
     try {
@@ -86,8 +88,10 @@ export function MediaLibraryPage() {
       if (!response.ok) throw new Error(response.status === 409 ? "This media is referenced by a workflow, run input, profile image, or Instagram publication. Remove those references first." : "Could not update this media.");
       await refresh();
       showFlash({ tone: "success", title: action === "delete" ? "Media deleted" : "Saved to library", message: action === "delete" ? `“${itemName}” and its stored file were deleted.` : `“${itemName}” will be kept when its run is deleted.` });
+      return true;
     } catch (cause) {
       showFlash({ tone: "error", title: action === "delete" ? "Could not delete media" : "Could not save media", message: cause instanceof Error ? cause.message : "Could not update media." });
+      return false;
     } finally {
       setBusyId(null);
     }
@@ -162,10 +166,13 @@ export function MediaLibraryPage() {
                 <Text size="xs" c="dimmed" mt="xs">Added {formatDate(selectedItem.createdAt)}</Text>
                 <Group justify="flex-end" gap="xs" mt="sm" className="media-detail-actions">
                   {!selectedItem.savedToLibrary && <Button size="xs" variant="light" loading={busyId === selectedItem.id} onClick={() => void perform(selectedItem.id, "save-to-library")}>Save to library</Button>}
-                  <Button size="xs" variant="light" color="hiveError" loading={busyId === selectedItem.id} onClick={() => { if (window.confirm(`Permanently delete ${selectedItem.displayName}?`)) void perform(selectedItem.id, "delete"); }}>Delete</Button>
+                  <Button size="xs" variant="light" color="hiveError" loading={busyId === selectedItem.id} onClick={() => setDeleteTarget(selectedItem)}>Delete</Button>
                 </Group>
               </Paper>}
             </div>}
     </Paper>
+    <ConfirmActionModal opened={deleteTarget !== null} onClose={() => { if (busyId !== deleteTarget?.id) setDeleteTarget(null); }} title="Delete media permanently?" confirmLabel="Delete media" loading={busyId === deleteTarget?.id} onConfirm={() => { if (!deleteTarget) return; void perform(deleteTarget.id, "delete").then((deleted) => { if (deleted) setDeleteTarget(null); }); }}>
+      <Text size="sm">Delete “{deleteTarget?.displayName}” and its stored file? This action cannot be undone. Media referenced by workflows or publications cannot be deleted until those references are removed.</Text>
+    </ConfirmActionModal>
   </Stack>;
 }

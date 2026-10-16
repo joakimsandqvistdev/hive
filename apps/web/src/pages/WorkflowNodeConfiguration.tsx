@@ -8,6 +8,7 @@ import { TextModelParametersFields, type TextModelParameters } from "../componen
 import { formatModelPortCardinality, type ModelIoPort } from "../modelIoTypes";
 import type { DataType, WorkflowNode, WorkflowNodeData } from "./workflowTypes";
 import { stillImageVideoDefaults, textOverlayDefaults } from "./processingNodeTypes";
+import { defaultWebhookIdentifier } from "./webhookInputMappings";
 
 export function WorkflowNodeConfiguration({ selected, types, instagramAccounts, downloadedModelIds, mediaItems, customNodeOptions, uploading, onUpdate, onUpload, onImportUrl, onReplaceCustomNode }: {
   selected?: WorkflowNode;
@@ -44,7 +45,10 @@ export function WorkflowNodeConfiguration({ selected, types, instagramAccounts, 
       </>;
     })() : selected.data.kind === "input" ? <>
       <Text size="sm">Datatype: {types.find((type) => type.id === selected.data.dataTypeId)?.label}</Text>
-      {selected.data.dataTypeId === "text" ? <Textarea label="Text" value={selected.data.inputText} onChange={(event) => onUpdate({ inputText: event.currentTarget.value })} maxLength={8000} minRows={6} autosize /> : <>
+      {selected.data.dataTypeId === "text" ? <>
+        <Textarea label="Text" value={selected.data.inputText} onChange={(event) => onUpdate({ inputText: event.currentTarget.value })} maxLength={8000} minRows={6} autosize />
+        <TextInput label="Webhook identifier" description="Use this JSON path for webhook text, or clear it to keep this input private from webhooks. Dotted paths such as brief.captionPrompt are supported." value={typeof selected.data.parameters.webhookIdentifier === "string" ? selected.data.parameters.webhookIdentifier : defaultWebhookIdentifier(selected.data.label)} onChange={(event) => onUpdate({ parameters: { ...selected.data.parameters, webhookIdentifier: event.currentTarget.value } })} maxLength={200} />
+      </> : <>
         <Select label="Choose from Media Library" placeholder="Select saved media" clearable value={selected.data.artifactId ?? null} data={mediaItems.filter((item) => (item.savedToLibrary || item.id === selected.data.artifactId) && item.dataTypeId === selected.data.dataTypeId).map((item) => ({ value: item.id, label: item.displayName }))} onChange={(artifactId) => onUpdate({ artifactId, inputText: "" })} />
         <FileInput key={selected.id} label={selected.data.artifactId ? "Replace with uploaded file" : "Upload file to this workflow"} accept={selected.data.dataTypeId === "image" ? "image/png,image/jpeg,image/webp" : selected.data.dataTypeId === "audio" ? "audio/wav,audio/mpeg,audio/ogg,audio/flac" : "video/mp4"} onChange={onUpload} disabled={uploading} />
         <Text size="xs" c="dimmed">{selected.data.dataTypeId === "image" ? "PNG, JPEG, WebP · up to 10 MB" : selected.data.dataTypeId === "audio" ? "WAV, MP3, Ogg, FLAC · up to 25 MB" : "MP4 only · up to 50 MB"} Uploads stay with this workflow unless you save them to the Media Library.</Text>
