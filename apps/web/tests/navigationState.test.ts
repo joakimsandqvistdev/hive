@@ -7,6 +7,7 @@ import {
   toggleNavigationSidebar,
   transitionNavigationHash,
 } from "../src/navigation/navigationState.ts";
+import { nestedRouteBreadcrumb } from "../src/navigation/breadcrumbState.ts";
 
 test("hashes resolve the workspace view and distinguish workflow editor routes", () => {
   assert.equal(appViewFromHash("#models"), "models");
@@ -14,6 +15,14 @@ test("hashes resolve the workspace view and distinguish workflow editor routes",
   assert.equal(appViewFromHash("#unknown"), "home");
   assert.equal(isWorkflowEditorHash("#workflows/workflow-123"), true);
   assert.equal(isWorkflowEditorHash("#workflows"), false);
+});
+
+test("nested routes get a parent breadcrumb and a safe label until page data loads", () => {
+  assert.deepEqual(nestedRouteBreadcrumb("workflows", "#workflows/workflow-123"), { parentView: "workflows", currentLabel: "Workflow" });
+  assert.deepEqual(nestedRouteBreadcrumb("custom-nodes", "#custom-nodes/node-123"), { parentView: "custom-nodes", currentLabel: "Custom node" });
+  assert.deepEqual(nestedRouteBreadcrumb("runs", "#runs/run-123"), { parentView: "runs", currentLabel: "Run details" });
+  assert.equal(nestedRouteBreadcrumb("workflows", "#workflows"), null);
+  assert.equal(nestedRouteBreadcrumb("runs", "#workflows/workflow-123"), null);
 });
 
 test("entering an editor collapses the sidebar and leaving restores the previous preference", () => {

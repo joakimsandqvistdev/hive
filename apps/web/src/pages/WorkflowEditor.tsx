@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ActionIcon, Alert, Button, Checkbox, Drawer, Group, Loader, Modal, ScrollArea, Select, Stack, Text, Textarea, TextInput, Tooltip } from "@mantine/core";
 import { GraphEditor, createId, removeConnection, removeNode, type GraphDocument } from "ionodes";
 import { apiFetch } from "../apiClient";
@@ -10,6 +10,7 @@ import { defaultTextModelParameters } from "../components/TextModelParametersFie
 import { WorkflowNodeConfiguration } from "./WorkflowNodeConfiguration";
 import { defaultWebhookIdentifier } from "./webhookInputMappings";
 import { ConfirmActionModal } from "../components/ConfirmActionModal";
+import { useAppBreadcrumb } from "../components/AppBreadcrumbs";
 import { startCustomNodeRun, startWorkflowRun } from "./startWorkflowRun";
 import { useFlashMessages } from "../components/FlashMessages";
 import type { AppView } from "../navigation/navigationState";
@@ -67,6 +68,8 @@ export function WorkflowEditor({ workflowId, onClose, onNavigate, customNodeEdit
   }, []);
   const selectedGraphNode = graph.nodes.find((node) => node.id === selectedNodeId);
   const selected: WorkflowNode | undefined = selectedGraphNode ? toWorkflowNode(selectedGraphNode, contracts) : undefined;
+  const navigateToBreadcrumbParent = useCallback(() => { if (dirty) setDiscardOpen(true); else onClose(); }, [dirty, onClose]);
+  useAppBreadcrumb(workflow ? { parentView: customNodeEditor ? "custom-nodes" : "workflows", currentLabel: workflow.name, onParentNavigate: navigateToBreadcrumbParent } : null);
   const hasRemoveSelection = selectedNodeIds.length > 0 || Boolean(selectedConnectionId);
   const availableBoundaryPorts = useMemo(() => graph.nodes.flatMap((graphNode) => {
     const node = toWorkflowNode(graphNode, contracts);
