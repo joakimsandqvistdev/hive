@@ -7,7 +7,7 @@ const capabilities = [
   { icon: "workflows", title: "Visual workflows", description: "Connect inputs, AI models, and styled media processing in one flow." },
   { icon: "customNodes", title: "Reusable Custom Nodes", description: "Reuse shared workflow logic; deletion is blocked while referenced." },
   { icon: "models", title: "Model library", description: "Download supported models and use them in your workflows." },
-  { icon: "media", title: "Media Library", description: "Search reusable assets, review tracked storage, and preview safe manual cleanup." },
+  { icon: "media", title: "Media Library", description: "Rename and search reusable assets in Image, Audio, and Video inputs; review storage and manual cleanup." },
   { icon: "publish", title: "Instagram publishing", description: "Publish posts and Reels automatically or after review." },
   { icon: "jobs", title: "Jobs and Runs", description: "Schedule repeat runs, pause your queued runs after current work finishes, track progress, and manage run history." },
   { icon: "webhook", title: "Secure webhook triggers", description: "Create signed triggers, search by workflow, and review delivery history." },

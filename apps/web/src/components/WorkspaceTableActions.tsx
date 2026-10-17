@@ -1,5 +1,5 @@
 import type { ReactNode } from "react";
-import { ActionIcon, Group, Tooltip } from "@mantine/core";
+import { ActionIcon, Group, Tooltip, type TooltipProps } from "@mantine/core";
 
 export function WorkspaceTableActions({ children, className }: { children: ReactNode; className?: string }) {
   return <Group className={className} gap={4} wrap="nowrap" justify="flex-end" w="100%">{children}</Group>;
@@ -8,6 +8,7 @@ export function WorkspaceTableActions({ children, className }: { children: React
 export function WorkspaceTableAction({
   label,
   tooltip,
+  tooltipProps,
   color = "hiveSky",
   disabled = false,
   loading = false,
@@ -15,19 +16,33 @@ export function WorkspaceTableAction({
   children,
 }: {
   label: string;
-  tooltip?: string;
+  tooltip?: ReactNode;
+  tooltipProps?: Partial<Omit<TooltipProps, "label" | "children">>;
   color?: string;
   disabled?: boolean;
   loading?: boolean;
   onClick: () => void;
   children: ReactNode;
 }) {
-  return <Tooltip label={tooltip ?? label}>
+  return <Tooltip label={tooltip ?? label} {...tooltipProps}>
     <span>
       <ActionIcon variant="subtle" color={color} aria-label={label} disabled={disabled} loading={loading} onClick={onClick}>
         {children}
       </ActionIcon>
     </span>
+  </Tooltip>;
+}
+
+export function WorkspaceTableInfo({ label, tooltip, tooltipProps, children }: {
+  label: string;
+  tooltip: ReactNode;
+  tooltipProps?: Partial<Omit<TooltipProps, "label" | "children">>;
+  children: ReactNode;
+}) {
+  return <Tooltip label={tooltip} {...tooltipProps}>
+    <ActionIcon component="span" variant="subtle" color="hiveSky" role="img" tabIndex={0} aria-label={label}>
+      {children}
+    </ActionIcon>
   </Tooltip>;
 }
 

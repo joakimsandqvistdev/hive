@@ -5,6 +5,7 @@ import { formatFileSize } from "../formatters";
 import { useFlashMessages } from "../components/FlashMessages";
 import { ConfirmActionModal } from "../components/ConfirmActionModal";
 import { PaginatedTableFooter } from "../components/PaginatedTableFooter";
+import { EditIcon, TrashIcon, WorkspaceTableAction, WorkspaceTableActions, WorkspaceTableInfo } from "../components/WorkspaceTableActions";
 import { useVisiblePolling } from "../hooks/useVisiblePolling";
 
 type AvailabilityState = "protected" | "retained" | "eligible";
@@ -20,6 +21,49 @@ function Preview({ item }: { item: Media }) {
   return item.mediaType.startsWith("image/") ? <Image className="media-detail-preview" src={url} alt={item.displayName} fit="contain" />
     : item.mediaType.startsWith("video/") ? <video className="media-detail-video" src={url} controls playsInline crossOrigin="use-credentials" preload="metadata" />
       : <audio className="media-detail-audio" src={url} controls />;
+}
+
+function AudioFileGlyph() {
+  return <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M3 10v4m4-7v10m4-13v16m4-13v10m4-7v4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" /></svg>;
+}
+
+function VideoFileGlyph() {
+  return <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="1.5" stroke="currentColor" strokeWidth="1.7" /><path d="M3 9h18M8 4 5 9m9-5-3 5m9-5-3 5M8 9v11m8-11v11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>;
+}
+
+function SaveMediaIcon() {
+  return <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3v11m0 0 4-4m-4 4-4-4M4 15v5h16v-5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" /></svg>;
+}
+
+function MediaReferencesIcon() {
+  return <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M9.8 14.2a4.5 4.5 0 0 0 6.36 0l3-3a4.5 4.5 0 0 0-6.36-6.36l-1.72 1.72M14.2 9.8a4.5 4.5 0 0 0-6.36 0l-3 3a4.5 4.5 0 0 0 6.36 6.36l1.72-1.72" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" /></svg>;
+}
+
+function getReferenceGroups(item: Media) {
+  return [
+    { label: "Workflows", names: item.workflowNames ?? [] },
+    { label: "Nodes", names: item.nodeNames ?? [] },
+    { label: "Webhooks", names: item.webhookNames ?? [] },
+  ].filter((group) => group.names.length > 0);
+}
+
+function MediaReferenceTooltip({ item }: { item: Media }) {
+  const groups = getReferenceGroups(item);
+  const count = groups.reduce((sum, group) => sum + group.names.length, 0);
+  return <Stack className="media-reference-tooltip" gap={8}>
+    <Text className="media-reference-tooltip-title" size="xs" fw={600}>{count} {count === 1 ? "reference" : "references"}</Text>
+    {groups.length > 0
+      ? groups.map((group) => <Stack className="media-reference-tooltip-group" gap={2} key={group.label}>
+        <Text className="media-reference-tooltip-source" size="xs" fw={600}>{group.label}</Text>
+        {group.names.map((name, index) => <Text className="media-reference-tooltip-name" size="xs" lineClamp={2} key={`${name}-${index}`}>{name}</Text>)}
+      </Stack>)
+      : <Text size="xs">No workflow, node, or webhook references.</Text>}
+  </Stack>;
+}
+
+function MediaRowVisual({ item }: { item: Media }) {
+  if (item.mediaType.startsWith("image/")) return <Image className="media-row-thumbnail" src={apiUrl(`/api/artifacts/${item.id}/thumbnail`)} alt="" fit="cover" w={50} h={50} />;
+  return <span className={`media-row-thumbnail media-row-thumbnail-${item.dataTypeId}`} aria-hidden="true">{item.dataTypeId === "audio" ? <AudioFileGlyph /> : <VideoFileGlyph />}</span>;
 }
 
 function formatDate(value: string) {
@@ -86,6 +130,9 @@ export function MediaLibraryPage() {
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Media | null>(null);
+  const [renameTarget, setRenameTarget] = useState<Media | null>(null);
+  const [renameValue, setRenameValue] = useState("");
+  const [renaming, setRenaming] = useState(false);
   const lastRefreshError = useRef<string | null>(null);
   const refresh = useCallback(async () => {
     try {
@@ -118,12 +165,6 @@ export function MediaLibraryPage() {
   const pageItems = items;
   useEffect(() => { if (page > totalPages) setPage(totalPages); }, [page, totalPages]);
   const selectedItem = pageItems.find((item) => item.id === selectedId) ?? pageItems[0] ?? null;
-  const mediaReferenceGroups = selectedItem ? [
-    { label: "Workflow", names: selectedItem.workflowNames ?? [] },
-    { label: "Node", names: selectedItem.nodeNames ?? [] },
-    { label: "Webhook", names: selectedItem.webhookNames ?? [] },
-  ].filter((group) => group.names.length > 0) : [];
-
   async function loadCleanupPreview(): Promise<CleanupPreview> {
     const params = new URLSearchParams({ scopes: scopes.join(",") });
     const response = await apiFetch(`/api/artifacts/cleanup/preview?${params}`);
@@ -212,6 +253,25 @@ export function MediaLibraryPage() {
     }
   }
 
+  async function renameSavedMedia() {
+    if (!renameTarget) return;
+    const displayName = renameValue.trim();
+    if (!displayName || displayName.length > 120 || displayName === renameTarget.displayName) return;
+    setRenaming(true);
+    try {
+      const response = await apiFetch(`/api/artifacts/${renameTarget.id}/rename`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify({ displayName }) });
+      const body = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(body.error === "media_not_saved" ? "Only files saved to the library can be renamed." : "Could not rename this media.");
+      setRenameTarget(null);
+      await refresh();
+      showFlash({ tone: "success", title: "Media renamed", message: `The file is now named “${displayName}”.` });
+    } catch (cause) {
+      showFlash({ tone: "error", title: "Could not rename media", message: cause instanceof Error ? cause.message : "Could not rename this media." });
+    } finally {
+      setRenaming(false);
+    }
+  }
+
   const filterOptions: { value: MediaFilter; label: string }[] = [
     { value: "all", label: "All media" },
     { value: "image", label: "Images" },
@@ -262,7 +322,7 @@ export function MediaLibraryPage() {
             : <div className="media-library-layout">
               <div className="media-table-wrap">
                 <Table className="inventory-table media-inventory-table" highlightOnHover withRowBorders>
-                  <Table.Thead><Table.Tr><Table.Th>File</Table.Th><Table.Th>Type</Table.Th><Table.Th>Size</Table.Th><Table.Th>Added</Table.Th></Table.Tr></Table.Thead>
+                  <Table.Thead><Table.Tr><Table.Th>File</Table.Th><Table.Th>Size</Table.Th><Table.Th>Added</Table.Th><Table.Th className="media-actions-heading">Actions</Table.Th></Table.Tr></Table.Thead>
                   <Table.Tbody>
                     {pageItems.map((item) => <Table.Tr
                       key={item.id}
@@ -272,33 +332,29 @@ export function MediaLibraryPage() {
                       onClick={() => setSelectedId(item.id)}
                       onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setSelectedId(item.id); } }}
                     >
-                      <Table.Td><Text className="inventory-row-title" fw={600} size="sm" lineClamp={1}>{item.displayName}</Text><Text size="xs" c="dimmed">{item.savedToLibrary ? "Saved to library" : item.runId ? "Run output" : "Workflow input"} · {availabilityLabel(item.availabilityState)}</Text></Table.Td>
-                      <Table.Td><Badge variant="light" color="gray" size="sm">{mediaKind(item)}</Badge></Table.Td>
+                      <Table.Td><div className="media-row-file"><MediaRowVisual item={item} /><div className="media-row-file-copy"><Text className="inventory-row-title" fw={600} size="sm" lineClamp={1}>{item.displayName}</Text><Group className="media-row-status" gap={6} mt={3} wrap="wrap"><Badge color={item.savedToLibrary ? "hiveSuccess" : "gray"} variant="light" size="xs">{item.savedToLibrary ? "Saved" : "Not saved"}</Badge><Text size="xs" c="dimmed">{item.runId ? "Run output" : "Workflow input"} · {availabilityLabel(item.availabilityState)}</Text></Group></div></div></Table.Td>
                       <Table.Td className="inventory-nowrap">{formatFileSize(item.byteSize)}</Table.Td>
                       <Table.Td className="media-date-cell">{formatDate(item.createdAt)}</Table.Td>
+                      <Table.Td className="media-actions-cell" onClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()}>
+                        <WorkspaceTableActions className="media-row-actions">
+                          {getReferenceGroups(item).length > 0 && <WorkspaceTableInfo
+                            label="View media references"
+                            tooltip={<MediaReferenceTooltip item={item} />}
+                            tooltipProps={{ multiline: true, w: 260, position: "top", withArrow: true, openDelay: 250, withinPortal: true }}
+                          ><MediaReferencesIcon /></WorkspaceTableInfo>}
+                          {item.savedToLibrary
+                            ? <WorkspaceTableAction label="Rename media" tooltip="Rename" onClick={() => { setRenameTarget(item); setRenameValue(item.displayName); }}><EditIcon /></WorkspaceTableAction>
+                            : <WorkspaceTableAction label="Save to library" tooltip="Save to library" loading={busyId === item.id} onClick={() => void perform(item.id, "save-to-library")}><SaveMediaIcon /></WorkspaceTableAction>}
+                          <WorkspaceTableAction label="Delete media" tooltip="Delete" color="hiveError" loading={busyId === item.id} onClick={() => setDeleteTarget(item)}><TrashIcon /></WorkspaceTableAction>
+                        </WorkspaceTableActions>
+                      </Table.Td>
                     </Table.Tr>)}
                   </Table.Tbody>
                 </Table>
                 <PaginatedTableFooter total={total} itemName="item" page={page} pageSize={PAGE_SIZE} totalPages={totalPages} onPageChange={(nextPage) => { setPage(nextPage); setSelectedId(null); }} />
               </div>
               {selectedItem && <Paper className="media-detail-panel" radius="md" p="sm">
-                <Group className="media-detail-heading" justify="space-between" wrap="nowrap" mb="xs">
-                  <Stack gap={2} style={{ minWidth: 0 }}><Text fw={600} size="sm" lineClamp={1}>{selectedItem.displayName}</Text><Text size="xs" c="dimmed">{mediaKind(selectedItem)} · {formatFileSize(selectedItem.byteSize)}</Text></Stack>
-                  <Badge color={selectedItem.savedToLibrary ? "hiveSuccess" : "hiveSky"} variant="light">{selectedItem.savedToLibrary ? "Saved" : selectedItem.runId ? "Run output" : "Workflow input"}</Badge>
-                </Group>
                 <div className={`media-preview-frame${selectedItem.mediaType.startsWith("audio/") ? " media-preview-frame-audio" : ""}`}><Preview item={selectedItem} /></div>
-                <div className="media-detail-metadata">
-                  <div><Text className="media-detail-meta-label">Added</Text><Text size="xs">{formatDate(selectedItem.createdAt)}</Text></div>
-                  <div><Text className="media-detail-meta-label">Storage status</Text><Group gap={6} wrap="nowrap"><Badge size="xs" variant="light" color={availabilityColor(selectedItem.availabilityState)}>{availabilityLabel(selectedItem.availabilityState)}</Badge><Text size="xs" c="dimmed">{selectedItem.availabilityReason ?? "Status unavailable"}</Text></Group><Text size="xs" c="dimmed" mt={2}>Checked {checkedTime(selectedItem.evaluatedAt)}</Text></div>
-                </div>
-                {mediaReferenceGroups.length > 0 && <Stack className="media-detail-references" gap={"xs"}>
-                  <Text className="media-detail-section-title">Used by</Text>
-                  {mediaReferenceGroups.flatMap((group) => group.names.map((name, index) => <div className="media-detail-reference" key={`${group.label}-${name}-${index}`}><Text className="media-detail-reference-type">{group.label}</Text><Text size="xs" lineClamp={2}>{name}</Text></div>))}
-                </Stack>}
-                <Group justify="space-between" gap="xs" mt="sm" className="media-detail-actions">
-                  <Button size="xs" variant="light" color="hiveError" loading={busyId === selectedItem.id} onClick={() => setDeleteTarget(selectedItem)}>Delete</Button>
-                  {!selectedItem.savedToLibrary && <Button size="xs" variant="light" loading={busyId === selectedItem.id} onClick={() => void perform(selectedItem.id, "save-to-library")}>Save to library</Button>}
-                </Group>
               </Paper>}
             </div>}
       </Tabs.Panel>
@@ -360,6 +416,10 @@ export function MediaLibraryPage() {
     </Paper>
     <ConfirmActionModal opened={deleteTarget !== null} onClose={() => { if (busyId !== deleteTarget?.id) setDeleteTarget(null); }} title="Delete media permanently?" confirmLabel="Delete media" loading={busyId === deleteTarget?.id} onConfirm={() => { if (!deleteTarget) return; void perform(deleteTarget.id, "delete").then((deleted) => { if (deleted) setDeleteTarget(null); }); }}>
       <Text size="sm">Delete “{deleteTarget?.displayName}” and its stored file? This action cannot be undone. Media referenced by workflows or publications cannot be deleted until those references are removed.</Text>
+    </ConfirmActionModal>
+    <ConfirmActionModal opened={renameTarget !== null} onClose={() => { if (!renaming) setRenameTarget(null); }} title="Rename saved media" confirmLabel="Save name" color="hiveSky" loading={renaming} disabled={!renameValue.trim() || renameValue.trim() === renameTarget?.displayName || renameValue.trim().length > 120} onConfirm={() => void renameSavedMedia()}>
+      <TextInput autoFocus label="File name" value={renameValue} maxLength={120} onChange={(event) => setRenameValue(event.currentTarget.value)} />
+      <Text size="xs" c="dimmed">This changes the name shown in the library and media input selectors. The stored file and its workflow references stay the same.</Text>
     </ConfirmActionModal>
     <ConfirmActionModal opened={confirmCleanup} onClose={() => setConfirmCleanup(false)} title="Delete eligible media permanently?" confirmLabel="Delete media" onConfirm={() => void queueCleanup().catch((cause) => showFlash({ tone: "error", title: "Could not start cleanup", message: cause instanceof Error ? cause.message : "Could not start cleanup." }))}>
       <Text size="sm">Delete {preview?.eligibleCount ?? 0} files and free an estimated {formatFileSize(preview?.estimatedBytes ?? 0)}. This is permanent. Eligibility and references will be checked again before each file is deleted.</Text>
