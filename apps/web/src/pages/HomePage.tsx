@@ -4,7 +4,7 @@ import type { AppView } from "../navigation/navigationState";
 import { AppIcon } from "../components/AppIcon";
 
 const capabilities = [
-  { icon: "workflows", title: "Visual workflows", description: "Connect inputs, AI models, and styled media processing in one flow." },
+  { icon: "workflows", title: "Visual workflows", description: "Connect inputs and AI models, preview Google Font text overlays, and save reusable node settings." },
   { icon: "customNodes", title: "Reusable Custom Nodes", description: "Reuse shared workflow logic; deletion is blocked while referenced." },
   { icon: "models", title: "Model library", description: "Download supported models and use them in your workflows." },
   { icon: "media", title: "Media Library", description: "Rename and search reusable assets in Image, Audio, and Video inputs; review storage and manual cleanup." },

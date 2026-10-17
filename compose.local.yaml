@@ -28,6 +28,7 @@ services:
       API_PORT: "3001"
       MODEL_RUNNER_URL: http://runner:8000
       ARTIFACT_ROOT: /app/.data/artifacts
+      GOOGLE_FONTS_CACHE_DIR: /app/.data/google-fonts
       WEB_ORIGIN: ${WEB_ORIGIN:-http://localhost:5173}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
@@ -44,6 +45,7 @@ services:
       - "127.0.0.1:3001:3001"
     volumes:
       - ./.data/artifacts:/app/.data/artifacts
+      - ./.data/google-fonts:/app/.data/google-fonts
     networks:
       - default
       - model_runner_net
@@ -80,6 +82,7 @@ services:
       DATABASE_URL: ${HIVE_LOCAL_DATABASE_URL:?Use npm run local to configure the local database URL}
       MODEL_RUNNER_URL: http://runner:8000
       ARTIFACT_ROOT: /app/.data/artifacts
+      GOOGLE_FONTS_CACHE_DIR: /app/.data/google-fonts
       INSTAGRAM_APP_ID: ${INSTAGRAM_APP_ID:-}
       INSTAGRAM_APP_SECRET: ${INSTAGRAM_APP_SECRET:-}
       INSTAGRAM_TOKEN_ENCRYPTION_KEY: ${INSTAGRAM_TOKEN_ENCRYPTION_KEY:-}
@@ -87,6 +90,7 @@ services:
       INSTAGRAM_GRAPH_API_VERSION: ${INSTAGRAM_GRAPH_API_VERSION:-v22.0}
     volumes:
       - ./.data/artifacts:/app/.data/artifacts
+      - ./.data/google-fonts:/app/.data/google-fonts
     networks:
       - default
       - model_runner_net

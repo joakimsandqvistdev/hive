@@ -16,6 +16,7 @@ export const users = pgTable("users", {
   name: text("name"),
   avatarUrl: text("avatar_url"),
   runnerStatus: text("runner_status").$type<"active" | "pausing" | "paused">().notNull().default("active"),
+  textOverlayDefaults: jsonb("text_overlay_defaults").$type<Record<string, unknown> | null>(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 }, (table): PgTableExtraConfigValue[] => [

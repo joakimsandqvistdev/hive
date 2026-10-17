@@ -1,5 +1,7 @@
 import sharp from "sharp";
+import { Resvg, type ResvgRenderOptions } from "@resvg/resvg-js";
 import type { TextOverlaySettings } from "./processingNodes.js";
+import { getGoogleFontFile, googleFontVariationSettings, resolveGoogleFont } from "./googleFonts.js";
 
 function escapeXml(value: string) {
   return value.replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&apos;" })[character]!);
@@ -47,6 +49,48 @@ export async function renderTextOverlay(source: Buffer, text: string, settings: 
   const y = settings.placement.startsWith("top") ? margin + settings.fontSize : settings.placement.startsWith("bottom") ? height - margin - blockHeight + settings.fontSize : Math.round((height - blockHeight) / 2) + settings.fontSize;
   const anchor = settings.alignment === "left" ? "start" : settings.alignment === "right" ? "end" : "middle";
   const tspans = lines.map((line, index) => `<tspan x="${x}" dy="${index === 0 ? 0 : lineHeight}">${escapeXml(line)}</tspan>`).join("");
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}"><text x="${x}" y="${y}" text-anchor="${anchor}" font-family="${settings.fontFamily}" font-size="${settings.fontSize}" font-weight="${settings.fontWeight}" fill="${settings.color}" stroke="#000000" stroke-opacity="0.45" stroke-width="${Math.max(1, settings.fontSize / 16)}" stroke-linejoin="round" paint-order="stroke">${tspans}</text></svg>`;
-  return image.composite([{ input: Buffer.from(svg), blend: "over" }]).png().toBuffer();
+  const font = resolveGoogleFont(settings.fontFamily);
+  if (!font) throw new Error("Selected Google Font is unavailable.");
+  const fontFile = await getGoogleFontFile(font, settings);
+  const variations = googleFontVariationSettings(font, settings);
+  const outline = settings.outlineWidth > 0 && settings.outlineOpacity > 0
+    ? `stroke="${settings.outlineColor}" stroke-opacity="${settings.outlineOpacity}" stroke-width="${settings.outlineWidth}" stroke-linejoin="round" paint-order="stroke"`
+    : "";
+  const shadow = settings.shadowOpacity > 0
+    ? `<filter id="shadow" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur in="SourceAlpha" stdDeviation="${settings.shadowBlur}" result="blur"/><feOffset in="blur" dx="${settings.shadowOffsetX}" dy="${settings.shadowOffsetY}" result="offset"/><feFlood flood-color="${settings.shadowColor}" flood-opacity="${settings.shadowOpacity}"/><feComposite in2="offset" operator="in"/><feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge></filter>`
+    : "";
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}"><defs>${shadow}</defs><text x="${x}" y="${y}" text-anchor="${anchor}" font-family="${escapeXml(font.family)}" font-size="${settings.fontSize}" font-weight="${settings.fontWeight}" font-style="${settings.fontStyle}" font-variation-settings="${escapeXml(variations)}" letter-spacing="${settings.letterSpacing}" text-decoration="${settings.textDecoration}" fill="${settings.color}" ${outline} ${shadow ? 'filter="url(#shadow)"' : ""}>${tspans}</text></svg>`;
+  const renderOptions = { font: { fontFiles: [fontFile], loadSystemFonts: false }, fitTo: { mode: "original" } } as unknown as ResvgRenderOptions;
+  const overlay = new Resvg(svg, renderOptions).render().asPng();
+  return image.composite([{ input: overlay, blend: "over" }]).png().toBuffer();
+}
+
+export async function prepareTextOverlayPreviewSource(source: Buffer): Promise<{ source: Buffer; scale: number }> {
+  const metadata = await sharp(source, { limitInputPixels: 40_000_000 }).metadata();
+  const swapsDimensions = metadata.orientation !== undefined && [5, 6, 7, 8].includes(metadata.orientation);
+  const width = swapsDimensions ? metadata.height : metadata.width;
+  const height = swapsDimensions ? metadata.width : metadata.height;
+  if (!width || !height) throw new Error("Text Overlay preview requires a readable image.");
+
+  const maxSide = 1200;
+  const scale = Math.min(1, maxSide / Math.max(width, height));
+  const previewSource = await sharp(source, { limitInputPixels: 40_000_000 })
+    .rotate()
+    .resize({ width: maxSide, height: maxSide, fit: "inside", withoutEnlargement: true })
+    .png()
+    .toBuffer();
+  return { source: previewSource, scale };
+}
+
+export async function renderPreparedTextOverlayPreview(prepared: { source: Buffer; scale: number }, text: string, settings: TextOverlaySettings): Promise<Buffer> {
+  const previewSettings: TextOverlaySettings = {
+    ...settings,
+    fontSize: Math.max(1, settings.fontSize * prepared.scale),
+    letterSpacing: settings.letterSpacing * prepared.scale,
+    outlineWidth: settings.outlineWidth * prepared.scale,
+    shadowBlur: settings.shadowBlur * prepared.scale,
+    shadowOffsetX: settings.shadowOffsetX * prepared.scale,
+    shadowOffsetY: settings.shadowOffsetY * prepared.scale,
+  };
+  return renderTextOverlay(prepared.source, text, previewSettings);
 }

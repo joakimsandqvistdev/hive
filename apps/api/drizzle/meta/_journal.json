@@ -260,6 +260,13 @@
       "when": 1792241198786,
       "tag": "0036_stiff_vin_gonzales",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1792245000000,
+      "tag": "0037_text_overlay_user_defaults",
+      "breakpoints": true
     }
   ]
 }
