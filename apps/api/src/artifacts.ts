@@ -7,10 +7,24 @@ import { Router, raw } from "express";
 import { Agent, fetch as undiciFetch } from "undici";
 import { artifactPath, readArtifact, removeArtifact, saveUpload } from "./artifactStore.js";
 import { parseArtifactByteRange } from "./artifactRange.js";
-import { db } from "./db.js";
+import { db, pool } from "./db.js";
 import { artifacts, instagramAccounts, instagramPublications, runDeletions, runNodes, workflowNodes, workflows, runs } from "./schema.js";
 
 const router = Router();
+const cleanupScopes = new Set(["old-run-outputs", "orphaned-workflow-uploads"]);
+function parseScopes(value: unknown): string[] | null {
+  if (!Array.isArray(value) || value.length === 0 || value.some((scope) => typeof scope !== "string" || !cleanupScopes.has(scope))) return null;
+  return [...new Set(value as string[])];
+}
+const protectionSql = `ARRAY_REMOVE(ARRAY[
+  CASE WHEN EXISTS (SELECT 1 FROM workflow_nodes n WHERE n.artifact_id=a.id AND n.user_id=a.user_id) THEN 'Workflow input' END,
+  CASE WHEN EXISTS (SELECT 1 FROM workflow_triggers t JOIN workflows w ON w.id=t.workflow_id AND w.user_id=t.user_id, LATERAL jsonb_array_elements(t.input_mappings) mapping WHERE t.user_id=a.user_id AND mapping->>'artifactId'=a.id::text) THEN 'Webhook input' END,
+  CASE WHEN EXISTS (SELECT 1 FROM run_nodes n WHERE n.input_artifact_id=a.id AND n.user_id=a.user_id) THEN 'Run input' END,
+  CASE WHEN EXISTS (SELECT 1 FROM instagram_accounts i WHERE i.profile_image_artifact_id=a.id AND i.user_id=a.user_id) THEN 'Account profile image' END,
+  CASE WHEN EXISTS (SELECT 1 FROM instagram_publications p WHERE p.artifact_id=a.id AND p.user_id=a.user_id) THEN 'Instagram publication' END,
+  CASE WHEN EXISTS (SELECT 1 FROM runs r WHERE r.id=a.run_id AND r.user_id=a.user_id AND r.status IN ('queued','running','awaiting_publish','cancel_requested')) THEN 'Run is active' END,
+  CASE WHEN EXISTS (SELECT 1 FROM artifact_cleanup_items ci JOIN artifact_cleanup_jobs cj ON cj.id=ci.job_id WHERE ci.artifact_id=a.id AND cj.user_id=a.user_id AND cj.status IN ('queued','running') AND ci.status='queued') THEN 'Cleanup pending' END
+], NULL)::text[]`;
 function isPublicAddress(address: string) {
   if (isIP(address) === 4) {
     const octets = address.split(".").map(Number);
@@ -20,11 +34,113 @@ function isPublicAddress(address: string) {
   const normalized = address.toLowerCase();
   return isIP(normalized) === 6 && normalized !== "::1" && !normalized.startsWith("fe8") && !normalized.startsWith("fe9") && !normalized.startsWith("fea") && !normalized.startsWith("feb") && !normalized.startsWith("fc") && !normalized.startsWith("fd") && !normalized.startsWith("::ffff:127.");
 }
-router.get("/", async (_req, res, next) => {
+router.get("/", async (req, res, next) => {
   try {
-    const items = await db.select({ id: artifacts.id, displayName: artifacts.displayName, dataTypeId: artifacts.dataTypeId, mediaType: artifacts.mediaType, byteSize: artifacts.byteSize, createdAt: artifacts.createdAt, runId: artifacts.runId, savedToLibrary: artifacts.savedToLibrary }).from(artifacts)
-      .where(eq(artifacts.userId, res.locals.userId as string)).orderBy(sql`${artifacts.createdAt} desc`).limit(500);
-    res.json({ items });
+    const owner = res.locals.userId as string;
+    const page = Math.max(1, Math.min(100000, Number.parseInt(String(req.query.page ?? "1"), 10) || 1));
+    const pageSize = Math.max(1, Math.min(100, Number.parseInt(String(req.query.pageSize ?? "10"), 10) || 10));
+    const search = String(req.query.search ?? "").trim().slice(0, 200) || null;
+    const mediaType = ["image", "audio", "video"].includes(String(req.query.type)) ? String(req.query.type) : null;
+    const saveState = ["saved", "not-saved"].includes(String(req.query.saveState)) ? String(req.query.saveState) : null;
+    const base = `WITH artifact_context AS (
+      SELECT a.*, COALESCE(w.names,ARRAY[]::text[]) workflow_names, COALESCE(n.names,ARRAY[]::text[]) node_names, COALESCE(h.names,ARRAY[]::text[]) webhook_names, ${protectionSql} protected_by
+      FROM artifacts a
+      LEFT JOIN LATERAL (SELECT array_agg(DISTINCT x.name) FILTER (WHERE x.name IS NOT NULL) names FROM (
+        SELECT wf.name FROM workflows wf WHERE wf.id=a.source_workflow_id AND wf.user_id=a.user_id
+        UNION ALL SELECT wf.name FROM workflow_nodes wn JOIN workflows wf ON wf.id=wn.workflow_id AND wf.user_id=wn.user_id WHERE wn.artifact_id=a.id AND wn.user_id=a.user_id
+        UNION ALL SELECT wf.name FROM runs r JOIN workflows wf ON wf.id=r.workflow_id AND wf.user_id=r.user_id WHERE r.id=a.run_id AND r.user_id=a.user_id
+      ) x) w ON true
+      LEFT JOIN LATERAL (SELECT array_agg(DISTINCT x.name) FILTER (WHERE x.name IS NOT NULL) names FROM (
+        SELECT wn.label name FROM workflow_nodes wn WHERE wn.artifact_id=a.id AND wn.user_id=a.user_id
+        UNION ALL SELECT COALESCE(rn.node_snapshot_json->>'name',rn.node_snapshot_json->>'label') FROM run_nodes rn WHERE rn.input_artifact_id=a.id AND rn.user_id=a.user_id
+        UNION ALL SELECT COALESCE(rn.node_snapshot_json->>'name',rn.node_snapshot_json->>'label') FROM run_nodes rn WHERE rn.run_id=a.run_id AND rn.node_id=a.run_node_id AND rn.user_id=a.user_id
+      ) x) n ON true
+      LEFT JOIN LATERAL (SELECT array_agg(DISTINCT x.name) names FROM (
+        SELECT t.name FROM runs r JOIN workflow_triggers t ON t.id=r.trigger_id AND t.user_id=r.user_id WHERE r.id=a.run_id AND r.user_id=a.user_id
+        UNION ALL SELECT t.name FROM workflow_triggers t, LATERAL jsonb_array_elements(t.input_mappings) mapping WHERE t.user_id=a.user_id AND mapping->>'artifactId'=a.id::text
+      ) x) h ON true
+      WHERE a.user_id=$1
+    ), filtered AS (SELECT * FROM artifact_context c WHERE ($2::text IS NULL OR c.media_type LIKE $2 || '/%') AND ($3::text IS NULL OR ($3='saved' AND c.saved_to_library) OR ($3='not-saved' AND NOT c.saved_to_library)) AND ($4::text IS NULL OR strpos(lower(concat_ws(' ',c.display_name,c.media_type,c.data_type_id,array_to_string(c.workflow_names,' '),array_to_string(c.node_names,' '),array_to_string(c.webhook_names,' '))),lower($4))>0))`;
+    const [countResult, pageResult] = await Promise.all([
+      pool.query<{ total: string }>(`${base} SELECT count(*)::text total FROM filtered`, [owner, mediaType, saveState, search]),
+      pool.query(`${base} SELECT id,display_name AS "displayName",data_type_id AS "dataTypeId",media_type AS "mediaType",byte_size AS "byteSize",created_at AS "createdAt",run_id AS "runId",saved_to_library AS "savedToLibrary",workflow_names AS "workflowNames",node_names AS "nodeNames",webhook_names AS "webhookNames",protected_by AS "protectedBy" FROM filtered ORDER BY created_at DESC,id LIMIT $5 OFFSET $6`, [owner, mediaType, saveState, search, pageSize, (page - 1) * pageSize]),
+    ]);
+    res.json({ items: pageResult.rows, total: Number(countResult.rows[0]?.total ?? 0), page, pageSize });
+  } catch (error) { next(error); }
+});
+router.get("/storage-summary", async (_req, res, next) => {
+  try {
+    const result = await pool.query(`SELECT
+      COALESCE(sum(byte_size),0)::bigint total_bytes, count(*)::int total_count,
+      COALESCE(sum(byte_size) FILTER (WHERE saved_to_library),0)::bigint saved_bytes, count(*) FILTER (WHERE saved_to_library)::int saved_count,
+      COALESCE(sum(byte_size) FILTER (WHERE run_id IS NOT NULL AND NOT saved_to_library),0)::bigint run_output_bytes, count(*) FILTER (WHERE run_id IS NOT NULL AND NOT saved_to_library)::int run_output_count,
+      COALESCE(sum(byte_size) FILTER (WHERE run_id IS NULL AND source_workflow_id IS NOT NULL AND NOT saved_to_library),0)::bigint workflow_upload_bytes, count(*) FILTER (WHERE run_id IS NULL AND source_workflow_id IS NOT NULL AND NOT saved_to_library)::int workflow_upload_count,
+      COALESCE(sum(byte_size) FILTER (WHERE cardinality(${protectionSql})>0),0)::bigint protected_bytes, count(*) FILTER (WHERE cardinality(${protectionSql})>0)::int protected_count
+      FROM artifacts a WHERE user_id=$1`, [res.locals.userId]);
+    res.json(result.rows[0]);
+  } catch (error) { next(error); }
+});
+router.get("/storage-protected", async (_req, res, next) => {
+  try {
+    const page = Math.max(1, Number.parseInt(String(_req.query.page ?? "1"), 10) || 1);
+    const pageSize = Math.max(1, Math.min(50, Number.parseInt(String(_req.query.pageSize ?? "10"), 10) || 10));
+    const result = await pool.query(`SELECT a.id,a.display_name AS "displayName",a.data_type_id AS "dataTypeId",a.media_type AS "mediaType",a.byte_size AS "byteSize",a.created_at AS "createdAt",a.run_id AS "runId",a.saved_to_library AS "savedToLibrary",${protectionSql} AS "protectedBy"
+      FROM artifacts a WHERE a.user_id=$1 AND cardinality(${protectionSql})>0 ORDER BY a.created_at DESC LIMIT $2 OFFSET $3`, [res.locals.userId,pageSize,(page-1)*pageSize]);
+    const count = await pool.query(`SELECT count(*)::int total FROM artifacts a WHERE a.user_id=$1 AND cardinality(${protectionSql})>0`, [res.locals.userId]);
+    res.json({ items: result.rows, total: count.rows[0]?.total ?? 0, page, pageSize });
+  } catch (error) { next(error); }
+});
+router.get("/cleanup/preview", async (req, res, next) => {
+  const scopes = String(req.query.scopes ?? "").split(",").filter(Boolean);
+  if (!scopes.length || scopes.some((scope) => !cleanupScopes.has(scope))) { res.status(400).json({ error: "invalid_cleanup_scopes" }); return; }
+  try {
+    const result = await pool.query(`SELECT a.id,a.display_name AS "displayName",a.data_type_id AS "dataTypeId",a.media_type AS "mediaType",a.byte_size AS "byteSize",a.created_at AS "createdAt",a.run_id AS "runId",a.source_workflow_id AS "sourceWorkflowId",false AS "savedToLibrary",
+      ARRAY_REMOVE(ARRAY[(SELECT w.name FROM workflows w WHERE w.id=a.source_workflow_id AND w.user_id=a.user_id LIMIT 1),(SELECT w.name FROM runs r JOIN workflows w ON w.id=r.workflow_id AND w.user_id=r.user_id WHERE r.id=a.run_id AND r.user_id=a.user_id LIMIT 1)],NULL)::text[] AS "workflowNames",
+      COALESCE((SELECT array_agg(DISTINCT context.name) FROM (
+        SELECT wn.label AS name FROM workflow_nodes wn WHERE wn.artifact_id=a.id AND wn.user_id=a.user_id
+        UNION ALL SELECT COALESCE(rn.node_snapshot_json->>'name',rn.node_snapshot_json->>'label') FROM run_nodes rn WHERE (rn.input_artifact_id=a.id OR (rn.run_id=a.run_id AND rn.node_id=a.run_node_id)) AND rn.user_id=a.user_id
+      ) context),ARRAY[]::text[]) AS "nodeNames",
+      COALESCE((SELECT array_agg(DISTINCT t.name) FROM runs r JOIN workflow_triggers t ON t.id=r.trigger_id AND t.user_id=r.user_id WHERE r.id=a.run_id AND r.user_id=a.user_id),ARRAY[]::text[]) AS "webhookNames",
+      ${protectionSql} AS "protectedBy",
+      (cardinality(${protectionSql})=0 AND ((a.run_id IS NOT NULL AND a.saved_to_library=false AND a.created_at<=now()-interval '30 days' AND EXISTS(SELECT 1 FROM runs r WHERE r.id=a.run_id AND r.user_id=a.user_id AND r.status IN ('succeeded','failed','cancelled') AND 'old-run-outputs'=ANY($2::text[])) OR (a.run_id IS NULL AND a.source_workflow_id IS NOT NULL AND a.saved_to_library=false AND 'orphaned-workflow-uploads'=ANY($2::text[])))) AS eligible
+      FROM artifacts a WHERE a.user_id=$1 AND ((a.run_id IS NOT NULL AND a.saved_to_library=false AND a.created_at<=now()-interval '30 days' AND EXISTS(SELECT 1 FROM runs r WHERE r.id=a.run_id AND r.user_id=a.user_id AND r.status IN ('succeeded','failed','cancelled')) AND 'old-run-outputs'=ANY($2::text[])) OR (a.run_id IS NULL AND a.source_workflow_id IS NOT NULL AND a.saved_to_library=false AND 'orphaned-workflow-uploads'=ANY($2::text[]))) ORDER BY a.created_at`, [res.locals.userId, scopes]);
+    const items = result.rows;
+    const eligible = items.filter((item) => item.eligible);
+    res.json({ items, eligibleCount: eligible.length, protectedCount: items.length - eligible.length, estimatedBytes: eligible.reduce((sum, item) => sum + Number(item.byteSize), 0) });
+  } catch (error) { next(error); }
+});
+router.post("/cleanup", async (req, res, next) => {
+  if (req.get("origin") !== (process.env.WEB_ORIGIN ?? "http://localhost:5173")) { res.status(403).json({ error: "invalid_origin" }); return; }
+  const scopes = parseScopes(req.body?.scopes);
+  const ids = Array.isArray(req.body?.artifactIds) && req.body.artifactIds.length <= 10000 && req.body.artifactIds.every((id: unknown) => typeof id === "string") ? [...new Set(req.body.artifactIds as string[])] : null;
+  if (!scopes || !ids?.length) { res.status(400).json({ error: "invalid_cleanup_selection" }); return; }
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const eligible = await client.query(`SELECT a.id,a.storage_key,a.display_name,a.byte_size FROM artifacts a WHERE a.user_id=$1 AND a.id=ANY($2::uuid[]) AND cardinality(${protectionSql})=0 AND ((a.run_id IS NOT NULL AND a.saved_to_library=false AND a.created_at<=now()-interval '30 days' AND EXISTS(SELECT 1 FROM runs r WHERE r.id=a.run_id AND r.user_id=a.user_id AND r.status IN ('succeeded','failed','cancelled')) AND 'old-run-outputs'=ANY($3::text[])) OR (a.run_id IS NULL AND a.source_workflow_id IS NOT NULL AND a.saved_to_library=false AND 'orphaned-workflow-uploads'=ANY($3::text[]))) FOR UPDATE OF a`, [res.locals.userId, ids, scopes]);
+    if (!eligible.rowCount) { await client.query("ROLLBACK"); res.status(409).json({ error: "cleanup_selection_stale" }); return; }
+    const job = await client.query<{ id: string }>("INSERT INTO artifact_cleanup_jobs(user_id,scopes,estimated_bytes) VALUES($1,$2,$3) RETURNING id", [res.locals.userId, scopes, eligible.rows.reduce((sum, item) => sum + Number(item.byte_size), 0)]);
+    const jobId = job.rows[0]!.id;
+    for (const item of eligible.rows) await client.query("INSERT INTO artifact_cleanup_items(job_id,artifact_id,storage_key,display_name,byte_size) VALUES($1,$2,$3,$4,$5)", [jobId,item.id,item.storage_key,item.display_name,item.byte_size]);
+    await client.query("COMMIT");
+    res.status(202).json({ jobId, queuedCount: eligible.rowCount, skippedCount: ids.length - eligible.rowCount });
+  } catch (error) { await client.query("ROLLBACK"); next(error); }
+  finally { client.release(); }
+});
+router.get("/cleanup/:jobId", async (req, res, next) => {
+  try {
+    const job = await pool.query("SELECT id,status,scopes,estimated_bytes AS \"estimatedBytes\",last_error AS \"lastError\",created_at AS \"createdAt\",finished_at AS \"finishedAt\" FROM artifact_cleanup_jobs WHERE id=$1 AND user_id=$2", [req.params.jobId,res.locals.userId]);
+    if (!job.rowCount) { res.status(404).json({ error: "cleanup_job_not_found" }); return; }
+    const items = await pool.query("SELECT status,count(*)::int count,COALESCE(sum(byte_size),0)::bigint bytes FROM artifact_cleanup_items WHERE job_id=$1 GROUP BY status", [req.params.jobId]);
+    res.json({ job: job.rows[0], outcomes: items.rows });
+  } catch (error) { next(error); }
+});
+router.post("/cleanup/:jobId/retry", async (req, res, next) => {
+  if (req.get("origin") !== (process.env.WEB_ORIGIN ?? "http://localhost:5173")) { res.status(403).json({ error: "invalid_origin" }); return; }
+  try {
+    const retried = await pool.query(`WITH items AS (UPDATE artifact_cleanup_items SET status='queued',last_error=NULL,finished_at=NULL WHERE job_id=$1 AND status='failed' RETURNING id), job AS (UPDATE artifact_cleanup_jobs SET status='queued',claimed_by=NULL,lease_expires_at=NULL,next_attempt_at=now(),finished_at=NULL,last_error=NULL WHERE id=$1 AND user_id=$2 AND EXISTS(SELECT 1 FROM items) RETURNING id) SELECT id FROM job`, [req.params.jobId,res.locals.userId]);
+    if (!retried.rowCount) { res.status(404).json({ error: "cleanup_retry_unavailable" }); return; }
+    res.status(202).json({ queued: true });
   } catch (error) { next(error); }
 });
 router.delete("/:id", async (req, res, next) => {

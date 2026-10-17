@@ -1,4 +1,4 @@
-import { boolean, check, foreignKey, index, integer, jsonb, pgEnum, pgTable, primaryKey, real, text, timestamp, uniqueIndex, uuid, type PgTableExtraConfigValue } from "drizzle-orm/pg-core";
+import { bigint, boolean, check, foreignKey, index, integer, jsonb, pgEnum, pgTable, primaryKey, real, text, timestamp, uniqueIndex, uuid, type PgTableExtraConfigValue } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 
 export const modelModality = pgEnum("model_modality", ["image", "video", "audio", "text"]);
@@ -298,6 +298,44 @@ export const artifacts = pgTable("artifacts", {
   foreignKey({ columns: [table.userId], foreignColumns: [users.id], name: "artifacts_user_fk" }).onDelete("cascade"),
   foreignKey({ columns: [table.runId, table.userId], foreignColumns: [runs.id, runs.userId], name: "artifacts_run_owner_fk" }).onDelete("cascade"),
   foreignKey({ columns: [table.runId, table.runNodeId], foreignColumns: [runNodes.runId, runNodes.nodeId], name: "artifacts_run_node_fk" }).onDelete("cascade"),
+]);
+
+export const artifactCleanupJobs = pgTable("artifact_cleanup_jobs", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  scopes: text("scopes").array().notNull(),
+  status: text("status").notNull().default("queued"),
+  estimatedBytes: bigint("estimated_bytes", { mode: "number" }).notNull().default(0),
+  claimedBy: text("claimed_by"),
+  leaseExpiresAt: timestamp("lease_expires_at", { withTimezone: true }),
+  nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }).notNull().defaultNow(),
+  attemptCount: integer("attempt_count").notNull().default(0),
+  lastError: text("last_error"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  finishedAt: timestamp("finished_at", { withTimezone: true }),
+}, (table): PgTableExtraConfigValue[] => [
+  check("artifact_cleanup_jobs_status_check", sql`${table.status} IN ('queued', 'running', 'completed', 'completed_with_skips', 'failed')`),
+  index("artifact_cleanup_jobs_user_created_idx").on(table.userId, table.createdAt),
+  index("artifact_cleanup_jobs_queue_idx").on(table.status, table.nextAttemptAt, table.leaseExpiresAt),
+]);
+
+export const artifactCleanupItems = pgTable("artifact_cleanup_items", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  jobId: uuid("job_id").notNull().references(() => artifactCleanupJobs.id, { onDelete: "cascade" }),
+  artifactId: uuid("artifact_id").notNull(),
+  storageKey: text("storage_key").notNull(),
+  displayName: text("display_name").notNull(),
+  byteSize: integer("byte_size").notNull(),
+  status: text("status").notNull().default("queued"),
+  resultCode: text("result_code"),
+  attemptCount: integer("attempt_count").notNull().default(0),
+  lastError: text("last_error"),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  finishedAt: timestamp("finished_at", { withTimezone: true }),
+}, (table): PgTableExtraConfigValue[] => [
+  check("artifact_cleanup_items_status_check", sql`${table.status} IN ('queued', 'deleted', 'skipped', 'failed')`),
+  uniqueIndex("artifact_cleanup_items_job_artifact_unique").on(table.jobId, table.artifactId),
+  index("artifact_cleanup_items_job_status_idx").on(table.jobId, table.status),
 ]);
 
 export const instagramPublications = pgTable("instagram_publications", {

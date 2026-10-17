@@ -1,14 +1,15 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { Alert, Badge, Button, FileInput, Group, Image, Loader, Paper, Select, Stack, Table, Text, Title } from "@mantine/core";
+import { useCallback, useEffect, useState } from "react";
+import { Alert, Badge, Button, Checkbox, FileInput, Group, Image, Loader, Paper, Select, Stack, Table, Tabs, Text, TextInput, Title } from "@mantine/core";
 import { apiFetch, apiUrl } from "../apiClient";
 import { formatFileSize } from "../formatters";
 import { useFlashMessages } from "../components/FlashMessages";
 import { ConfirmActionModal } from "../components/ConfirmActionModal";
 import { PaginatedTableFooter } from "../components/PaginatedTableFooter";
 
-type Media = { id: string; displayName: string; dataTypeId: string; mediaType: string; byteSize: number; createdAt: string; runId: string | null; savedToLibrary: boolean };
+type Media = { id: string; displayName: string; dataTypeId: string; mediaType: string; byteSize: number; createdAt: string; runId: string | null; savedToLibrary: boolean; workflowNames?: string[]; nodeNames?: string[]; webhookNames?: string[]; protectedBy?: string[] };
 type MediaFilter = "all" | "image" | "audio" | "video";
 type MediaSaveFilter = "all" | "saved" | "not-saved";
+type Summary = { total_bytes: number; total_count: number; saved_bytes: number; saved_count: number; run_output_bytes: number; run_output_count: number; workflow_upload_bytes: number; workflow_upload_count: number; protected_bytes: number; protected_count: number };
 const PAGE_SIZE = 10;
 
 function Preview({ item }: { item: Media }) {
@@ -22,6 +23,11 @@ function formatDate(value: string) {
   return new Date(value).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" });
 }
 
+function mediaAge(value: string) {
+  const days = Math.max(0, Math.floor((Date.now() - new Date(value).getTime()) / 86_400_000));
+  return days === 0 ? "Today" : `${days} day${days === 1 ? "" : "s"}`;
+}
+
 function mediaKind(item: Media) {
   if (item.mediaType.startsWith("image/")) return "Image";
   if (item.mediaType.startsWith("audio/")) return "Audio";
@@ -32,12 +38,23 @@ function mediaKind(item: Media) {
 export function MediaLibraryPage() {
   const { showFlash } = useFlashMessages();
   const [items, setItems] = useState<Media[]>([]);
+  const [summary, setSummary] = useState<Summary | null>(null);
+  const [protectedItems, setProtectedItems] = useState<Media[]>([]);
+  const [protectedTotal, setProtectedTotal] = useState(0);
+  const [protectedPage, setProtectedPage] = useState(1);
   const [type, setType] = useState<string | null>("image");
   const [filter, setFilter] = useState<MediaFilter>("all");
   const [saveFilter, setSaveFilter] = useState<MediaSaveFilter>("all");
+  const [search, setSearch] = useState("");
+  const [tab, setTab] = useState<string | null>("library");
+  const [scopes, setScopes] = useState<string[]>(["old-run-outputs", "orphaned-workflow-uploads"]);
+  const [preview, setPreview] = useState<{ items: Array<Media & { eligible: boolean }>; estimatedBytes: number; eligibleCount: number; protectedCount: number } | null>(null);
+  const [cleanupJob, setCleanupJob] = useState<{ id: string; status: string; outcomes: Array<{ status: string; count: number; bytes: number }> } | null>(null);
+  const [confirmCleanup, setConfirmCleanup] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [page, setPage] = useState(1);
+  const [total, setTotal] = useState(0);
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Media | null>(null);
@@ -45,28 +62,59 @@ export function MediaLibraryPage() {
   const refresh = useCallback(async () => {
     setError(null);
     try {
-      const response = await apiFetch("/api/artifacts");
+      const params = new URLSearchParams({ page: String(page), pageSize: String(PAGE_SIZE), search, type: filter, saveState: saveFilter });
+      const [response, summaryResponse, protectedResponse] = await Promise.all([apiFetch(`/api/artifacts?${params}`), apiFetch("/api/artifacts/storage-summary"), apiFetch(`/api/artifacts/storage-protected?page=${protectedPage}&pageSize=10`)]);
       if (!response.ok) throw new Error("Could not load media.");
-      const body = await response.json() as { items: Media[] };
+      if (!summaryResponse.ok) throw new Error("Could not load storage summary.");
+      if (!protectedResponse.ok) throw new Error("Could not load protected media.");
+      const body = await response.json() as { items: Media[]; total: number };
       setItems(body.items);
+      setTotal(body.total);
+      setSummary(await summaryResponse.json() as Summary);
+      const protectedBody = await protectedResponse.json() as { items: Media[]; total: number };
+      setProtectedItems(protectedBody.items);
+      setProtectedTotal(protectedBody.total);
       setSelectedId((current) => body.items.some((item) => item.id === current) ? current : body.items[0]?.id ?? null);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Could not load media.");
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [filter, page, protectedPage, saveFilter, search]);
   useEffect(() => { void refresh(); }, [refresh]);
-
-  const filteredItems = useMemo(() => items.filter((item) => {
-    const matchesType = filter === "all" || item.mediaType.startsWith(`${filter}/`);
-    const matchesSaveStatus = saveFilter === "all" || (saveFilter === "saved" ? item.savedToLibrary : !item.savedToLibrary);
-    return matchesType && matchesSaveStatus;
-  }), [filter, items, saveFilter]);
-  const totalPages = Math.max(1, Math.ceil(filteredItems.length / PAGE_SIZE));
-  const pageItems = filteredItems.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+  const pageItems = items;
   useEffect(() => { if (page > totalPages) setPage(totalPages); }, [page, totalPages]);
   const selectedItem = pageItems.find((item) => item.id === selectedId) ?? pageItems[0] ?? null;
+
+  async function loadCleanupPreview() {
+    const params = new URLSearchParams({ scopes: scopes.join(",") });
+    const response = await apiFetch(`/api/artifacts/cleanup/preview?${params}`);
+    if (!response.ok) throw new Error("Could not preview cleanup.");
+    setPreview(await response.json());
+  }
+  async function queueCleanup() {
+    if (!preview) return;
+    const response = await apiFetch("/api/artifacts/cleanup", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ scopes, artifactIds: preview.items.filter((item) => item.eligible).map((item) => item.id) }) });
+    const body = await response.json() as { jobId?: string; error?: string };
+    if (!response.ok || !body.jobId) throw new Error(body.error ?? "Could not start cleanup.");
+    setConfirmCleanup(false);
+    setPreview(null);
+    setCleanupJob({ id: body.jobId, status: "queued", outcomes: [] });
+    await refresh();
+  }
+  useEffect(() => {
+    if (!cleanupJob || !["queued", "running"].includes(cleanupJob.status)) return;
+    const timer = setInterval(async () => {
+      const response = await apiFetch(`/api/artifacts/cleanup/${cleanupJob.id}`);
+      if (response.ok) {
+        const body = await response.json() as { job: { id: string; status: string }; outcomes: Array<{ status: string; count: number; bytes: number }> };
+        setCleanupJob({ ...body.job, outcomes: body.outcomes });
+        if (!["queued", "running"].includes(body.job.status)) void refresh();
+      }
+    }, 2000);
+    return () => clearInterval(timer);
+  }, [cleanupJob?.id, cleanupJob?.status]);
 
   async function upload() {
     if (!file || !type) return;
@@ -120,28 +168,30 @@ export function MediaLibraryPage() {
       <Button className="page-header-button" data-header-tone="neutral" variant="default" onClick={() => void refresh()} loading={loading}>Refresh</Button>
     </Group>
 
-    <Paper className="media-upload-panel" withBorder radius="md" p="sm">
-      <Group className="media-upload-row" align="end" wrap="wrap">
-        <Stack className="media-upload-copy" gap={2}><Text fw={600} size="sm">Upload to library</Text><Text size="xs" c="dimmed">Saved independently from workflow runs · Images 10 MB · Audio 25 MB · MP4 50 MB</Text></Stack>
-        <Select className="media-upload-type" aria-label="Media type" data={[{ value: "image", label: "Image" }, { value: "audio", label: "Audio" }, { value: "video", label: "Video" }]} value={type} onChange={setType} />
-        <FileInput className="media-upload-file" aria-label="Choose file" placeholder="Choose a file" value={file} onChange={setFile} accept={type === "image" ? "image/png,image/jpeg,image/webp" : type === "audio" ? "audio/wav,audio/mpeg,audio/ogg,audio/flac" : "video/mp4"} />
-        <Button onClick={() => void upload()} loading={busyId === "upload"} disabled={!file || !type}>Upload</Button>
-      </Group>
-    </Paper>
-
     {error && <Alert color="hiveError" title="Media library unavailable" onClose={() => setError(null)} withCloseButton>{error}</Alert>}
 
     <Paper className="inventory-list" withBorder radius="md">
+      <Tabs value={tab} onChange={setTab}>
+      <Tabs.List><Tabs.Tab value="library">Library</Tabs.Tab><Tabs.Tab value="storage">Storage</Tabs.Tab></Tabs.List>
+      <Tabs.Panel value="library">
+      <Paper className="media-upload-panel" withBorder radius="md" p="sm" m="md">
+        <Group className="media-upload-row" align="end" wrap="wrap">
+          <Stack className="media-upload-copy" gap={2}><Text fw={600} size="sm">Upload to library</Text><Text size="xs" c="dimmed">Saved independently from workflow runs · Images 10 MB · Audio 25 MB · MP4 50 MB</Text></Stack>
+          <Select className="media-upload-type" aria-label="Media type" data={[{ value: "image", label: "Image" }, { value: "audio", label: "Audio" }, { value: "video", label: "Video" }]} value={type} onChange={setType} />
+          <FileInput className="media-upload-file" aria-label="Choose file" placeholder="Choose a file" value={file} onChange={setFile} accept={type === "image" ? "image/png,image/jpeg,image/webp" : type === "audio" ? "audio/wav,audio/mpeg,audio/ogg,audio/flac" : "video/mp4"} />
+          <Button onClick={() => void upload()} loading={busyId === "upload"} disabled={!file || !type}>Upload</Button>
+        </Group>
+      </Paper>
       <Group className="inventory-toolbar media-toolbar" justify="space-between" wrap="wrap">
-        <Group gap="xs"><Title order={2} size="h5">Library assets</Title><Badge variant="light" color="gray">{filteredItems.length} items</Badge></Group>
+        <Group gap="xs"><Title order={2} size="h5">Library assets</Title><Badge variant="light" color="gray">{total} items</Badge></Group>
         <Group className="media-filters" gap="xs" wrap="wrap">
+          <TextInput aria-label="Search media" className="media-search" placeholder="Search files, formats, workflows, nodes, webhooks" value={search} onChange={(event) => { setSearch(event.currentTarget.value); setPage(1); }} />
           <Select aria-label="Filter media type" className="media-filter" data={filterOptions} value={filter} onChange={(value) => { setFilter((value as MediaFilter | null) ?? "all"); setPage(1); }} allowDeselect={false} />
           <Select aria-label="Filter save status" className="media-save-filter" data={saveFilterOptions} value={saveFilter} onChange={(value) => { setSaveFilter((value as MediaSaveFilter | null) ?? "all"); setPage(1); }} allowDeselect={false} />
         </Group>
       </Group>
       {loading ? <Group justify="center" p="xl"><Loader size="sm" /></Group>
-        : items.length === 0 ? <Stack className="media-empty" align="center" gap="xs" p="xl"><Text fw={600}>Your library is empty</Text><Text size="sm" c="dimmed">Generated and uploaded media will appear here.</Text></Stack>
-          : filteredItems.length === 0 ? <Stack className="media-empty" align="center" gap="xs" p="xl"><Text fw={600}>No media matches these filters</Text><Text size="sm" c="dimmed">Change the media type or save status to see more items.</Text></Stack>
+        : total === 0 ? <Stack className="media-empty" align="center" gap="xs" p="xl"><Text fw={600}>{search || filter !== "all" || saveFilter !== "all" ? "No media matches these filters" : "Your library is empty"}</Text><Text size="sm" c="dimmed">Try another search or change the media filters.</Text></Stack>
             : <div className="media-library-layout">
               <div className="media-table-wrap">
                 <Table className="inventory-table media-inventory-table" highlightOnHover withRowBorders>
@@ -162,7 +212,7 @@ export function MediaLibraryPage() {
                     </Table.Tr>)}
                   </Table.Tbody>
                 </Table>
-                <PaginatedTableFooter total={filteredItems.length} itemName="item" page={page} pageSize={PAGE_SIZE} totalPages={totalPages} onPageChange={(nextPage) => { setPage(nextPage); setSelectedId(filteredItems[(nextPage - 1) * PAGE_SIZE]?.id ?? null); }} />
+                <PaginatedTableFooter total={total} itemName="item" page={page} pageSize={PAGE_SIZE} totalPages={totalPages} onPageChange={(nextPage) => { setPage(nextPage); setSelectedId(null); }} />
               </div>
               {selectedItem && <Paper className="media-detail-panel" radius="md" p="sm">
                 <Group justify="space-between" wrap="nowrap" mb="xs">
@@ -171,15 +221,75 @@ export function MediaLibraryPage() {
                 </Group>
                 <div className={`media-preview-frame${selectedItem.mediaType.startsWith("audio/") ? " media-preview-frame-audio" : ""}`}><Preview item={selectedItem} /></div>
                 <Text size="xs" c="dimmed" mt="xs">Added {formatDate(selectedItem.createdAt)}</Text>
+                {Boolean(selectedItem.workflowNames?.length || selectedItem.nodeNames?.length || selectedItem.webhookNames?.length || selectedItem.protectedBy?.length) && <Stack gap={2} mt="sm"><Text size="xs" fw={600}>Used by</Text>{[...(selectedItem.workflowNames ?? []), ...(selectedItem.nodeNames ?? []), ...(selectedItem.webhookNames ?? []), ...(selectedItem.protectedBy ?? [])].map((name, index) => <Text key={`${name}-${index}`} size="xs" c="dimmed">{name}</Text>)}</Stack>}
                 <Group justify="flex-end" gap="xs" mt="sm" className="media-detail-actions">
                   {!selectedItem.savedToLibrary && <Button size="xs" variant="light" loading={busyId === selectedItem.id} onClick={() => void perform(selectedItem.id, "save-to-library")}>Save to library</Button>}
                   <Button size="xs" variant="light" color="hiveError" loading={busyId === selectedItem.id} onClick={() => setDeleteTarget(selectedItem)}>Delete</Button>
                 </Group>
               </Paper>}
             </div>}
+      </Tabs.Panel>
+      <Tabs.Panel value="storage" p="md">
+        <div className="media-storage-workspace">
+          <Group className="media-storage-heading" justify="space-between" align="flex-start">
+            <Stack gap={3}><Title order={1} size="h3">Storage</Title><Text size="sm" c="dimmed">Track saved and temporary media. Cleanup is always reviewed before deletion.</Text></Stack>
+            <Button variant="default" onClick={() => setTab("library")}>← Back to library</Button>
+          </Group>
+          <div className="media-storage-grid">
+            <Paper className="media-storage-card" withBorder radius="md" p="md">
+              <Title order={2} size="h6" mb="xs">Tracked storage</Title>
+              {summary ? <>
+                <Text className="media-storage-total" fw={700}>{formatFileSize(summary.total_bytes)}</Text>
+                <Text size="xs" c="dimmed">Total across {summary.total_count} artifact files</Text>
+                <div className="media-storage-bar" role="img" aria-label={`Storage breakdown: ${formatFileSize(summary.saved_bytes)} saved, ${formatFileSize(summary.run_output_bytes)} unsaved run outputs, ${formatFileSize(summary.workflow_upload_bytes)} workflow uploads`}>
+                  <span style={{ width: `${summary.total_bytes ? summary.saved_bytes / summary.total_bytes * 100 : 0}%` }} />
+                  <span style={{ width: `${summary.total_bytes ? summary.run_output_bytes / summary.total_bytes * 100 : 0}%` }} />
+                  <span style={{ width: `${summary.total_bytes ? summary.workflow_upload_bytes / summary.total_bytes * 100 : 0}%` }} />
+                </div>
+                <div className="media-storage-breakdown">
+                  <Text size="xs" c="dimmed">Saved to library · {summary.saved_count} files</Text><Text size="xs" fw={600}>{formatFileSize(summary.saved_bytes)}</Text>
+                  <Text size="xs" c="dimmed">Unsaved run outputs · {summary.run_output_count} files</Text><Text size="xs" fw={600}>{formatFileSize(summary.run_output_bytes)}</Text>
+                  <Text size="xs" c="dimmed">Workflow uploads · {summary.workflow_upload_count} files</Text><Text size="xs" fw={600}>{formatFileSize(summary.workflow_upload_bytes)}</Text>
+                </div>
+                <Text className="media-storage-protected-total" size="xs">Protected by active references · {summary.protected_count} files · {formatFileSize(summary.protected_bytes)} <Text component="span" size="xs" c="dimmed">(overlaps categories above)</Text></Text>
+              </> : <Group justify="center" p="md"><Loader size="sm" /></Group>}
+            </Paper>
+            <Paper className="media-storage-card" withBorder radius="md" p="md">
+              <Title order={2} size="h6" mb="sm">Plan cleanup</Title>
+              <Checkbox.Group value={scopes} onChange={(value) => { setScopes(value); setPreview(null); }} label={<Text size="xs" fw={700} c="dimmed">CHOOSE WHAT TO REVIEW</Text>}>
+                <Stack gap={0} mt="xs">
+                  <Checkbox className="media-cleanup-scope" value="old-run-outputs" label={<Stack gap={2}><Text size="sm" fw={600}>Unsaved run outputs</Text><Text size="xs" c="dimmed">Older than 30 days · completed runs only. Active runs and publications stay protected.</Text></Stack>} />
+                  <Checkbox className="media-cleanup-scope" value="orphaned-workflow-uploads" label={<Stack gap={2}><Text size="sm" fw={600}>Unused workflow uploads</Text><Text size="xs" c="dimmed">No current workflow or run references · any age. Saved library files are excluded.</Text></Stack>} />
+                </Stack>
+              </Checkbox.Group>
+              <Alert className="media-protected-callout" color="hiveWarning" variant="light" mt="sm">Protected files appear in the review with the reason they’re retained; they are not selected for deletion.</Alert>
+              <div className="media-cleanup-footer">
+                <Stack gap={2}><Text size="xs" c="dimmed">Review items and estimate before deleting</Text>{preview && <Text size="xs" fw={600}>{preview.eligibleCount} eligible · {formatFileSize(preview.estimatedBytes)} estimated</Text>}</Stack>
+                <Button disabled={!scopes.length} onClick={() => void loadCleanupPreview().catch((cause) => setError(cause instanceof Error ? cause.message : "Could not preview cleanup."))}>Preview cleanup →</Button>
+              </div>
+            </Paper>
+          </div>
+          {preview && <Paper className="media-storage-card media-cleanup-preview" withBorder radius="md" p="md">
+            <Group justify="space-between" mb="sm"><Stack gap={2}><Title order={2} size="h6">Cleanup review</Title><Text size="xs" c="dimmed">{preview.eligibleCount} eligible · {formatFileSize(preview.estimatedBytes)} estimated · {preview.protectedCount} protected</Text></Stack><Button color="hiveError" disabled={!preview.eligibleCount} onClick={() => setConfirmCleanup(true)}>Delete {preview.eligibleCount} eligible files</Button></Group>
+            {preview.items.length === 0 ? <Text size="sm" c="dimmed">No files match these cleanup scopes.</Text> : <Table><Table.Thead><Table.Tr><Table.Th>File</Table.Th><Table.Th>Type</Table.Th><Table.Th>Size</Table.Th><Table.Th>Added</Table.Th><Table.Th>Context / status</Table.Th></Table.Tr></Table.Thead><Table.Tbody>{preview.items.map((item) => <Table.Tr key={item.id}><Table.Td>{item.displayName}</Table.Td><Table.Td>{mediaKind(item)}</Table.Td><Table.Td>{formatFileSize(item.byteSize)}</Table.Td><Table.Td>{formatDate(item.createdAt)}</Table.Td><Table.Td><Badge color={item.eligible ? "hiveSuccess" : "gray"}>{item.eligible ? "Eligible" : "Protected"}</Badge><Text size="xs" c="dimmed">{!item.eligible && item.protectedBy?.length ? item.protectedBy.join(" · ") : [...(item.workflowNames ?? []), ...(item.nodeNames ?? []), ...(item.webhookNames ?? [])].join(" · ") || "No linked context"}</Text></Table.Td></Table.Tr>)}</Table.Tbody></Table>}
+          </Paper>}
+          {cleanupJob && <Paper className="media-storage-card media-cleanup-preview" withBorder radius="md" p="sm"><Group justify="space-between"><Stack gap={2}><Text fw={600} size="sm">Cleanup {cleanupJob.status.replaceAll("_", " ")}</Text><Text size="xs" c="dimmed">{cleanupJob.outcomes.map((entry) => `${entry.count} ${entry.status}`).join(" · ") || "Waiting for cleanup worker"}</Text></Stack>{cleanupJob.status === "completed_with_skips" && cleanupJob.outcomes.some((entry) => entry.status === "failed") && <Button size="xs" variant="light" onClick={() => void apiFetch(`/api/artifacts/cleanup/${cleanupJob.id}/retry`, { method: "POST" }).then(() => setCleanupJob({ ...cleanupJob, status: "queued" }))}>Retry failed</Button>}</Group></Paper>}
+          <Paper className="media-storage-card media-protected-list" withBorder radius="md" p="md">
+            <Group justify="space-between" mb="sm"><Title order={2} size="h6">Protected media</Title><Badge variant="light" color="gray">{protectedTotal} files</Badge></Group>
+            {protectedItems.length === 0 ? <Text size="sm" c="dimmed">No media is currently protected by an active reference.</Text> : <>
+              <Table className="inventory-table" withRowBorders><Table.Thead><Table.Tr><Table.Th>File</Table.Th><Table.Th>Protected by</Table.Th><Table.Th>Size</Table.Th><Table.Th>Age</Table.Th></Table.Tr></Table.Thead><Table.Tbody>{protectedItems.map((item) => <Table.Tr key={item.id}><Table.Td><Text fw={600} size="sm">{item.displayName}</Text><Text size="xs" c="dimmed">{item.savedToLibrary ? "Saved to library" : item.runId ? "Run output" : "Workflow input"}</Text></Table.Td><Table.Td>{item.protectedBy?.join(" · ") || "Active reference"}</Table.Td><Table.Td>{formatFileSize(item.byteSize)}</Table.Td><Table.Td>{mediaAge(item.createdAt)}</Table.Td></Table.Tr>)}</Table.Tbody></Table>
+              <PaginatedTableFooter total={protectedTotal} itemName="protected file" page={protectedPage} pageSize={10} totalPages={Math.max(1, Math.ceil(protectedTotal / 10))} onPageChange={setProtectedPage} />
+            </>}
+          </Paper>
+        </div>
+      </Tabs.Panel>
+      </Tabs>
     </Paper>
     <ConfirmActionModal opened={deleteTarget !== null} onClose={() => { if (busyId !== deleteTarget?.id) setDeleteTarget(null); }} title="Delete media permanently?" confirmLabel="Delete media" loading={busyId === deleteTarget?.id} onConfirm={() => { if (!deleteTarget) return; void perform(deleteTarget.id, "delete").then((deleted) => { if (deleted) setDeleteTarget(null); }); }}>
       <Text size="sm">Delete “{deleteTarget?.displayName}” and its stored file? This action cannot be undone. Media referenced by workflows or publications cannot be deleted until those references are removed.</Text>
+    </ConfirmActionModal>
+    <ConfirmActionModal opened={confirmCleanup} onClose={() => setConfirmCleanup(false)} title="Delete eligible media permanently?" confirmLabel="Delete media" onConfirm={() => void queueCleanup().catch((cause) => setError(cause instanceof Error ? cause.message : "Could not start cleanup."))}>
+      <Text size="sm">Delete {preview?.eligibleCount ?? 0} files and free an estimated {formatFileSize(preview?.estimatedBytes ?? 0)}. This is permanent. Eligibility and references will be checked again before each file is deleted.</Text>
     </ConfirmActionModal>
   </Stack>;
 }
