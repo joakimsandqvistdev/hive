@@ -9,10 +9,16 @@
 ## Soft workspace appearance
 
 - The default appearance is light, based on the accepted Soft workspace preview (2026-10-13). This replaces the earlier Slate Sky dark appearance.
+- Hive UI previews, mockups, and visualizations use this light Mantine theme regardless of the host appearance setting, unless a dark variant is explicitly requested. Use a pale gray (`gray.0`) workspace, white surfaces, Inter typography, Hive blue (`hiveSky`) primary actions, and the established semantic success/warning/error colors.
 - Use the centralized gray palette for a pale workspace/sidebar, white content surfaces, dark text, and quiet borders. Use `hiveSky` blue for primary actions, focus, and pale selected-navigation backgrounds.
 - Use medium-radius content panels, small-radius form controls, and subtle theme shadows. Keep tables readable with generous cell spacing and muted headings.
 - Keep the workflow canvas pale, nodes and configuration panels white, and selected nodes clearly outlined. Use darker semantic color shades for text on light surfaces.
 - Preserve existing navigation, responsive behavior, and product functionality when adjusting presentation.
+
+## Workflow editor appearance
+
+- Do not change the editor's visual styling—including canvas colors, node surfaces, controls, minimap, typography, spacing, or interaction states—unless the user explicitly requests an editor styling change.
+- For non-visual feature work, preserve the existing editor appearance. When changing editor UI, inspect the current patterns and limit visual changes to the requested scope.
 
 ## Implementation Rules
 
