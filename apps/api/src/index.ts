@@ -12,6 +12,7 @@ import { customNodesRouter } from "./customNodes.js";
 import { navigationRouter } from "./navigation.js";
 import { notificationsRouter } from "./notifications.js";
 import { webhookTriggersRouter } from "./webhookTriggers.js";
+import { textOverlayPreviewRouter } from "./textOverlayPreview.js";
 
 const app = express();
 const port = Number(process.env.API_PORT ?? 3001);
@@ -31,6 +32,7 @@ app.use("/api/runs", requireAuthenticatedUser, runsRouter);
 app.use("/api/artifacts/import-url", requireAuthenticatedUser, express.json({ limit: "8kb" }));
 app.use("/api/artifacts", requireAuthenticatedUser, artifactsRouter);
 app.use("/api/models", requireAuthenticatedUser, modelsRouter);
+app.use("/api/processing/text-overlay", requireAuthenticatedUser, textOverlayPreviewRouter);
 
 app.get("/api/health", async (_req, res) => {
   try {

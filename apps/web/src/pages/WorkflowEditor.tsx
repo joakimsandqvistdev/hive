@@ -8,6 +8,7 @@ import { defaultVideoModelParameters, type VideoModelParameters } from "../compo
 import { defaultAudioModelParameters } from "../components/AudioModelParametersFields";
 import { defaultTextModelParameters } from "../components/TextModelParametersFields";
 import { WorkflowNodeConfiguration } from "./WorkflowNodeConfiguration";
+import { TextOverlayPreviewLane } from "./TextOverlayPreviewLane";
 import { defaultWebhookIdentifier } from "./webhookInputMappings";
 import { ConfirmActionModal } from "../components/ConfirmActionModal";
 import { useAppBreadcrumb } from "../components/AppBreadcrumbs";
@@ -58,6 +59,7 @@ export function WorkflowEditor({ workflowId, onClose, onNavigate, customNodeEdit
   const [interfaceSelection, setInterfaceSelection] = useState<InterfaceSelection>({ inputs: [], outputs: [] });
   const [customNodeRunEligible, setCustomNodeRunEligible] = useState(false);
   const [graph, setGraph] = useState<GraphDocument>(() => toIonodesGraph({ nodes: [], edges: [] }, [], [], workflowId));
+  const [userTextOverlayDefaults, setUserTextOverlayDefaults] = useState<Record<string, unknown> | null>(null);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [selectedNodeIds, setSelectedNodeIds] = useState<string[]>([]);
   const [selectedConnectionId, setSelectedConnectionId] = useState<string | null>(null);
@@ -68,6 +70,20 @@ export function WorkflowEditor({ workflowId, onClose, onNavigate, customNodeEdit
   }, []);
   const selectedGraphNode = graph.nodes.find((node) => node.id === selectedNodeId);
   const selected: WorkflowNode | undefined = selectedGraphNode ? toWorkflowNode(selectedGraphNode, contracts) : undefined;
+  const showTextOverlayPreview = selected?.data.kind === "processing" && selected.data.parameters.operationId === "text-overlay";
+  const textOverlayPreviewInputs = useMemo(() => {
+    if (!selected || selected.data.kind !== "processing" || selected.data.parameters.operationId !== "text-overlay") return undefined;
+    const result: { artifactId?: string; text?: string } = {};
+    for (const portKey of ["image", "text"] as const) {
+      const connection = graph.connections.find((item) => item.targetNodeId === selected.id && item.targetConnectorId === `${selected.id}:input:${portKey}`);
+      const source = connection && graph.nodes.find((item) => item.id === connection.sourceNodeId);
+      const metadata = source?.metadata as { kind?: string; dataTypeId?: string; artifactId?: string | null; inputText?: string } | undefined;
+      if (metadata?.kind !== "input" || metadata.dataTypeId !== portKey) continue;
+      if (portKey === "image" && metadata.artifactId) result.artifactId = metadata.artifactId;
+      if (portKey === "text" && metadata.inputText?.trim()) result.text = metadata.inputText;
+    }
+    return result;
+  }, [selected, graph.connections, graph.nodes]);
   const navigateToBreadcrumbParent = useCallback(() => { if (dirty) setDiscardOpen(true); else onClose(); }, [dirty, onClose]);
   useAppBreadcrumb(workflow ? { parentView: customNodeEditor ? "custom-nodes" : "workflows", currentLabel: workflow.name, onParentNavigate: navigateToBreadcrumbParent } : null);
   const hasRemoveSelection = selectedNodeIds.length > 0 || Boolean(selectedConnectionId);
@@ -105,6 +121,15 @@ export function WorkflowEditor({ workflowId, onClose, onNavigate, customNodeEdit
       .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, [workflowId, resourcePath, customNodeEditor]);
+  useEffect(() => {
+    let cancelled = false;
+    void apiFetch("/api/processing/text-overlay/defaults").then(async (response) => {
+      if (!response.ok) return;
+      const body = await response.json() as { defaults: Record<string, unknown> | null };
+      if (!cancelled) setUserTextOverlayDefaults(body.defaults);
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
   const options = useMemo(() => [
     { group: "Inputs", items: types.filter((type) => ["text", "image", "audio", "video"].includes(type.id)).map((type) => ({ value: `input:${type.id}`, label: `${type.label} input` })) },
     { group: "Processing", items: [{ value: "processing:text-overlay", label: "Text Overlay" }, { value: "processing:still-image-video", label: "Still Image Video" }] },
@@ -125,7 +150,7 @@ export function WorkflowEditor({ workflowId, onClose, onNavigate, customNodeEdit
     else if (model?.modality === "video") parameters = { ...defaultVideoModelParameters(id as VideoModelParameters["modelId"]) };
     else if (model?.modality === "audio") parameters = { ...defaultAudioModelParameters, modelId: "kokoro-82m" };
     else if (model) parameters = { ...defaultImageModelParameters, modelId: id, steps: imageModelDefaultSteps(id as ImageModelParameters["modelId"]), guidanceScale: id === "flux2-klein-4b" ? 1 : ["sana-sprint-06b", "sd35-medium"].includes(id) ? 4.5 : 7.5 };
-    if (kind === "processing" && id === "text-overlay") parameters = { ...textOverlayDefaults };
+    if (kind === "processing" && id === "text-overlay") parameters = { ...textOverlayDefaults, ...userTextOverlayDefaults };
     if (kind === "processing" && id === "still-image-video") parameters = { ...stillImageVideoDefaults };
     if (kind === "publishing") parameters = { operationId: id, accountId: instagramAccounts[0]?.id ?? "00000000-0000-4000-8000-000000000000", mode: "manual", shareToFeed: true };
     if (kind === "custom" && custom) parameters = { customNodeId: id, customInterfaceSnapshot: custom.interface };
@@ -165,6 +190,16 @@ export function WorkflowEditor({ workflowId, onClose, onNavigate, customNodeEdit
     }));
     setDirty(true);
     setError(null);
+  }
+  async function saveTextOverlayDefaults(parameters: Record<string, unknown>) {
+    const response = await apiFetch("/api/processing/text-overlay/defaults", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(parameters) });
+    if (!response.ok) {
+      showFlash({ tone: "error", title: "Could not save defaults", message: "Your Text Overlay defaults were not updated. Try again." });
+      throw new Error("Could not save Text Overlay defaults.");
+    }
+    const body = await response.json() as { defaults: Record<string, unknown> };
+    setUserTextOverlayDefaults(body.defaults);
+    showFlash({ tone: "success", title: "Defaults saved", message: "New Text Overlay nodes will use these settings for your account." });
   }
   function replaceCustomNode(customNodeId: string) {
     if (!selected || selected.data.kind !== "custom") return;
@@ -412,7 +447,7 @@ export function WorkflowEditor({ workflowId, onClose, onNavigate, customNodeEdit
         </Group>
       </Group>
     </header>
-    {loading ? <Group justify="center" className="workflow-editor-loading"><Loader /><Text>Loading workflow…</Text></Group> : workflow && <div className="workflow-editor-body">
+    {loading ? <Group justify="center" className="workflow-editor-loading"><Loader /><Text>Loading workflow…</Text></Group> : workflow && <div className={`workflow-editor-body${showTextOverlayPreview ? " has-text-overlay-preview" : ""}`}>
       <section className="workflow-editor-canvas" aria-label="Workflow canvas">
         <GraphEditor
           graph={graph}
@@ -439,7 +474,8 @@ export function WorkflowEditor({ workflowId, onClose, onNavigate, customNodeEdit
           canvas={{ hideAttribution: true, backgroundColor: "var(--mantine-color-gray-5)", miniMapMaskColor: "rgba(124, 135, 148, 0.16)", miniMapNodeColor: (_node, invalid) => invalid ? "#ba514d" : "#4285f4" }}
         />
       </section>
-        <Drawer opened={Boolean(selected)} onClose={() => { setSelectedNodeId(null); setSelectedNodeIds([]); setSelectedConnectionId(null); }} position="right" size="min(520px, 100vw)" title={selected ? <Stack gap={0}><Text size="sm" fw={650}>Node configuration</Text><Text size="xs" c="dimmed">{selected.data.label}</Text></Stack> : undefined} className="workflow-node-config-drawer" styles={{ root: { top: 64, bottom: 0, height: "auto" }, inner: { height: "100%", minHeight: 0 }, content: { height: "100%", minHeight: 0, maxHeight: "100%" } }} transitionProps={{ transition: "slide-left", duration: 180 }} withOverlay={false} lockScroll={false} trapFocus={false} closeOnClickOutside={false} padding="sm" zIndex={300}>
+      {showTextOverlayPreview && selected?.data.kind === "processing" && <TextOverlayPreviewLane artifactId={textOverlayPreviewInputs?.artifactId} text={textOverlayPreviewInputs?.text} settings={selected.data.parameters} nodeId={selected.id} onSaveDefaults={saveTextOverlayDefaults} />}
+        <Drawer opened={Boolean(selected)} onClose={() => { setSelectedNodeId(null); setSelectedNodeIds([]); setSelectedConnectionId(null); }} position="right" size={showTextOverlayPreview ? "clamp(320px, 38vw, 480px)" : "min(520px, 100vw)"} title={selected ? <Stack gap={0}><Text size="sm" fw={650}>Node configuration</Text><Text size="xs" c="dimmed">{selected.data.label}</Text></Stack> : undefined} className="workflow-node-config-drawer" styles={{ root: { top: 64, bottom: 0, height: "auto" }, inner: { height: "100%", minHeight: 0 }, content: { height: "100%", minHeight: 0, maxHeight: "100%" } }} transitionProps={{ transition: "slide-left", duration: 180 }} withOverlay={false} lockScroll={false} trapFocus={false} closeOnClickOutside={false} padding="sm" zIndex={300}>
         {selected && <WorkflowNodeConfiguration
           selected={selected}
           types={types}

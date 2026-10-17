@@ -112,6 +112,19 @@ body { color: var(--mantine-color-text); background: var(--mantine-color-gray-0)
 .workflow-header-error .mantine-Alert-message { overflow-wrap: anywhere; }
 .workflow-editor-title { min-width: 0; max-width: min(34vw, 420px); }
 .workflow-editor-body { position: relative; display: flex; flex: 1 1 auto; width: 100%; min-width: 0; min-height: 0; }
+.workflow-editor-body.has-text-overlay-preview { --text-overlay-drawer-width: clamp(320px, 38vw, 480px); padding-right: var(--text-overlay-drawer-width); }
+.text-overlay-preview-lane { display: flex; flex: 0 0 450px; flex-direction: column; gap: var(--mantine-spacing-sm); width: 450px; min-width: 450px; height: 100%; align-self: stretch; padding: var(--mantine-spacing-md); overflow: hidden; border-left: 1px solid var(--mantine-color-gray-2); background: var(--mantine-color-white); }
+.text-overlay-preview-heading { flex: 0 0 auto; min-height: 42px; }
+.text-overlay-preview-status { display: inline-flex; align-items: center; gap: 6px; color: var(--mantine-color-hiveSuccess-7); font-size: var(--mantine-font-size-xs); white-space: nowrap; }
+.text-overlay-preview-status i { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.text-overlay-preview-stage { display: flex; flex: 1 1 auto; align-items: center; justify-content: center; min-width: 0; min-height: 120px; overflow: hidden; border: 1px solid var(--mantine-color-gray-2); border-radius: var(--mantine-radius-sm); background: var(--mantine-color-gray-0); }
+.text-overlay-preview-stage .mantine-Image-root { display: flex; width: 100%; height: 100%; align-items: center; justify-content: center; }
+.text-overlay-preview-stage .mantine-Image-image { max-width: 100%; max-height: 100%; object-fit: contain; }
+.text-overlay-preview-empty { width: 100%; height: 100%; padding: var(--mantine-spacing-md); }
+.text-overlay-preview-context { flex: 0 0 auto; overflow-wrap: anywhere; }
+.text-overlay-preview-defaults { flex: 0 0 auto; border-color: var(--mantine-color-gray-2); background: var(--mantine-color-gray-0); }
+.text-overlay-preview-defaults-icon { flex: 0 0 auto; }
+.text-overlay-preview-defaults-button { flex: 0 0 auto; }
 .workflow-editor-canvas { --hive-canvas-background: #e9eef3; --hive-canvas-surface: #181e25; --hive-canvas-header: #202832; --hive-canvas-border: #313d4c; --hive-canvas-text: #e5edf6; --hive-canvas-muted: #9aa9bb; --hive-canvas-accent: #74c0fc; --hive-canvas-danger: #ff6b6b; --hive-canvas-control-surface: #ffffff; --hive-canvas-control-border: #dfe3e8; --hive-canvas-control-text: #303843; --hive-canvas-control-hover: #f1f6fe; --hive-canvas-label: #47505c; position: relative; display: flex; flex: 1 1 0; width: 100%; min-width: 0; min-height: 0; overflow: hidden; background: var(--hive-canvas-background); }
 .workflow-editor-canvas .hive-ionodes { width: 100%; height: 100%; min-height: 0; color-scheme: dark; }
 .workflow-editor-canvas .hive-ionodes .ionodes-canvas,
