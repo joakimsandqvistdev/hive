@@ -35,6 +35,19 @@ function mediaKind(item: Media) {
   return item.dataTypeId;
 }
 
+function inferUploadType(file: File): "image" | "audio" | "video" | null {
+  const mime = file.type.toLowerCase();
+  const extension = file.name.split(".").pop()?.toLowerCase();
+  if (["image/png", "image/jpeg", "image/webp"].includes(mime) || ["png", "jpg", "jpeg", "webp"].includes(extension ?? "")) return "image";
+  if (["audio/wav", "audio/x-wav", "audio/mpeg", "audio/ogg", "audio/flac"].includes(mime) || ["wav", "mp3", "ogg", "flac"].includes(extension ?? "")) return "audio";
+  if (mime === "video/mp4" || extension === "mp4") return "video";
+  return null;
+}
+
+function uploadTypeLabel(type: "image" | "audio" | "video") {
+  return type[0]!.toUpperCase() + type.slice(1);
+}
+
 export function MediaLibraryPage() {
   const { showFlash } = useFlashMessages();
   const [items, setItems] = useState<Media[]>([]);
@@ -42,7 +55,6 @@ export function MediaLibraryPage() {
   const [protectedItems, setProtectedItems] = useState<Media[]>([]);
   const [protectedTotal, setProtectedTotal] = useState(0);
   const [protectedPage, setProtectedPage] = useState(1);
-  const [type, setType] = useState<string | null>("image");
   const [filter, setFilter] = useState<MediaFilter>("all");
   const [saveFilter, setSaveFilter] = useState<MediaSaveFilter>("all");
   const [search, setSearch] = useState("");
@@ -117,7 +129,9 @@ export function MediaLibraryPage() {
   }, [cleanupJob?.id, cleanupJob?.status]);
 
   async function upload() {
-    if (!file || !type) return;
+    if (!file) return;
+    const type = inferUploadType(file);
+    if (!type) return;
     setBusyId("upload"); setError(null);
     const uploadedName = file.name;
     try {
@@ -174,16 +188,28 @@ export function MediaLibraryPage() {
       <Tabs value={tab} onChange={setTab}>
       <Tabs.List><Tabs.Tab value="library">Library</Tabs.Tab><Tabs.Tab value="storage">Storage</Tabs.Tab></Tabs.List>
       <Tabs.Panel value="library">
-      <Paper className="media-upload-panel" withBorder radius="md" p="sm" m="md">
-        <Group className="media-upload-row" align="end" wrap="wrap">
-          <Stack className="media-upload-copy" gap={2}><Text fw={600} size="sm">Upload to library</Text><Text size="xs" c="dimmed">Saved independently from workflow runs · Images 10 MB · Audio 25 MB · MP4 50 MB</Text></Stack>
-          <Select className="media-upload-type" aria-label="Media type" data={[{ value: "image", label: "Image" }, { value: "audio", label: "Audio" }, { value: "video", label: "Video" }]} value={type} onChange={setType} />
-          <FileInput className="media-upload-file" aria-label="Choose file" placeholder="Choose a file" value={file} onChange={setFile} accept={type === "image" ? "image/png,image/jpeg,image/webp" : type === "audio" ? "audio/wav,audio/mpeg,audio/ogg,audio/flac" : "video/mp4"} />
-          <Button onClick={() => void upload()} loading={busyId === "upload"} disabled={!file || !type}>Upload</Button>
+      <Paper className="media-upload-panel" p="sm">
+        <Group className="media-upload-heading" justify="space-between" align="flex-start" wrap="wrap">
+          <Stack gap={2}><Text fw={600} size="sm">Add media to your library</Text><Text size="xs" c="dimmed">Saved files stay available after their source run is deleted.</Text></Stack>
+          <Text className="media-upload-limits" size="xs" c="dimmed">Images 10 MB · Audio 25 MB · MP4 50 MB</Text>
         </Group>
+        <div
+          className={`media-upload-dropzone${file ? " media-upload-dropzone-selected" : ""}`}
+          onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = "copy"; }}
+          onDrop={(event) => { event.preventDefault(); const droppedFile = event.dataTransfer.files[0]; if (droppedFile) setFile(droppedFile); }}
+        >
+          <span className="media-upload-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M12 16V4m0 0L7.5 8.5M12 4l4.5 4.5M5 14.5v3A2.5 2.5 0 0 0 7.5 20h9a2.5 2.5 0 0 0 2.5-2.5v-3" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" /></svg></span>
+          <div className="media-upload-file-copy">
+            <Text className="media-upload-file-name" fw={600} size="sm" lineClamp={1}>{file?.name ?? "Drop a file here or choose a file"}</Text>
+            <Text size="xs" c={file && !inferUploadType(file) ? "hiveError" : "dimmed"}>{file ? inferUploadType(file) ? `${formatFileSize(file.size)} · ${uploadTypeLabel(inferUploadType(file)!)} file ready` : "Use PNG, JPEG, WebP, WAV, MP3, Ogg, FLAC, or MP4." : "PNG, JPEG, WebP · WAV, MP3, Ogg, FLAC · MP4"}</Text>
+          </div>
+          <Group className="media-upload-actions" gap="xs" wrap="nowrap">
+            <FileInput className="media-upload-file" aria-label={file ? "Replace selected file" : "Choose file"} placeholder={file ? "Replace" : "Choose file"} value={file} onChange={setFile} accept="image/png,image/jpeg,image/webp,audio/wav,audio/mpeg,audio/ogg,audio/flac,video/mp4" />
+            <Button onClick={() => void upload()} loading={busyId === "upload"} disabled={!file || !inferUploadType(file)}>Upload media</Button>
+          </Group>
+        </div>
       </Paper>
       <Group className="inventory-toolbar media-toolbar" justify="space-between" wrap="wrap">
-        <Group gap="xs"><Title order={2} size="h5">Library assets</Title><Badge variant="light" color="gray">{total} items</Badge></Group>
         <Group className="media-filters" gap="xs" wrap="wrap">
           <TextInput aria-label="Search media" className="media-search" placeholder="Search files, formats, workflows, nodes, webhooks" value={search} onChange={(event) => { setSearch(event.currentTarget.value); setPage(1); }} />
           <Select aria-label="Filter media type" className="media-filter" data={filterOptions} value={filter} onChange={(value) => { setFilter((value as MediaFilter | null) ?? "all"); setPage(1); }} allowDeselect={false} />
