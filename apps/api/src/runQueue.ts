@@ -51,6 +51,9 @@ export async function claimNextRun(workerId: string, leaseSeconds = 120): Promis
     throw new Error("leaseSeconds must be an integer from 10 to 3600.");
   }
 
+  await pool.query(`UPDATE users SET runner_status='paused' WHERE runner_status='pausing'
+    AND NOT EXISTS (SELECT 1 FROM runs WHERE user_id=users.id AND claimed_by IS NOT NULL AND lease_expires_at>now())`);
+
   await pool.query(`WITH abandoned_cancellations AS (
       UPDATE runs SET status='cancelled', error_summary='Run stopped by user.', finished_at=now(), claimed_by=NULL, lease_expires_at=NULL
       WHERE status='cancel_requested' AND lease_expires_at < now()
@@ -77,12 +80,12 @@ export async function claimNextRun(workerId: string, leaseSeconds = 120): Promis
     WHERE node.run_id = run.id AND node.status IN ('running', 'queued')`);
   const result = await pool.query<ClaimedRun>(`
     WITH candidate AS (
-      SELECT id
-      FROM runs
-      WHERE status = 'queued'
-         OR (status = 'running' AND lease_expires_at < now())
-      ORDER BY created_at, id
-      FOR UPDATE SKIP LOCKED
+      SELECT runs.id
+      FROM runs JOIN users ON users.id=runs.user_id
+      WHERE users.runner_status='active'
+        AND (runs.status = 'queued' OR (runs.status = 'running' AND runs.lease_expires_at < now()))
+      ORDER BY runs.created_at, runs.id
+      FOR UPDATE OF users, runs SKIP LOCKED
       LIMIT 1
     )
     UPDATE runs AS claimed
@@ -100,6 +103,12 @@ export async function claimNextRun(workerId: string, leaseSeconds = 120): Promis
   const claimed = result.rows[0] ?? null;
   if (claimed) await pool.query("UPDATE run_nodes SET status='queued' WHERE run_id=$1 AND status='running'", [claimed.id]);
   return claimed;
+}
+
+async function settleRunnerPause(runId: string) {
+  await pool.query(`UPDATE users SET runner_status='paused'
+    WHERE runner_status='pausing' AND id=(SELECT user_id FROM runs WHERE id=$1)
+      AND NOT EXISTS (SELECT 1 FROM runs WHERE user_id=users.id AND claimed_by IS NOT NULL AND lease_expires_at>now())`, [runId]);
 }
 
 export async function setRunNodeRunning(runId: string, nodeId: string, workerId: string, resolvedInput: Record<string, unknown>): Promise<Record<string, unknown> | null> {
@@ -131,6 +140,7 @@ export async function failRun(runId: string, workerId: string, code: string, sum
     await client.query(`UPDATE runs SET status='failed',error_summary=$3,finished_at=now(),claimed_by=NULL,lease_expires_at=NULL
       WHERE id=$1 AND claimed_by=$2 AND status='running'`, [runId,workerId,summary]);
     await client.query("COMMIT");
+    await settleRunnerPause(runId);
   } catch (error) { await client.query("ROLLBACK"); throw error; }
   finally { client.release(); }
 }
@@ -139,6 +149,7 @@ export async function finishRun(runId: string, workerId: string): Promise<boolea
   const result = await pool.query(`UPDATE runs SET status=CASE WHEN EXISTS (SELECT 1 FROM instagram_publications p WHERE p.run_id=runs.id AND p.status IN ('awaiting_review','queued','publishing')) THEN 'awaiting_publish' ELSE 'succeeded' END,
     finished_at=now(), claimed_by=NULL,lease_expires_at=NULL
     WHERE id=$1 AND claimed_by=$2 AND status='running'`, [runId,workerId]);
+  if (result.rowCount === 1) await settleRunnerPause(runId);
   return result.rowCount === 1;
 }
 
@@ -154,6 +165,7 @@ export async function finishCancelledRun(runId: string, workerId: string): Promi
     await client.query(`UPDATE runs SET status='cancelled',error_summary='Run stopped by user.',finished_at=now(),claimed_by=NULL,lease_expires_at=NULL
       WHERE id=$1 AND claimed_by=$2 AND status='cancel_requested'`, [runId,workerId]);
     await client.query("COMMIT");
+    await settleRunnerPause(runId);
   } catch (error) { await client.query("ROLLBACK"); throw error; }
   finally { client.release(); }
 }

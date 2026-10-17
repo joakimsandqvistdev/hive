@@ -6,9 +6,11 @@ import { PaginatedTableFooter } from "../components/PaginatedTableFooter";
 import { formatFileSize } from "../formatters";
 import { RunDetailsInspector } from "../components/RunDetailsInspector";
 import { active, date, statusColor, timingLabel } from "../runFormatting";
-import type { Artifact, Detail, PageResult, Run } from "../runTypes";
+import type { Artifact, Detail, PageResult, Run, RunnerStatus } from "../runTypes";
 import { useFlashMessages } from "../components/FlashMessages";
 import { useAppBreadcrumb } from "../components/AppBreadcrumbs";
+import { useVisiblePolling } from "../hooks/useVisiblePolling";
+import { notifyNavigationSummaryChanged } from "../navigation/navigationSummary";
 
 import type { AppView } from "../navigation/navigationState";
 
@@ -42,6 +44,42 @@ export function RunsPage({ onNavigate }: { onNavigate: (view: AppView) => void }
   const [bulkStatuses, setBulkStatuses] = useState<string[]>([]);
   const [bulkDeleting, setBulkDeleting] = useState(false);
   const [now, setNow] = useState(() => Date.now());
+  const [runnerStatus, setRunnerStatus] = useState<RunnerStatus>("active");
+  const [runnerHasActiveRuns, setRunnerHasActiveRuns] = useState(false);
+  const [runnerBusy, setRunnerBusy] = useState(false);
+
+  const loadRunnerControl = useCallback(async () => {
+    try {
+      const response = await apiFetch("/api/runs/runner-control");
+      if (!response.ok) return;
+      const body = await response.json() as { runnerStatus: RunnerStatus; queuedRuns: number; runningRuns: number };
+      setRunnerStatus(body.runnerStatus);
+      setRunnerHasActiveRuns(body.queuedRuns + body.runningRuns > 0);
+    } catch { /* Keep the last known runner state if the API is temporarily unavailable. */ }
+  }, []);
+  useEffect(() => { void loadRunnerControl(); }, [loadRunnerControl]);
+  useVisiblePolling(loadRunnerControl, 15_000);
+
+  const toggleRunner = async () => {
+    setRunnerBusy(true);
+    try {
+      const status = runnerStatus === "active" ? "paused" : "active";
+      const response = await apiFetch("/api/runs/runner-control", {
+        method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify({ status }),
+      });
+      const body = await response.json().catch(() => ({})) as { runnerStatus?: RunnerStatus };
+      if (!response.ok || !body.runnerStatus) throw new Error("Could not update your runner state.");
+      setRunnerStatus(body.runnerStatus);
+      notifyNavigationSummaryChanged();
+      showFlash(body.runnerStatus === "pausing"
+        ? { tone: "neutral", title: "Pausing after the current run", message: "Your queued runs will wait until you resume the runner." }
+        : body.runnerStatus === "paused"
+          ? { tone: "success", title: "Your runner is paused", message: "Your queued runs will wait until you resume the runner." }
+          : { tone: "success", title: "Your runner is active", message: "Queued runs can start again." });
+    } catch (cause) {
+      showFlash({ tone: "error", title: "Runner state unchanged", message: cause instanceof Error ? cause.message : "Could not update your runner state." });
+    } finally { setRunnerBusy(false); }
+  };
 
   const loadRuns = useCallback(async (requestedPage = page) => {
     setError(null);
@@ -55,22 +93,14 @@ export function RunsPage({ onNavigate }: { onNavigate: (view: AppView) => void }
     finally { setLoading(false); }
   }, [page]);
 
-  const refreshRuns = () => {
-    setLoading(true);
-    void loadRuns(page);
-  };
-
   useEffect(() => { setLoading(true); void loadRuns(page); }, [loadRuns, page]);
   useEffect(() => {
     const syncSelectedRun = () => setSelectedId(runIdFromHash());
     window.addEventListener("hashchange", syncSelectedRun);
     return () => window.removeEventListener("hashchange", syncSelectedRun);
   }, []);
-  useEffect(() => {
-    if (!result?.items.some((run) => active(run.status) || run.deletion)) return;
-    const timer = window.setInterval(() => void loadRuns(page), 3000);
-    return () => window.clearInterval(timer);
-  }, [loadRuns, page, result?.items]);
+  const needsRunPolling = runnerHasActiveRuns || Boolean(result?.items.some((run) => active(run.status) || run.deletion));
+  useVisiblePolling(() => loadRuns(page), needsRunPolling ? 3000 : 15_000);
 
   useEffect(() => {
     const hasRunningWork = result?.items.some((run) => run.status === "running" || run.status === "cancel_requested")
@@ -121,6 +151,7 @@ export function RunsPage({ onNavigate }: { onNavigate: (view: AppView) => void }
     try {
       const response = await apiFetch(`/api/runs/${id}/cancel`, { method: "POST" });
       if (!response.ok) throw new Error(response.status === 404 ? "This run could not be found." : "Could not stop this run. Please try again.");
+      notifyNavigationSummaryChanged();
       await loadRuns(page);
       if (selectedId === id) await loadDetail(id);
       showFlash({ tone: "neutral", title: "Cancellation requested", message: "The run will stop when its worker processes the request." });
@@ -153,6 +184,7 @@ export function RunsPage({ onNavigate }: { onNavigate: (view: AppView) => void }
     try {
       const response = await apiFetch("/api/runs/" + id + "/delete/retry", { method: "POST" });
       if (!response.ok) throw new Error(response.status === 409 ? "Cleanup is already running. Please wait." : "Could not retry cleanup. Please try again.");
+      notifyNavigationSummaryChanged();
       await loadRuns(page);
       showFlash({ tone: "neutral", title: "Cleanup retry queued", message: "Hive will retry removing the run and its unsaved generated media." });
     } catch (cause) { showFlash({ tone: "error", title: "Could not retry cleanup", message: cause instanceof Error ? cause.message : "Could not retry cleanup." }); }
@@ -231,7 +263,7 @@ export function RunsPage({ onNavigate }: { onNavigate: (view: AppView) => void }
   </Table.Tr>);
 
   return <Stack className="workspace-page" gap="lg">
-    <Group justify="flex-end" className="page-header-actions"><Group><Popover opened={bulkSelectorOpen} onChange={setBulkSelectorOpen} position="bottom-end" withArrow shadow="md"><Popover.Target><Button className="page-header-button" data-header-tone="danger" variant="default" aria-expanded={bulkSelectorOpen} rightSection={<svg aria-hidden="true" viewBox="0 0 16 16" width="14" height="14" style={{ transition: "transform 150ms ease", transform: bulkSelectorOpen ? "rotate(180deg)" : undefined }}><path d="m3 6 5 5 5-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>} onClick={() => setBulkSelectorOpen((opened) => !opened)}>Delete runs</Button></Popover.Target><Popover.Dropdown w={520} style={{ maxWidth: "calc(100vw - 2rem)" }}><Stack gap="sm"><Group align="flex-end" wrap="nowrap"><MultiSelect classNames={{ pillsList: "run-status-pills-list" }} style={{ flex: 1, minWidth: 0 }} label="Run statuses" placeholder="Choose statuses" data={[{ value: "queued", label: "Queued" }, { value: "failed", label: "Failed" }, { value: "succeeded", label: "Succeeded" }, { value: "cancelled", label: "Cancelled" }, { value: "awaiting_publish", label: "Awaiting publish" }]} value={bulkStatuses} onChange={setBulkStatuses} searchable={false} clearable comboboxProps={{ withinPortal: false }} /><Button color="hiveError" variant="light" disabled={!bulkStatuses.length} onClick={() => { setBulkSelectorOpen(false); setBulkConfirmOpen(true); }}>Review deletion</Button></Group><Text size="xs" c="dimmed">Queued runs are cancelled before cleanup. Pending publications are discarded; runs currently publishing to Instagram are skipped. Running and profile-photo runs remain excluded.</Text></Stack></Popover.Dropdown></Popover><Button className="page-header-button" data-header-tone="neutral" variant="default" onClick={refreshRuns} loading={loading}>Refresh</Button><Button className="page-header-button" data-header-tone="neutral" variant="default" onClick={() => onNavigate("workflows")}>Browse workflows</Button></Group></Group>
+    <Group justify="space-between" className="page-header-actions"><Group gap="xs"><Badge color={runnerStatus === "active" ? "hiveSuccess" : runnerStatus === "pausing" ? "hiveWarning" : "gray"} variant="light">{runnerStatus === "active" ? "Runner active" : runnerStatus === "pausing" ? "Pausing after current run" : "Runner paused"}</Badge><Text size="xs" c="dimmed">Only affects your queued runs</Text></Group><Group><Button className="page-header-button" data-header-tone={runnerStatus === "active" ? "neutral" : "primary"} variant="default" loading={runnerBusy} onClick={() => void toggleRunner()}>{runnerStatus === "active" ? "Pause my runs" : "Resume my runs"}</Button><Popover opened={bulkSelectorOpen} onChange={setBulkSelectorOpen} position="bottom-end" withArrow shadow="md"><Popover.Target><Button className="page-header-button" data-header-tone="danger" variant="default" aria-expanded={bulkSelectorOpen} rightSection={<svg aria-hidden="true" viewBox="0 0 16 16" width="14" height="14" style={{ transition: "transform 150ms ease", transform: bulkSelectorOpen ? "rotate(180deg)" : undefined }}><path d="m3 6 5 5 5-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>} onClick={() => setBulkSelectorOpen((opened) => !opened)}>Delete runs</Button></Popover.Target><Popover.Dropdown w={520} style={{ maxWidth: "calc(100vw - 2rem)" }}><Stack gap="sm"><Group align="flex-end" wrap="nowrap"><MultiSelect classNames={{ pillsList: "run-status-pills-list" }} style={{ flex: 1, minWidth: 0 }} label="Run statuses" placeholder="Choose statuses" data={[{ value: "queued", label: "Queued" }, { value: "failed", label: "Failed" }, { value: "succeeded", label: "Succeeded" }, { value: "cancelled", label: "Cancelled" }, { value: "awaiting_publish", label: "Awaiting publish" }]} value={bulkStatuses} onChange={setBulkStatuses} searchable={false} clearable comboboxProps={{ withinPortal: false }} /><Button color="hiveError" variant="light" disabled={!bulkStatuses.length} onClick={() => { setBulkSelectorOpen(false); setBulkConfirmOpen(true); }}>Review deletion</Button></Group><Text size="xs" c="dimmed">Queued runs are cancelled before cleanup. Pending publications are discarded; runs currently publishing to Instagram are skipped. Running and profile-photo runs remain excluded.</Text></Stack></Popover.Dropdown></Popover><Button className="page-header-button" data-header-tone="neutral" variant="default" onClick={() => onNavigate("workflows")}>Browse workflows</Button></Group></Group>
     {error && <Alert color="hiveError" title="Run history unavailable">{error}</Alert>}
     <Paper className="inventory-list workspace-table-panel" withBorder radius="md">
       {loading ? <Group justify="center" p="xl"><Loader size="sm" /><Text size="sm" c="dimmed">Loading runs…</Text></Group>

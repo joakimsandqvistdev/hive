@@ -3,6 +3,8 @@ import { ActionIcon, Alert, Badge, Button, Group, Loader, Modal, NumberInput, Pa
 import { apiFetch } from "../apiClient";
 import type { AppView } from "../navigation/navigationState";
 import { useFlashMessages } from "../components/FlashMessages";
+import { useVisiblePolling } from "../hooks/useVisiblePolling";
+import { notifyNavigationSummaryChanged } from "../navigation/navigationSummary";
 import { PaginatedTableFooter } from "../components/PaginatedTableFooter";
 
 type WorkflowChoice = { id: string; name: string };
@@ -56,15 +58,18 @@ export function JobsPage({ onNavigate }: { onNavigate: (view: AppView) => void }
       const jobsBody = await jobsResponse.json() as { jobs?: Job[] };
       if (!jobsResponse.ok) throw new Error("Could not load jobs.");
       const nextJobs = jobsBody.jobs ?? [];
+      let runActivityChanged = false;
       if (hasLoadedJobStates.current) {
         for (const job of nextJobs) {
           const previous = previousJobStates.current.get(job.id);
           const wasActive = previous?.currentRunStatus === "queued" || previous?.currentRunStatus === "running" || previous?.currentRunStatus === "cancel_requested";
           const isActive = job.currentRunStatus === "queued" || job.currentRunStatus === "running" || job.currentRunStatus === "cancel_requested";
+          if (isActive !== wasActive) runActivityChanged = true;
           if (isActive && !wasActive) showFlash({ tone: "success", title: "Run started", message: `“${job.name}” was added to the run queue.` });
           if (job.status === "failed" && previous?.status !== "failed") showFlash({ tone: "error", title: "Job run failed", message: job.lastError ?? `The latest run for “${job.name}” could not start.` });
         }
       }
+      if (runActivityChanged) notifyNavigationSummaryChanged();
       previousJobStates.current = new Map(nextJobs.map((job) => [job.id, { currentRunStatus: job.currentRunStatus, status: job.status }]));
       hasLoadedJobStates.current = true;
       setJobs(nextJobs);
@@ -89,11 +94,7 @@ export function JobsPage({ onNavigate }: { onNavigate: (view: AppView) => void }
 
   useEffect(() => { void refresh(true); }, [refresh]);
   const needsPolling = jobs.some((job) => job.status === "active" || currentActivity(job) !== null);
-  useEffect(() => {
-    if (!needsPolling) return;
-    const timer = window.setInterval(() => void refresh(), 2500);
-    return () => window.clearInterval(timer);
-  }, [needsPolling, refresh]);
+  useVisiblePolling(() => refresh(), needsPolling ? 2500 : 15_000);
 
   const createJob = async (event: React.FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -171,7 +172,7 @@ export function JobsPage({ onNavigate }: { onNavigate: (view: AppView) => void }
   const repeatCountValid = form.repeatMode !== "count" || (Number.isInteger(Number(form.repeatCount)) && Number(form.repeatCount) >= 2 && Number(form.repeatCount) <= 10000);
 
   return <Stack className="workspace-page" gap="lg">
-    <Group justify="flex-end" className="page-header-actions"><Button className="page-header-button" data-header-tone="neutral" variant="default" onClick={() => void refresh(true)} loading={loading}>Refresh</Button><Button className="page-header-button" data-header-tone="primary" variant="default" disabled={loading || workflows.length === 0} onClick={() => { setError(null); setForm(initialForm()); setFormOpen(true); }}>Create job</Button></Group>
+    <Group justify="flex-end" className="page-header-actions"><Button className="page-header-button" data-header-tone="primary" variant="default" disabled={loading || workflows.length === 0} onClick={() => { setError(null); setForm(initialForm()); setFormOpen(true); }}>Create job</Button></Group>
     {error && <Alert color="hiveError" title="Jobs unavailable" withCloseButton onClose={() => setError(null)}>{error}</Alert>}
     <Paper className="inventory-list workspace-table-panel" withBorder radius="md">
       {loading ? <Group justify="center" p="xl"><Loader size="sm" /><Text size="sm" c="dimmed">Loading jobs…</Text></Group>

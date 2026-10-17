@@ -15,9 +15,13 @@ export const users = pgTable("users", {
   emailVerified: boolean("email_verified").notNull().default(false),
   name: text("name"),
   avatarUrl: text("avatar_url"),
+  runnerStatus: text("runner_status").$type<"active" | "pausing" | "paused">().notNull().default("active"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-}, (table): PgTableExtraConfigValue[] => [index("users_email_idx").on(table.email)]);
+}, (table): PgTableExtraConfigValue[] => [
+  index("users_email_idx").on(table.email),
+  check("users_runner_status_check", sql`${table.runnerStatus} IN ('active', 'pausing', 'paused')`),
+]);
 
 export const sessions = pgTable("sessions", {
   id: text("id").primaryKey(),

@@ -1,15 +1,18 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Alert, Badge, Button, Checkbox, FileInput, Group, Image, Loader, Paper, Select, Stack, Table, Tabs, Text, TextInput, Title } from "@mantine/core";
 import { apiFetch, apiUrl } from "../apiClient";
 import { formatFileSize } from "../formatters";
 import { useFlashMessages } from "../components/FlashMessages";
 import { ConfirmActionModal } from "../components/ConfirmActionModal";
 import { PaginatedTableFooter } from "../components/PaginatedTableFooter";
+import { useVisiblePolling } from "../hooks/useVisiblePolling";
 
-type Media = { id: string; displayName: string; dataTypeId: string; mediaType: string; byteSize: number; createdAt: string; runId: string | null; savedToLibrary: boolean; workflowNames?: string[]; nodeNames?: string[]; webhookNames?: string[]; protectedBy?: string[] };
+type AvailabilityState = "protected" | "retained" | "eligible";
+type Media = { id: string; displayName: string; dataTypeId: string; mediaType: string; byteSize: number; createdAt: string; runId: string | null; savedToLibrary: boolean; workflowNames?: string[]; nodeNames?: string[]; webhookNames?: string[]; protectedBy?: string[]; availabilityState?: AvailabilityState; availabilityReason?: string; evaluatedAt?: string };
 type MediaFilter = "all" | "image" | "audio" | "video";
 type MediaSaveFilter = "all" | "saved" | "not-saved";
-type Summary = { total_bytes: number; total_count: number; saved_bytes: number; saved_count: number; run_output_bytes: number; run_output_count: number; workflow_upload_bytes: number; workflow_upload_count: number; protected_bytes: number; protected_count: number };
+type Summary = { total_bytes: number; total_count: number; saved_bytes: number; saved_count: number; run_output_bytes: number; run_output_count: number; workflow_upload_bytes: number; workflow_upload_count: number; protected_bytes: number; protected_count: number; evaluated_at: string };
+type CleanupPreview = { items: Array<Media & { eligible: boolean; availabilityState: AvailabilityState; availabilityReason: string; eligibleAfter: string | null }>; evaluatedAt: string; eligibleCount: number; protectedCount: number; retainedCount: number; estimatedBytes: number };
 const PAGE_SIZE = 10;
 
 function Preview({ item }: { item: Media }) {
@@ -33,6 +36,18 @@ function mediaKind(item: Media) {
   if (item.mediaType.startsWith("audio/")) return "Audio";
   if (item.mediaType.startsWith("video/")) return "Video";
   return item.dataTypeId;
+}
+
+function availabilityLabel(state: AvailabilityState | undefined) {
+  return state === "protected" ? "Protected" : state === "eligible" ? "Eligible" : "Retained";
+}
+
+function availabilityColor(state: AvailabilityState | undefined) {
+  return state === "protected" ? "hiveWarning" : state === "eligible" ? "hiveSuccess" : "gray";
+}
+
+function checkedTime(value: string | undefined) {
+  return value ? new Intl.DateTimeFormat(undefined, { timeStyle: "short" }).format(new Date(value)) : "—";
 }
 
 function inferUploadType(file: File): "image" | "audio" | "video" | null {
@@ -60,7 +75,8 @@ export function MediaLibraryPage() {
   const [search, setSearch] = useState("");
   const [tab, setTab] = useState<string | null>("library");
   const [scopes, setScopes] = useState<string[]>(["old-run-outputs", "orphaned-workflow-uploads"]);
-  const [preview, setPreview] = useState<{ items: Array<Media & { eligible: boolean }>; estimatedBytes: number; eligibleCount: number; protectedCount: number } | null>(null);
+  const [preview, setPreview] = useState<CleanupPreview | null>(null);
+  const [previewLoading, setPreviewLoading] = useState(false);
   const [cleanupJob, setCleanupJob] = useState<{ id: string; status: string; outcomes: Array<{ status: string; count: number; bytes: number }> } | null>(null);
   const [confirmCleanup, setConfirmCleanup] = useState(false);
   const [file, setFile] = useState<File | null>(null);
@@ -70,9 +86,8 @@ export function MediaLibraryPage() {
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<Media | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const lastRefreshError = useRef<string | null>(null);
   const refresh = useCallback(async () => {
-    setError(null);
     try {
       const params = new URLSearchParams({ page: String(page), pageSize: String(PAGE_SIZE), search, type: filter, saveState: saveFilter });
       const [response, summaryResponse, protectedResponse] = await Promise.all([apiFetch(`/api/artifacts?${params}`), apiFetch("/api/artifacts/storage-summary"), apiFetch(`/api/artifacts/storage-protected?page=${protectedPage}&pageSize=10`)]);
@@ -87,28 +102,60 @@ export function MediaLibraryPage() {
       setProtectedItems(protectedBody.items);
       setProtectedTotal(protectedBody.total);
       setSelectedId((current) => body.items.some((item) => item.id === current) ? current : body.items[0]?.id ?? null);
+      lastRefreshError.current = null;
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Could not load media.");
+      const message = cause instanceof Error ? cause.message : "Could not load media.";
+      if (lastRefreshError.current !== message) showFlash({ tone: "error", title: "Media library unavailable", message });
+      lastRefreshError.current = message;
     } finally {
       setLoading(false);
     }
-  }, [filter, page, protectedPage, saveFilter, search]);
+  }, [filter, page, protectedPage, saveFilter, search, showFlash]);
   useEffect(() => { void refresh(); }, [refresh]);
+  useEffect(() => { if (tab === "storage") void refresh(); }, [tab, refresh]);
+  useVisiblePolling(refresh, tab === "storage" ? 5000 : 15_000);
   const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   const pageItems = items;
   useEffect(() => { if (page > totalPages) setPage(totalPages); }, [page, totalPages]);
   const selectedItem = pageItems.find((item) => item.id === selectedId) ?? pageItems[0] ?? null;
+  const mediaReferenceGroups = selectedItem ? [
+    { label: "Workflow", names: selectedItem.workflowNames ?? [] },
+    { label: "Node", names: selectedItem.nodeNames ?? [] },
+    { label: "Webhook", names: selectedItem.webhookNames ?? [] },
+  ].filter((group) => group.names.length > 0) : [];
 
-  async function loadCleanupPreview() {
+  async function loadCleanupPreview(): Promise<CleanupPreview> {
     const params = new URLSearchParams({ scopes: scopes.join(",") });
     const response = await apiFetch(`/api/artifacts/cleanup/preview?${params}`);
     if (!response.ok) throw new Error("Could not preview cleanup.");
-    setPreview(await response.json());
+    const body = await response.json() as CleanupPreview;
+    setPreview(body);
+    return body;
+  }
+  async function reviewCleanup() {
+    setPreviewLoading(true);
+    try {
+      await loadCleanupPreview();
+      setConfirmCleanup(true);
+    } catch (cause) {
+      showFlash({ tone: "error", title: "Could not refresh cleanup eligibility", message: cause instanceof Error ? cause.message : "Could not refresh cleanup eligibility." });
+    } finally { setPreviewLoading(false); }
+  }
+  async function previewCleanup() {
+    setPreviewLoading(true);
+    try { await loadCleanupPreview(); }
+    catch (cause) { showFlash({ tone: "error", title: "Could not preview cleanup", message: cause instanceof Error ? cause.message : "Could not preview cleanup." }); }
+    finally { setPreviewLoading(false); }
   }
   async function queueCleanup() {
     if (!preview) return;
     const response = await apiFetch("/api/artifacts/cleanup", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ scopes, artifactIds: preview.items.filter((item) => item.eligible).map((item) => item.id) }) });
     const body = await response.json() as { jobId?: string; error?: string };
+    if (response.status === 409 && body.error === "cleanup_selection_stale") {
+      setConfirmCleanup(false);
+      await loadCleanupPreview();
+      throw new Error("Storage references changed. Review the refreshed status before confirming cleanup.");
+    }
     if (!response.ok || !body.jobId) throw new Error(body.error ?? "Could not start cleanup.");
     setConfirmCleanup(false);
     setPreview(null);
@@ -132,7 +179,7 @@ export function MediaLibraryPage() {
     if (!file) return;
     const type = inferUploadType(file);
     if (!type) return;
-    setBusyId("upload"); setError(null);
+    setBusyId("upload");
     const uploadedName = file.name;
     try {
       const response = await apiFetch(`/api/artifacts/upload?scope=library&dataTypeId=${type}&name=${encodeURIComponent(file.name)}`, { method: "POST", headers: { "content-type": "application/octet-stream" }, body: file });
@@ -149,7 +196,7 @@ export function MediaLibraryPage() {
   }
 
   async function perform(id: string, action: "save-to-library" | "delete"): Promise<boolean> {
-    setBusyId(id); setError(null);
+    setBusyId(id);
     const itemName = items.find((item) => item.id === id)?.displayName ?? "Media";
     try {
       const response = await apiFetch(`/api/artifacts/${id}${action === "save-to-library" ? "/save-to-library" : ""}`, { method: action === "delete" ? "DELETE" : "POST" });
@@ -178,12 +225,6 @@ export function MediaLibraryPage() {
   ];
 
   return <Stack className="workspace-page" gap="lg">
-    <Group justify="flex-end" className="page-header-actions">
-      <Button className="page-header-button" data-header-tone="neutral" variant="default" onClick={() => void refresh()} loading={loading}>Refresh</Button>
-    </Group>
-
-    {error && <Alert color="hiveError" title="Media library unavailable" onClose={() => setError(null)} withCloseButton>{error}</Alert>}
-
     <Paper className="inventory-list" withBorder radius="md">
       <Tabs value={tab} onChange={setTab}>
       <Tabs.List><Tabs.Tab value="library">Library</Tabs.Tab><Tabs.Tab value="storage">Storage</Tabs.Tab></Tabs.List>
@@ -231,7 +272,7 @@ export function MediaLibraryPage() {
                       onClick={() => setSelectedId(item.id)}
                       onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setSelectedId(item.id); } }}
                     >
-                      <Table.Td><Text className="inventory-row-title" fw={600} size="sm" lineClamp={1}>{item.displayName}</Text><Text size="xs" c="dimmed">{item.savedToLibrary ? "Saved to library" : item.runId ? "Run output" : "Workflow input"}</Text></Table.Td>
+                      <Table.Td><Text className="inventory-row-title" fw={600} size="sm" lineClamp={1}>{item.displayName}</Text><Text size="xs" c="dimmed">{item.savedToLibrary ? "Saved to library" : item.runId ? "Run output" : "Workflow input"} · {availabilityLabel(item.availabilityState)}</Text></Table.Td>
                       <Table.Td><Badge variant="light" color="gray" size="sm">{mediaKind(item)}</Badge></Table.Td>
                       <Table.Td className="inventory-nowrap">{formatFileSize(item.byteSize)}</Table.Td>
                       <Table.Td className="media-date-cell">{formatDate(item.createdAt)}</Table.Td>
@@ -241,16 +282,22 @@ export function MediaLibraryPage() {
                 <PaginatedTableFooter total={total} itemName="item" page={page} pageSize={PAGE_SIZE} totalPages={totalPages} onPageChange={(nextPage) => { setPage(nextPage); setSelectedId(null); }} />
               </div>
               {selectedItem && <Paper className="media-detail-panel" radius="md" p="sm">
-                <Group justify="space-between" wrap="nowrap" mb="xs">
+                <Group className="media-detail-heading" justify="space-between" wrap="nowrap" mb="xs">
                   <Stack gap={2} style={{ minWidth: 0 }}><Text fw={600} size="sm" lineClamp={1}>{selectedItem.displayName}</Text><Text size="xs" c="dimmed">{mediaKind(selectedItem)} · {formatFileSize(selectedItem.byteSize)}</Text></Stack>
                   <Badge color={selectedItem.savedToLibrary ? "hiveSuccess" : "hiveSky"} variant="light">{selectedItem.savedToLibrary ? "Saved" : selectedItem.runId ? "Run output" : "Workflow input"}</Badge>
                 </Group>
                 <div className={`media-preview-frame${selectedItem.mediaType.startsWith("audio/") ? " media-preview-frame-audio" : ""}`}><Preview item={selectedItem} /></div>
-                <Text size="xs" c="dimmed" mt="xs">Added {formatDate(selectedItem.createdAt)}</Text>
-                {Boolean(selectedItem.workflowNames?.length || selectedItem.nodeNames?.length || selectedItem.webhookNames?.length || selectedItem.protectedBy?.length) && <Stack gap={2} mt="sm"><Text size="xs" fw={600}>Used by</Text>{[...(selectedItem.workflowNames ?? []), ...(selectedItem.nodeNames ?? []), ...(selectedItem.webhookNames ?? []), ...(selectedItem.protectedBy ?? [])].map((name, index) => <Text key={`${name}-${index}`} size="xs" c="dimmed">{name}</Text>)}</Stack>}
-                <Group justify="flex-end" gap="xs" mt="sm" className="media-detail-actions">
-                  {!selectedItem.savedToLibrary && <Button size="xs" variant="light" loading={busyId === selectedItem.id} onClick={() => void perform(selectedItem.id, "save-to-library")}>Save to library</Button>}
+                <div className="media-detail-metadata">
+                  <div><Text className="media-detail-meta-label">Added</Text><Text size="xs">{formatDate(selectedItem.createdAt)}</Text></div>
+                  <div><Text className="media-detail-meta-label">Storage status</Text><Group gap={6} wrap="nowrap"><Badge size="xs" variant="light" color={availabilityColor(selectedItem.availabilityState)}>{availabilityLabel(selectedItem.availabilityState)}</Badge><Text size="xs" c="dimmed">{selectedItem.availabilityReason ?? "Status unavailable"}</Text></Group><Text size="xs" c="dimmed" mt={2}>Checked {checkedTime(selectedItem.evaluatedAt)}</Text></div>
+                </div>
+                {mediaReferenceGroups.length > 0 && <Stack className="media-detail-references" gap={"xs"}>
+                  <Text className="media-detail-section-title">Used by</Text>
+                  {mediaReferenceGroups.flatMap((group) => group.names.map((name, index) => <div className="media-detail-reference" key={`${group.label}-${name}-${index}`}><Text className="media-detail-reference-type">{group.label}</Text><Text size="xs" lineClamp={2}>{name}</Text></div>))}
+                </Stack>}
+                <Group justify="space-between" gap="xs" mt="sm" className="media-detail-actions">
                   <Button size="xs" variant="light" color="hiveError" loading={busyId === selectedItem.id} onClick={() => setDeleteTarget(selectedItem)}>Delete</Button>
+                  {!selectedItem.savedToLibrary && <Button size="xs" variant="light" loading={busyId === selectedItem.id} onClick={() => void perform(selectedItem.id, "save-to-library")}>Save to library</Button>}
                 </Group>
               </Paper>}
             </div>}
@@ -258,7 +305,7 @@ export function MediaLibraryPage() {
       <Tabs.Panel value="storage" p="md">
         <div className="media-storage-workspace">
           <Group className="media-storage-heading" justify="space-between" align="flex-start">
-            <Stack gap={3}><Title order={1} size="h3">Storage</Title><Text size="sm" c="dimmed">Track saved and temporary media. Cleanup is always reviewed before deletion.</Text></Stack>
+            <Stack gap={3}><Title order={1} size="h3">Storage</Title><Text size="sm" c="dimmed">Protected files have active references; retained files are kept by policy; eligible files can be reviewed for cleanup.</Text><Text size="xs" c="dimmed">Status checked {checkedTime(summary?.evaluated_at)}</Text></Stack>
             <Button variant="default" onClick={() => setTab("library")}>← Back to library</Button>
           </Group>
           <div className="media-storage-grid">
@@ -277,7 +324,7 @@ export function MediaLibraryPage() {
                   <Text size="xs" c="dimmed">Unsaved run outputs · {summary.run_output_count} files</Text><Text size="xs" fw={600}>{formatFileSize(summary.run_output_bytes)}</Text>
                   <Text size="xs" c="dimmed">Workflow uploads · {summary.workflow_upload_count} files</Text><Text size="xs" fw={600}>{formatFileSize(summary.workflow_upload_bytes)}</Text>
                 </div>
-                <Text className="media-storage-protected-total" size="xs">Protected by active references · {summary.protected_count} files · {formatFileSize(summary.protected_bytes)} <Text component="span" size="xs" c="dimmed">(overlaps categories above)</Text></Text>
+                <Text className="media-storage-protected-total" size="xs">Protected by active references · {summary.protected_count} files · {formatFileSize(summary.protected_bytes)} <Text component="span" size="xs" c="dimmed">(overlaps categories above; recent run outputs are retained separately)</Text></Text>
               </> : <Group justify="center" p="md"><Loader size="sm" /></Group>}
             </Paper>
             <Paper className="media-storage-card" withBorder radius="md" p="md">
@@ -291,13 +338,13 @@ export function MediaLibraryPage() {
               <Alert className="media-protected-callout" color="hiveWarning" variant="light" mt="sm">Protected files appear in the review with the reason they’re retained; they are not selected for deletion.</Alert>
               <div className="media-cleanup-footer">
                 <Stack gap={2}><Text size="xs" c="dimmed">Review items and estimate before deleting</Text>{preview && <Text size="xs" fw={600}>{preview.eligibleCount} eligible · {formatFileSize(preview.estimatedBytes)} estimated</Text>}</Stack>
-                <Button disabled={!scopes.length} onClick={() => void loadCleanupPreview().catch((cause) => setError(cause instanceof Error ? cause.message : "Could not preview cleanup."))}>Preview cleanup →</Button>
+                <Button disabled={!scopes.length} loading={previewLoading} onClick={() => void previewCleanup()}>Preview cleanup →</Button>
               </div>
             </Paper>
           </div>
           {preview && <Paper className="media-storage-card media-cleanup-preview" withBorder radius="md" p="md">
-            <Group justify="space-between" mb="sm"><Stack gap={2}><Title order={2} size="h6">Cleanup review</Title><Text size="xs" c="dimmed">{preview.eligibleCount} eligible · {formatFileSize(preview.estimatedBytes)} estimated · {preview.protectedCount} protected</Text></Stack><Button color="hiveError" disabled={!preview.eligibleCount} onClick={() => setConfirmCleanup(true)}>Delete {preview.eligibleCount} eligible files</Button></Group>
-            {preview.items.length === 0 ? <Text size="sm" c="dimmed">No files match these cleanup scopes.</Text> : <Table><Table.Thead><Table.Tr><Table.Th>File</Table.Th><Table.Th>Type</Table.Th><Table.Th>Size</Table.Th><Table.Th>Added</Table.Th><Table.Th>Context / status</Table.Th></Table.Tr></Table.Thead><Table.Tbody>{preview.items.map((item) => <Table.Tr key={item.id}><Table.Td>{item.displayName}</Table.Td><Table.Td>{mediaKind(item)}</Table.Td><Table.Td>{formatFileSize(item.byteSize)}</Table.Td><Table.Td>{formatDate(item.createdAt)}</Table.Td><Table.Td><Badge color={item.eligible ? "hiveSuccess" : "gray"}>{item.eligible ? "Eligible" : "Protected"}</Badge><Text size="xs" c="dimmed">{!item.eligible && item.protectedBy?.length ? item.protectedBy.join(" · ") : [...(item.workflowNames ?? []), ...(item.nodeNames ?? []), ...(item.webhookNames ?? [])].join(" · ") || "No linked context"}</Text></Table.Td></Table.Tr>)}</Table.Tbody></Table>}
+            <Group justify="space-between" mb="sm"><Stack gap={2}><Title order={2} size="h6">Cleanup review</Title><Text size="xs" c="dimmed">{preview.eligibleCount} eligible · {preview.protectedCount} protected · {preview.retainedCount} retained · {formatFileSize(preview.estimatedBytes)} estimated</Text><Text size="xs" c="dimmed">Eligibility checked {checkedTime(preview.evaluatedAt)}; it will be checked again before deletion.</Text></Stack><Button color="hiveError" disabled={!preview.eligibleCount} loading={previewLoading} onClick={() => void reviewCleanup()}>Delete {preview.eligibleCount} eligible files</Button></Group>
+            {preview.items.length === 0 ? <Text size="sm" c="dimmed">No files match these cleanup scopes.</Text> : <Table><Table.Thead><Table.Tr><Table.Th>File</Table.Th><Table.Th>Type</Table.Th><Table.Th>Size</Table.Th><Table.Th>Added</Table.Th><Table.Th>Context / status</Table.Th></Table.Tr></Table.Thead><Table.Tbody>{preview.items.map((item) => <Table.Tr key={item.id}><Table.Td>{item.displayName}</Table.Td><Table.Td>{mediaKind(item)}</Table.Td><Table.Td>{formatFileSize(item.byteSize)}</Table.Td><Table.Td>{formatDate(item.createdAt)}</Table.Td><Table.Td><Badge color={availabilityColor(item.availabilityState)}>{availabilityLabel(item.availabilityState)}</Badge><Text size="xs" c="dimmed">{item.availabilityReason}{item.availabilityState === "retained" && item.eligibleAfter ? ` · Eligible after ${formatDate(item.eligibleAfter)}` : ""}</Text><Text size="xs" c="dimmed">{[...(item.workflowNames ?? []), ...(item.nodeNames ?? []), ...(item.webhookNames ?? [])].join(" · ") || "No linked context"}</Text></Table.Td></Table.Tr>)}</Table.Tbody></Table>}
           </Paper>}
           {cleanupJob && <Paper className="media-storage-card media-cleanup-preview" withBorder radius="md" p="sm"><Group justify="space-between"><Stack gap={2}><Text fw={600} size="sm">Cleanup {cleanupJob.status.replaceAll("_", " ")}</Text><Text size="xs" c="dimmed">{cleanupJob.outcomes.map((entry) => `${entry.count} ${entry.status}`).join(" · ") || "Waiting for cleanup worker"}</Text></Stack>{cleanupJob.status === "completed_with_skips" && cleanupJob.outcomes.some((entry) => entry.status === "failed") && <Button size="xs" variant="light" onClick={() => void apiFetch(`/api/artifacts/cleanup/${cleanupJob.id}/retry`, { method: "POST" }).then(() => setCleanupJob({ ...cleanupJob, status: "queued" }))}>Retry failed</Button>}</Group></Paper>}
           <Paper className="media-storage-card media-protected-list" withBorder radius="md" p="md">
@@ -314,7 +361,7 @@ export function MediaLibraryPage() {
     <ConfirmActionModal opened={deleteTarget !== null} onClose={() => { if (busyId !== deleteTarget?.id) setDeleteTarget(null); }} title="Delete media permanently?" confirmLabel="Delete media" loading={busyId === deleteTarget?.id} onConfirm={() => { if (!deleteTarget) return; void perform(deleteTarget.id, "delete").then((deleted) => { if (deleted) setDeleteTarget(null); }); }}>
       <Text size="sm">Delete “{deleteTarget?.displayName}” and its stored file? This action cannot be undone. Media referenced by workflows or publications cannot be deleted until those references are removed.</Text>
     </ConfirmActionModal>
-    <ConfirmActionModal opened={confirmCleanup} onClose={() => setConfirmCleanup(false)} title="Delete eligible media permanently?" confirmLabel="Delete media" onConfirm={() => void queueCleanup().catch((cause) => setError(cause instanceof Error ? cause.message : "Could not start cleanup."))}>
+    <ConfirmActionModal opened={confirmCleanup} onClose={() => setConfirmCleanup(false)} title="Delete eligible media permanently?" confirmLabel="Delete media" onConfirm={() => void queueCleanup().catch((cause) => showFlash({ tone: "error", title: "Could not start cleanup", message: cause instanceof Error ? cause.message : "Could not start cleanup." }))}>
       <Text size="sm">Delete {preview?.eligibleCount ?? 0} files and free an estimated {formatFileSize(preview?.estimatedBytes ?? 0)}. This is permanent. Eligibility and references will be checked again before each file is deleted.</Text>
     </ConfirmActionModal>
   </Stack>;

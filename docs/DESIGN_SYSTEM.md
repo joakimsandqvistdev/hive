@@ -6,6 +6,11 @@
 - Avoid one-off styling when an existing pattern is available.
 - Use Mantine components when possible
 
+## Page content width
+
+- Use the shared `home-page` / `workspace-page` root width for top-level page stacks: `width: min(100%, 1400px)` with centered margins. New pages should use `workspace-page` so their content aligns with Media Library and other workspace pages.
+- Keep internal cards, tables, and detail panels responsive within that shared page width. Full-canvas editors have their own full-viewport layout and do not use this page container.
+
 ## Soft workspace appearance
 
 - The default appearance is light, based on the accepted Soft workspace preview (2026-10-13). This replaces the earlier Slate Sky dark appearance.
@@ -29,8 +34,8 @@
 
 ## Feedback and notifications
 
-- Use the shared Hive flash notification system for transient outcomes such as successful validation, completed actions, and non-blocking operation failures. Do not use a Mantine `Alert` with a title for a success notification or other brief status message.
-- Keep Mantine `Alert` components for persistent, actionable context that should remain visible until the user addresses it, such as missing server configuration, a workflow needing repair, or a form error that must be corrected before continuing.
+- Use the shared Hive flash notification system for transient outcomes, including page/list request failures, preview or refresh failures, completed actions, and other non-blocking operation failures. Do not render these transient errors in a page-level Mantine `Alert`; use a concise error flash instead. Deduplicate errors from background polling so a continuing outage does not produce repeated notifications, and clear the deduplication state after a successful request.
+- Keep Mantine `Alert` components for persistent, actionable context that should remain visible until the user addresses it, such as missing server configuration, a workflow needing repair, or a form error that must be corrected before continuing. Inline field validation may remain attached to the affected field.
 - Use the flash tone that matches the outcome (`success`, `warning`, `error`, or `neutral`) and keep its title and message concise. Avoid showing the same outcome both as a flash and as an alert.
 
 ## Confirmation dialogs

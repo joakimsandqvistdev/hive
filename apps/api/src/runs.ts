@@ -8,6 +8,45 @@ import { bulkDeleteRunStatuses, canDeleteAwaitingPublishRun, isBulkDeleteRunStat
 
 const router = Router();
 
+router.get("/runner-control", async (_req, res, next) => {
+  const ownerId = res.locals.userId as string;
+  try {
+    await pool.query(`UPDATE users SET runner_status='paused' WHERE id=$1 AND runner_status='pausing'
+      AND NOT EXISTS (SELECT 1 FROM runs WHERE user_id=$1 AND claimed_by IS NOT NULL AND lease_expires_at>now())`, [ownerId]);
+    const result = await pool.query<{ runnerStatus: string; queuedRuns: string; runningRuns: string }>(`SELECT u.runner_status AS "runnerStatus",
+      (SELECT count(*)::text FROM runs WHERE user_id=u.id AND status='queued') AS "queuedRuns",
+      (SELECT count(*)::text FROM runs WHERE user_id=u.id AND status IN ('running','cancel_requested')) AS "runningRuns"
+      FROM users u WHERE u.id=$1`, [ownerId]);
+    const state = result.rows[0];
+    if (!state) { res.status(404).json({ error: "user_not_found" }); return; }
+    res.json({ runnerStatus: state.runnerStatus, queuedRuns: Number(state.queuedRuns), runningRuns: Number(state.runningRuns) });
+  } catch (error) { next(error); }
+});
+
+router.put("/runner-control", async (req, res, next) => {
+  if (req.get("origin") !== (process.env.WEB_ORIGIN ?? "http://localhost:5173")) { res.status(403).json({ error: "invalid_origin" }); return; }
+  const ownerId = res.locals.userId as string;
+  const requestedStatus = req.body?.status;
+  if (requestedStatus !== "active" && requestedStatus !== "paused") { res.status(400).json({ error: "invalid_runner_status" }); return; }
+  const client = await pool.connect();
+  try {
+    await client.query("BEGIN");
+    const user = await client.query<{ runner_status: string }>("SELECT runner_status FROM users WHERE id=$1 FOR UPDATE", [ownerId]);
+    if (!user.rowCount) { await client.query("ROLLBACK"); res.status(404).json({ error: "user_not_found" }); return; }
+    let status: string = requestedStatus;
+    if (requestedStatus === "paused" && user.rows[0]?.runner_status === "active") {
+      const running = await client.query("SELECT 1 FROM runs WHERE user_id=$1 AND claimed_by IS NOT NULL AND lease_expires_at>now() LIMIT 1", [ownerId]);
+      status = running.rowCount ? "pausing" : "paused";
+    } else if (requestedStatus === "paused" && user.rows[0]?.runner_status === "pausing") {
+      status = "pausing";
+    }
+    await client.query("UPDATE users SET runner_status=$2,updated_at=now() WHERE id=$1", [ownerId, status]);
+    await client.query("COMMIT");
+    res.json({ runnerStatus: status });
+  } catch (error) { await client.query("ROLLBACK"); next(error); }
+  finally { client.release(); }
+});
+
 router.post("/:id/cancel", async (req, res, next) => {
   if (req.get("origin") !== (process.env.WEB_ORIGIN ?? "http://localhost:5173")) { res.status(403).json({ error: "invalid_origin" }); return; }
   const ownerId = res.locals.userId as string;

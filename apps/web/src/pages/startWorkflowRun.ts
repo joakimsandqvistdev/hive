@@ -1,4 +1,5 @@
 import { apiFetch } from "../apiClient";
+import { notifyNavigationSummaryChanged } from "../navigation/navigationSummary";
 
 const runErrors: Record<string, string> = {
   model_not_downloaded: "Download every model used by this workflow from Models before running.",
@@ -14,7 +15,7 @@ async function startRun(path: string): Promise<void> {
     headers: { "content-type": "application/json" },
     body: "{}",
   });
-  if (response.ok) return;
+  if (response.ok) { notifyNavigationSummaryChanged(); return; }
   const body = await response.json().catch(() => ({})) as { error?: string };
   throw new Error(runErrors[body.error ?? ""] ?? "Could not start workflow.");
 }

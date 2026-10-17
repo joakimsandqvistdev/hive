@@ -14,6 +14,8 @@ The Media Library lists the first 500 artifacts and offers individual deletion, 
 - Show tracked artifact byte totals for saved library media, unsaved run outputs, and workflow uploads. Show protected bytes as a separate overlapping indicator.
 - V1 cleanup scopes are unsaved outputs from terminal runs older than 30 days and unreferenced workflow uploads of any age. Incomplete uploads are excluded because uploads are persisted only after successful validation and storage.
 - Preview the eligible and protected files before confirmation. Revalidate owner, scope, age, run state, and references before queueing and again for each item in the worker. Delete media metadata and bytes only; preserve run history. Record per-item outcomes and allow failed file removal to be retried.
+- Label file status as **Protected** when a live reference blocks cleanup, **Retained** when policy keeps it (including a run output younger than 30 days), and **Eligible** when it currently meets cleanup rules. Derive status and reasons from server-side database state, show when it was evaluated, refresh on Storage entry/while visible, and fetch a fresh preview before opening the deletion confirmation.
+- If any item in the confirmed selection becomes ineligible before it is queued, reject the entire selection and require a fresh review. The cleanup worker still rechecks each item immediately before deletion.
 - Deletion is permanent after explicit confirmation.
 
 ## Consequences
