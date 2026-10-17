@@ -97,12 +97,15 @@ body { color: var(--mantine-color-text); background: var(--mantine-color-gray-0)
 .workflow-editor-page { display: flex; flex-direction: column; width: 100%; height: 100%; min-height: 0; }
 .workflow-editor-header { flex: 0 0 auto; padding: 10px 14px; border-bottom: 1px solid var(--mantine-color-gray-2); background: var(--mantine-color-white); }
 .workflow-editor-header-row { min-width: 0; }
-.workflow-header-leading { min-width: 0; flex: 1 1 auto; }
+.workflow-header-leading { min-width: 0; flex: 0 1 auto; }
+.workflow-editor-actions { min-width: 0; flex: 0 1 auto; justify-content: flex-start; }
+.workflow-editor-secondary-actions { min-width: 0; flex: 0 1 auto; justify-content: flex-end; }
+.workflow-editor-action-group { min-width: 0; }
 .workflow-header-error { min-width: 0; max-width: min(560px, 45vw); flex: 0 1 auto; margin: 0; font-size: var(--mantine-font-size-sm); line-height: 1.35; }
 .workflow-header-error .mantine-Alert-message { overflow-wrap: anywhere; }
 .workflow-editor-title { min-width: 0; max-width: min(34vw, 420px); }
 .workflow-editor-body { position: relative; display: flex; flex: 1 1 auto; width: 100%; min-width: 0; min-height: 0; }
-.workflow-editor-canvas { --hive-canvas-background: #e0e5eb; --hive-canvas-surface: #181e25; --hive-canvas-header: #202832; --hive-canvas-border: #313d4c; --hive-canvas-text: #e5edf6; --hive-canvas-muted: #9aa9bb; --hive-canvas-accent: #74c0fc; --hive-canvas-danger: #ff6b6b; --hive-canvas-control-surface: #ffffff; --hive-canvas-control-border: #dfe3e8; --hive-canvas-control-text: #303843; --hive-canvas-control-hover: #f1f6fe; --hive-canvas-label: #47505c; position: relative; display: flex; flex: 1 1 0; width: 100%; min-width: 0; min-height: 0; overflow: hidden; background: var(--hive-canvas-background); }
+.workflow-editor-canvas { --hive-canvas-background: #e9eef3; --hive-canvas-surface: #181e25; --hive-canvas-header: #202832; --hive-canvas-border: #313d4c; --hive-canvas-text: #e5edf6; --hive-canvas-muted: #9aa9bb; --hive-canvas-accent: #74c0fc; --hive-canvas-danger: #ff6b6b; --hive-canvas-control-surface: #ffffff; --hive-canvas-control-border: #dfe3e8; --hive-canvas-control-text: #303843; --hive-canvas-control-hover: #f1f6fe; --hive-canvas-label: #47505c; position: relative; display: flex; flex: 1 1 0; width: 100%; min-width: 0; min-height: 0; overflow: hidden; background: var(--hive-canvas-background); }
 .workflow-editor-canvas .hive-ionodes { width: 100%; height: 100%; min-height: 0; color-scheme: dark; }
 .workflow-editor-canvas .hive-ionodes .ionodes-canvas,
 .workflow-editor-canvas .hive-ionodes .ionodes-canvas .react-flow { background: var(--hive-canvas-background); }
@@ -194,10 +197,16 @@ body { color: var(--mantine-color-text); background: var(--mantine-color-gray-0)
 @media (min-width: 521px) and (max-width: 800px) { .home-hero { grid-template-columns: minmax(0, 1fr); gap: 28px; } .home-flow-card { max-width: 480px; } }
 @media (max-width: 800px) {
   .workflow-editor-header { padding: 8px; }
-  .workflow-editor-header > .mantine-Group-root { align-items: flex-start; flex-direction: column; }
   .workflow-editor-header .mantine-Group-root { flex-wrap: wrap; }
+  .workflow-editor-header-row { align-items: flex-start; }
+  .workflow-editor-secondary-actions { flex: 1 1 auto; justify-content: flex-end; }
   .workflow-header-error { max-width: min(560px, calc(100vw - 110px)); }
   .workflow-editor-title { max-width: 38vw; }
+}
+@media (max-width: 600px) {
+  .workflow-editor-header-row { align-items: flex-start; }
+  .workflow-header-leading { flex-basis: 100%; }
+  .workflow-editor-secondary-actions { width: 100%; flex-basis: 100%; justify-content: flex-start; }
 }
 @media (max-width: 600px) {
   .workflow-editor-main { height: calc(100vh - 64px); height: calc(100dvh - 64px); min-height: 0; overflow: hidden; }

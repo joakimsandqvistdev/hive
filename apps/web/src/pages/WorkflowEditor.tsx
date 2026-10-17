@@ -67,6 +67,7 @@ export function WorkflowEditor({ workflowId, onClose, onNavigate, customNodeEdit
   }, []);
   const selectedGraphNode = graph.nodes.find((node) => node.id === selectedNodeId);
   const selected: WorkflowNode | undefined = selectedGraphNode ? toWorkflowNode(selectedGraphNode, contracts) : undefined;
+  const hasRemoveSelection = selectedNodeIds.length > 0 || Boolean(selectedConnectionId);
   const availableBoundaryPorts = useMemo(() => graph.nodes.flatMap((graphNode) => {
     const node = toWorkflowNode(graphNode, contracts);
     return [
@@ -310,6 +311,19 @@ export function WorkflowEditor({ workflowId, onClose, onNavigate, customNodeEdit
   function requestRemoveNode(graphNode: GraphDocument["nodes"][number]) {
     setSelectedNodeId(graphNode.id); setSelectedNodeIds([graphNode.id]); setSelectedConnectionId(null); setRemoveOpen(true);
   }
+  function removeSelection() {
+    if (uploading) return;
+    if (selectedNodeIds.length > 0) {
+      setRemoveOpen(true);
+      return;
+    }
+    if (!selectedConnectionId) return;
+    setGraph((current) => removeConnection(current, selectedConnectionId));
+    setSelectedConnectionId(null);
+    setSelectedNodeId(null);
+    setSelectedNodeIds([]);
+    setDirty(true);
+  }
   async function upload(file: File | null, target: WorkflowNode | undefined = selected) {
     if (!file || !target) return;
     const nodeId = target.id;
@@ -372,7 +386,29 @@ export function WorkflowEditor({ workflowId, onClose, onNavigate, customNodeEdit
     finally { setRunning(false); }
   }
   return <div className="workflow-editor-page">
-    <header className="workflow-editor-header"><Group justify="space-between" className="workflow-editor-header-row"><Group className="workflow-header-leading" gap="sm"><Button variant="subtle" onClick={() => { if (dirty) setDiscardOpen(true); else onClose(); }}>Back</Button>{workflow?.needsAttention && <Alert className="workflow-header-error" color="hiveWarning" variant="light" radius="sm" p="xs" role="status">This {customNodeEditor ? "custom node" : "workflow"} needs attention. Repair or replace outdated custom node references.</Alert>}{error && <Alert className="workflow-header-error" color="hiveError" variant="light" radius="sm" p="xs" role="alert">{error}</Alert>}</Group><Group wrap="wrap"><Button size="sm" variant="light" leftSection={<AddNodeIcon />} onClick={() => { void downloaded.refresh(); setPickerOpen(true); }}>Add node</Button><Button size="sm" variant="light" onClick={() => void openImport()}>{customNodeEditor ? "Import workflow" : "Import nodes"}</Button>{customNodeEditor && <Button size="sm" variant="light" onClick={() => setInterfaceOpen(true)}>Edit interface</Button>}{!customNodeEditor && <Button size="sm" variant="light" onClick={openExportSelection} disabled={!selectedNodeIds.length || exporting}>Export selected</Button>}<Button size="sm" variant="light" color="hiveError" leftSection={<RemoveIcon />} aria-label="Remove selected connection" disabled={!selectedConnectionId || uploading} onClick={() => { if (!selectedConnectionId) return; setGraph((current) => removeConnection(current, selectedConnectionId)); setSelectedConnectionId(null); setDirty(true); }}>Remove connection</Button><Button variant="subtle" onClick={() => setDetailsOpen(true)}>Edit details</Button>{(!customNodeEditor || customNodeRunEligible) && <Button variant="light" onClick={() => void run()} loading={running} disabled={dirty || !graph.nodes.length || loading || saving || uploading || workflow?.needsAttention || (customNodeEditor && !customNodeRunEligible)}>{customNodeEditor ? "Run custom node" : "Run workflow"}</Button>}<Button onClick={() => void save()} loading={saving} disabled={!dirty || uploading}>Save {customNodeEditor ? "custom node" : "workflow"}</Button></Group></Group></header>
+    <header className="workflow-editor-header">
+      <Group justify="space-between" align="center" wrap="wrap" gap="sm" className="workflow-editor-header-row">
+        <Group className="workflow-header-leading" gap="xs" wrap="wrap">
+          <Button size="sm" variant="subtle" leftSection={<BackIcon />} onClick={() => { if (dirty) setDiscardOpen(true); else onClose(); }}>Back</Button>
+          <Group className="workflow-editor-actions" gap={4} wrap="wrap" role="toolbar" aria-label={`${customNodeEditor ? "Custom node" : "Workflow"} editing actions`}>
+            <Button size="sm" variant="light" color="hiveSky" leftSection={<AddNodeIcon />} onClick={() => { void downloaded.refresh(); setPickerOpen(true); }}>Add node</Button>
+            {!customNodeEditor && <Tooltip label="Export selected nodes"><span><ActionIcon variant="light" color="hiveSky" size={34} aria-label="Export selected nodes" onClick={openExportSelection} loading={exporting} disabled={!selectedNodeIds.length || exporting}><DownloadIcon /></ActionIcon></span></Tooltip>}
+            <Tooltip label={customNodeEditor ? "Import workflow" : "Import nodes"}><span><ActionIcon variant="light" color="hiveSky" size={34} aria-label={customNodeEditor ? "Import workflow" : "Import nodes"} onClick={() => void openImport()}><ImportIcon /></ActionIcon></span></Tooltip>
+            <Tooltip label={selectedNodeIds.length ? "Remove selected nodes" : "Remove selected connection"}><span><ActionIcon variant="light" color="hiveError" size={34} aria-label="Remove" disabled={!hasRemoveSelection || uploading} onClick={removeSelection}><RemoveIcon /></ActionIcon></span></Tooltip>
+          </Group>
+          {workflow?.needsAttention && <Alert className="workflow-header-error" color="hiveWarning" variant="light" radius="sm" p="xs" role="status">This {customNodeEditor ? "custom node" : "workflow"} needs attention. Repair or replace outdated custom node references.</Alert>}
+          {error && <Alert className="workflow-header-error" color="hiveError" variant="light" radius="sm" p="xs" role="alert">{error}</Alert>}
+        </Group>
+        <Group className="workflow-editor-secondary-actions" gap={4} wrap="wrap" role="toolbar" aria-label={`${customNodeEditor ? "Custom node" : "Workflow"} details and run actions`}>
+          <Group className="workflow-editor-action-group" gap={4} wrap="wrap">
+            {customNodeEditor && <Button size="sm" variant="subtle" color="hiveSky" leftSection={<InterfaceIcon />} onClick={() => setInterfaceOpen(true)}>Edit interface</Button>}
+            <Button size="sm" variant="subtle" color="hiveSky" leftSection={<DetailsIcon />} aria-label={`Edit ${customNodeEditor ? "custom node" : "workflow"} details`} onClick={() => setDetailsOpen(true)}>Edit details</Button>
+            {(!customNodeEditor || customNodeRunEligible) && <Button size="sm" variant={dirty ? "light" : "filled"} color="hiveSky" leftSection={<PlayIcon />} onClick={() => void run()} loading={running} disabled={dirty || !graph.nodes.length || loading || saving || uploading || workflow?.needsAttention || (customNodeEditor && !customNodeRunEligible)}>{customNodeEditor ? "Run custom node" : "Run workflow"}</Button>}
+            <Button size="sm" variant={dirty ? "filled" : "light"} color="hiveSky" leftSection={<SaveIcon />} aria-label={`Save ${customNodeEditor ? "custom node" : "workflow"}`} onClick={() => void save()} loading={saving} disabled={!dirty || uploading}>Save</Button>
+          </Group>
+        </Group>
+      </Group>
+    </header>
     {loading ? <Group justify="center" className="workflow-editor-loading"><Loader /><Text>Loading workflow…</Text></Group> : workflow && <div className="workflow-editor-body">
       <section className="workflow-editor-canvas" aria-label="Workflow canvas">
         <GraphEditor
@@ -397,7 +433,7 @@ export function WorkflowEditor({ workflowId, onClose, onNavigate, customNodeEdit
             </Tooltip>
           </>}
           theme={{ "--ionodes-bg": "var(--hive-canvas-background)", "--ionodes-surface": "var(--hive-canvas-surface)", "--ionodes-text": "var(--hive-canvas-text)", "--ionodes-muted": "var(--hive-canvas-muted)", "--ionodes-border": "var(--hive-canvas-border)", "--ionodes-accent": "var(--hive-canvas-accent)", "--ionodes-danger": "var(--hive-canvas-danger)" }}
-          canvas={{ hideAttribution: true, backgroundColor: "#e0e5eb", miniMapMaskColor: "rgba(124, 135, 148, 0.16)", miniMapNodeColor: (_node, invalid) => invalid ? "#ba514d" : "#4285f4" }}
+          canvas={{ hideAttribution: true, backgroundColor: "var(--mantine-color-gray-5)", miniMapMaskColor: "rgba(124, 135, 148, 0.16)", miniMapNodeColor: (_node, invalid) => invalid ? "#ba514d" : "#4285f4" }}
         />
       </section>
         <Drawer opened={Boolean(selected)} onClose={() => { setSelectedNodeId(null); setSelectedNodeIds([]); setSelectedConnectionId(null); }} position="right" size="min(520px, 100vw)" title={selected ? <Stack gap={0}><Text size="sm" fw={650}>Node configuration</Text><Text size="xs" c="dimmed">{selected.data.label}</Text></Stack> : undefined} className="workflow-node-config-drawer" styles={{ root: { top: 64, bottom: 0, height: "auto" }, inner: { height: "100%", minHeight: 0 }, content: { height: "100%", minHeight: 0, maxHeight: "100%" } }} transitionProps={{ transition: "slide-left", duration: 180 }} withOverlay={false} lockScroll={false} trapFocus={false} closeOnClickOutside={false} padding="sm" zIndex={300}>
@@ -424,8 +460,8 @@ export function WorkflowEditor({ workflowId, onClose, onNavigate, customNodeEdit
       return <Stack key={`${port.nodeId}:${port.portKey}`} gap={4}><Checkbox label={`${port.nodeLabel} · ${port.label} (${port.dataTypeLabel})`} checked={checked} onChange={(event) => { const isChecked = event.currentTarget.checked; setInterfaceSelection((current) => ({ ...current, [direction]: isChecked ? [...current[direction], { nodeId: port.nodeId, portKey: port.portKey, label: port.label }] : current[direction].filter((item) => item.nodeId !== port.nodeId || item.portKey !== port.portKey) })); setDirty(true); }} />{checked && <TextInput ml="xl" label={`Public ${direction === "inputs" ? "input" : "output"} name`} value={selectedPort?.label ?? port.label} maxLength={100} required onChange={(event) => { const label = event.currentTarget.value; setInterfaceSelection((current) => ({ ...current, [direction]: current[direction].map((item) => item.nodeId === port.nodeId && item.portKey === port.portKey ? { ...item, label } : item) })); setDirty(true); }} />}</Stack>;
     }) : <Text size="sm" c="dimmed">No available {direction} ports.</Text>}</Stack>)}</Stack></ScrollArea><Group justify="flex-end"><Button onClick={() => { setInterfaceOpen(false); setDirty(true); }}>Done</Button></Group></Stack></Modal>
     <Modal opened={importOpen} onClose={() => setImportOpen(false)} title="Import a workflow" centered size="lg"><Stack>{importError && <Alert color="hiveError" title="Could not import workflow">{importError}</Alert>}{importLoading && <Group><Loader size="sm" /><Text size="sm">Loading workflows…</Text></Group>}<Select label="Workflow to import" placeholder="Choose a workflow" data={importWorkflows.map((item) => ({ value: item.id, label: item.name }))} value={importWorkflowId} onChange={(value) => void selectImportWorkflow(value)} searchable disabled={importLoading} />{importDefinition && <Text size="sm">This will import {importDefinition.nodes.length} {importDefinition.nodes.length === 1 ? "node" : "nodes"} and {importDefinition.edges.length} {importDefinition.edges.length === 1 ? "connection" : "connections"}.</Text>}<Text size="sm" c="dimmed">The complete workflow is copied with new node and connection IDs. Its layout and connections are preserved, while it remains independent of the source workflow.</Text>{clearedMediaCount > 0 && <Alert color="hiveWarning">{clearedMediaCount} node {clearedMediaCount === 1 ? "uses" : "use"} workflow-only media from the source. Those file selections will be cleared; choose or upload media for this workflow after importing. Saved Media Library files remain linked.</Alert>}<Group justify="flex-end"><Button variant="default" onClick={() => setImportOpen(false)}>Cancel</Button><Button onClick={importWorkflow} disabled={!importDefinition?.nodes.length || importLoading || graph.nodes.length + (importDefinition?.nodes.length ?? 0) > 100 || graph.connections.length + (importDefinition?.edges.length ?? 0) > 300}>Import workflow</Button></Group></Stack></Modal>
-      <ConfirmActionModal opened={removeOpen} onClose={() => setRemoveOpen(false)} title="Remove node" confirmLabel="Remove node" onConfirm={() => { if (!selected) return; setGraph((current) => removeNode(current, selected.id)); setSelectedNodeId(null); setSelectedNodeIds([]); setSelectedConnectionId(null); setDirty(true); setRemoveOpen(false); }}>
-      <Text>Remove {selected?.data.label} and its connections?</Text>
+      <ConfirmActionModal opened={removeOpen} onClose={() => setRemoveOpen(false)} title={selectedNodeIds.length === 1 ? "Remove node" : "Remove nodes"} confirmLabel="Remove" onConfirm={() => { if (!selectedNodeIds.length) return; setGraph((current) => selectedNodeIds.reduce((next, nodeId) => removeNode(next, nodeId), current)); setSelectedNodeId(null); setSelectedNodeIds([]); setSelectedConnectionId(null); setDirty(true); setRemoveOpen(false); }}>
+      <Text>Remove {selectedNodeIds.length} {selectedNodeIds.length === 1 ? "node" : "nodes"} and their connections?</Text>
     </ConfirmActionModal>
     <ConfirmActionModal opened={discardOpen} onClose={() => setDiscardOpen(false)} title={`Discard unsaved ${customNodeEditor ? "custom node" : "workflow"} changes?`} confirmLabel="Discard changes" color="hiveWarning" onConfirm={() => { setDiscardOpen(false); onClose(); }}>
       <Text size="sm">Your unsaved edits to this {customNodeEditor ? "custom node" : "workflow"} will be lost.</Text>
@@ -447,6 +483,13 @@ export function WorkflowEditor({ workflowId, onClose, onNavigate, customNodeEdit
   </div>;
 }
 
+function BackIcon() { return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m14.5 5-7 7 7 7M8 12h12" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>; }
 function AddNodeIcon() { return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 5v14M5 12h14" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" /></svg>; }
+function PlayIcon() { return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M8 5.5v13L18 12 8 5.5Z" fill="currentColor" /></svg>; }
+function SaveIcon() { return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 4h12l3 3v13H4V4h1Z" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round"/><path d="M8 4v6h8V4M8 20v-6h8v6" stroke="currentColor" strokeWidth="1.7" strokeLinejoin="round"/></svg>; }
+function DetailsIcon() { return <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m14 5 5 5M4 20l4.2-.8L19 8.4a2.12 2.12 0 0 0-3-3L5.2 16.2 4 20Z" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" /></svg>; }
+function InterfaceIcon() { return <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="3.5" y="3.5" width="7" height="7" rx="1.5" stroke="currentColor" strokeWidth="1.7"/><rect x="13.5" y="13.5" width="7" height="7" rx="1.5" stroke="currentColor" strokeWidth="1.7"/><path d="M10.5 7h4a2 2 0 0 1 2 2v4" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"/></svg>; }
+function ImportIcon() { return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 15V4m0 0L8 8m4-4 4 4M5 14v5h14v-5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" /></svg>; }
+function DownloadIcon() { return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3.5v11m0 0 4-4m-4 4-4-4M5 16.5v3h14v-3" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round"/></svg>; }
 function DuplicateIcon() { return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="8" y="8" width="12" height="12" rx="2" stroke="currentColor" strokeWidth="1.7"/><path d="M16 8V6a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h2" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round"/></svg>; }
 function RemoveIcon() { return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3m3 0-.8 12.2a1 1 0 0 1-1 .8H7.8a1 1 0 0 1-1-.8L6 7m4 4v5m4-5v5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" /></svg>; }
