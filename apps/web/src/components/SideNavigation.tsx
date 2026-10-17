@@ -13,6 +13,8 @@ type NavigationSummary = {
   runsNeedAttention: boolean;
   succeededRuns: number;
   awaitingPublishRuns: number;
+  runnerStatus: "active" | "pausing" | "paused";
+  hasActiveRuns: boolean;
 };
 
 const emptySummary: NavigationSummary = {
@@ -22,6 +24,8 @@ const emptySummary: NavigationSummary = {
   runsNeedAttention: false,
   succeededRuns: 0,
   awaitingPublishRuns: 0,
+  runnerStatus: "active",
+  hasActiveRuns: false,
 };
 
 function AttentionIcon() {
@@ -73,10 +77,24 @@ export function SideNavigation({
       } catch { /* Keep the most recent navigation status if the API is temporarily unavailable. */ }
     };
     void refresh();
-    const interval = window.setInterval(() => void refresh(), 30_000);
     window.addEventListener("focus", refresh);
-    return () => { mounted = false; window.clearInterval(interval); window.removeEventListener("focus", refresh); };
+    window.addEventListener("hive:navigation-summary-refresh", refresh);
+    return () => { mounted = false; window.removeEventListener("focus", refresh); window.removeEventListener("hive:navigation-summary-refresh", refresh); };
   }, [user, activeView]);
+
+  useEffect(() => {
+    if (!user || !summary.hasActiveRuns || summary.runnerStatus === "paused") return;
+    const refresh = async () => {
+      if (document.visibilityState !== "visible") return;
+      try {
+        const response = await apiFetch("/api/navigation/summary");
+        if (response.ok) setSummary(await response.json() as NavigationSummary);
+      } catch { /* Keep the last run counts if the API is temporarily unavailable. */ }
+    };
+    const timer = window.setInterval(() => void refresh(), 3000);
+    document.addEventListener("visibilitychange", refresh);
+    return () => { window.clearInterval(timer); document.removeEventListener("visibilitychange", refresh); };
+  }, [user, summary.hasActiveRuns, summary.runnerStatus]);
 
   const attentionRightSection = (needsAttention: boolean, label: string) => needsAttention ? <AttentionIndicator label={label} /> : undefined;
   return (

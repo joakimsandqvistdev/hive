@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Alert, Badge, Button, Drawer, Group, Loader, Modal, Paper, Select, Stack, Table, Text } from "@mantine/core";
 import { apiFetch } from "../apiClient";
 import { ConfirmActionModal } from "../components/ConfirmActionModal";
@@ -8,6 +8,8 @@ import { WebhookTriggerDrawerContent } from "./WebhookTriggerDrawerContent";
 import type { WebhookDelivery as Delivery, WebhookTrigger as Trigger } from "./webhookManagerTypes";
 import type { Workflow } from "./workflowTypes";
 import type { AppView } from "../navigation/navigationState";
+import { useVisiblePolling } from "../hooks/useVisiblePolling";
+import { notifyNavigationSummaryChanged } from "../navigation/navigationSummary";
 
 const PAGE_SIZE = 10;
 type DeliveryResult = { items?: Delivery[] };
@@ -38,9 +40,10 @@ export function WebhookManagerPage({ onNavigate }: { onNavigate: (view: AppView)
   const [creatingTrigger, setCreatingTrigger] = useState(false);
   const [drawerEditTriggerId, setDrawerEditTriggerId] = useState<string | null>(null);
   const [issuedCredentials, setIssuedCredentials] = useState<{ triggerId: string; secret: string; endpointUrl: string } | null>(null);
+  const previousDeliveryState = useRef<Map<string, string>>(new Map());
 
-  const refresh = useCallback(async () => {
-    setLoading(true);
+  const refresh = useCallback(async (showLoading = false) => {
+    if (showLoading) setLoading(true);
     setError(null);
     try {
       const response = await apiFetch("/api/webhooks");
@@ -52,7 +55,8 @@ export function WebhookManagerPage({ onNavigate }: { onNavigate: (view: AppView)
     } finally { setLoading(false); }
   }, []);
 
-  useEffect(() => { void refresh(); }, [refresh]);
+  useEffect(() => { void refresh(true); }, [refresh]);
+  useVisiblePolling(refresh, 10_000);
 
   const filtered = useMemo(() => {
     const query = search.trim().toLocaleLowerCase();
@@ -76,18 +80,31 @@ export function WebhookManagerPage({ onNavigate }: { onNavigate: (view: AppView)
   }, [page, totalPages]);
 
   useEffect(() => {
-    if (!selected) { setSelectedId(null); setDeliveries([]); return; }
+    if (!selected) { setSelectedId(null); setDeliveries([]); previousDeliveryState.current = new Map(); return; }
     let mounted = true;
     setDeliveryLoading(true);
-    void apiFetch(`/api/webhooks/triggers/${selected.id}/deliveries`)
-      .then(async (response) => {
+    const loadDeliveries = async (reportError: boolean) => {
+      try {
+        const response = await apiFetch(`/api/webhooks/triggers/${selected.id}/deliveries`);
         const body = await response.json() as DeliveryResult;
         if (!response.ok) throw new Error("Could not load delivery history.");
-        if (mounted) setDeliveries(body.items ?? []);
-      })
-      .catch((cause) => { if (mounted) showFlash({ tone: "error", title: "Delivery history unavailable", message: cause instanceof Error ? cause.message : "Could not load delivery history." }); })
-      .finally(() => { if (mounted) setDeliveryLoading(false); });
-    return () => { mounted = false; };
+        if (mounted) {
+          const nextItems = body.items ?? [];
+          const nextState = new Map(nextItems.map((item) => [item.id, `${item.outcome}:${item.statusCode}:${item.runId ?? ""}`]));
+          const previousState = previousDeliveryState.current;
+          if (previousState.size && [...nextState].some(([id, status]) => previousState.get(id) !== status)) notifyNavigationSummaryChanged();
+          previousDeliveryState.current = nextState;
+          setDeliveries(nextItems);
+        }
+      } catch (cause) {
+        if (mounted && reportError) showFlash({ tone: "error", title: "Delivery history unavailable", message: cause instanceof Error ? cause.message : "Could not load delivery history." });
+      } finally { if (mounted) setDeliveryLoading(false); }
+    };
+    void loadDeliveries(true);
+    const poll = () => { if (document.visibilityState === "visible") void loadDeliveries(false); };
+    const timer = window.setInterval(poll, 10_000);
+    document.addEventListener("visibilitychange", poll);
+    return () => { mounted = false; window.clearInterval(timer); document.removeEventListener("visibilitychange", poll); };
   }, [selected?.id, showFlash]);
 
   const loadWorkflowChoices = async () => {
@@ -169,7 +186,6 @@ export function WebhookManagerPage({ onNavigate }: { onNavigate: (view: AppView)
 
   return <Stack className="workspace-page webhook-manager-page" gap="lg">
     <Group justify="flex-end" className="page-header-actions">
-      <Button className="page-header-button" data-header-tone="neutral" variant="default" onClick={() => void refresh()} loading={loading}>Refresh</Button>
       <Button className="page-header-button" data-header-tone="primary" variant="default" onClick={() => void loadWorkflowChoices()} loading={workflowLoading}>Create webhook</Button>
     </Group>
     {error && <Alert color="hiveError" title="Webhook list unavailable">{error}</Alert>}

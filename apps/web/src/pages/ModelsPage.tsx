@@ -3,6 +3,7 @@ import { Alert, Badge, Button, Group, Loader, Paper, Progress, ScrollArea, Stack
 import { apiFetch } from "../apiClient";
 import { PaginatedTableFooter } from "../components/PaginatedTableFooter";
 import { formatModelSize, modelDetails, modelGroups, type ModelId } from "../modelCatalog";
+import { useVisiblePolling } from "../hooks/useVisiblePolling";
 
 type ModelStatus = "not_downloaded" | "queued" | "downloading" | "cancelling" | "downloaded" | "failed" | "unavailable";
 type ModelState = { id: ModelId; status: ModelStatus; downloadedBytes?: number; totalBytes?: number; error?: string };
@@ -51,11 +52,7 @@ export function ModelsPage() {
 
   useEffect(() => { void refresh(); }, [refresh]);
   const downloadActive = models.some((model) => model.status === "queued" || model.status === "downloading" || model.status === "cancelling");
-  useEffect(() => {
-    if (!downloadActive) return;
-    const timer = window.setInterval(() => { void refresh(); }, 2500);
-    return () => window.clearInterval(timer);
-  }, [downloadActive, refresh]);
+  useVisiblePolling(refresh, downloadActive ? 2500 : 15_000);
 
   const startDownload = async (id: ModelId) => {
     setRequesting(id);
@@ -108,7 +105,6 @@ export function ModelsPage() {
 
   return <Stack className="workspace-page" gap="lg">
     <Group justify="flex-end" className="page-header-actions">
-      <Button className="page-header-button" data-header-tone="neutral" variant="default" onClick={() => void refresh()} loading={loading}>Refresh status</Button>
     </Group>
     <Alert color="hiveSky" title="Models are downloaded on demand">
       Hive does not bundle model weights. Downloads are fetched from the model publisher and stored in the local Docker runner’s persistent cache. A model can be used after its download completes.

@@ -253,6 +253,13 @@
       "when": 1792237547190,
       "tag": "0035_thankful_zombie",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1792241198786,
+      "tag": "0036_stiff_vin_gonzales",
+      "breakpoints": true
     }
   ]
 }

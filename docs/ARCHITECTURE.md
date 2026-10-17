@@ -18,4 +18,8 @@ See [decision 0026](decisions/0026-instagram-publishing.md) for the publishing a
 
 See [decision 0027](decisions/0027-text-generation-models.md) for the text-generation model integration.
 
+See [decision 0033](decisions/0033-user-scoped-runner-pause-and-page-polling.md) for user-scoped queue pausing and visible-page polling.
+
 Workflow and Custom Node saves replace the current graph transactionally. Runs retain immutable graph/model-contract/input snapshots, with no separate workflow history. Upload references in workflows and run nodes prevent deletion of files still in use. See [decision 0019](decisions/0019-direct-model-and-input-workflows.md) for the authorized clean cutover, [decision 0028](decisions/0028-reusable-custom-nodes.md) for Custom Nodes, and [DATA_MODEL.md](DATA_MODEL.md) for current tables.
+
+Workflow queue pausing is per user, stored in `users.runner_status`, and enforced when workers claim runs. A pause waits for that user's currently leased workflow runs to finish, then leaves their queued runs waiting; it does not pause other users, the separate Instagram publisher, or cleanup work. Active pages poll their own state while visible. Navigation run counts refresh on relevant client actions and poll while that user's queue has active work and is not paused.

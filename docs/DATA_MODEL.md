@@ -2,7 +2,7 @@
 
 Use `apps/api/src/schema.ts` as the implemented schema reference.
 
-- `users` and `sessions`: existing identities and authenticated sessions.
+- `users` and `sessions`: identities, authenticated sessions, and each user's active/pausing/paused workflow-run queue state.
 - `models`, `data_types`, `model_data_types`: enabled model catalog and canonical Text/Image/Audio/Video datatypes. Named model ports carry direction, datatype, label, connection transport, cardinality, and display order. Masks use Image with the `mask` role.
 - `model_input_groups` and `model_input_group_ports`: cross-port constraints such as alternatives, in addition to per-port counts.
 - `workflows`: owner-scoped metadata for one current saved definition. `is_custom_node` distinguishes reusable workflow definitions; `interface_selection` stores the selected internal input/output ports and their caller-facing names that form a Custom Node's public contract; `needs_attention` blocks runs while custom-node dependencies need repair.
@@ -29,3 +29,5 @@ The worker also polls due workflow jobs. It creates only the current run and sna
 Instagram media publishing requires a public HTTPS API URL because Meta fetches media from Hive. OAuth tokens use AES-256-GCM with the configured base64 encryption key. Account profile changes are locally prepared drafts only, not API updates.
 
 Migration `0016_model_input_workflows` performs the explicitly authorized discard of old workflow/run data and begins the current workflow schema. Later migrations add model contracts, audio support, media cleanup, and catalog updates. Existing users, sessions, model catalog, and weight cache are preserved. Binary files from discarded historical runs are not served through the API after their metadata is removed.
+
+The `users.runner_status` field gates worker claims for that user's workflow runs. `pausing` lets existing leased runs finish before the queue becomes `paused`; `active` permits new claims.

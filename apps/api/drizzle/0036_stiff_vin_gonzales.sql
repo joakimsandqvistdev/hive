@@ -1,0 +1,2 @@
+ALTER TABLE "users" ADD COLUMN "runner_status" text DEFAULT 'active' NOT NULL;--> statement-breakpoint
+ALTER TABLE "users" ADD CONSTRAINT "users_runner_status_check" CHECK ("users"."runner_status" IN ('active', 'pausing', 'paused'));

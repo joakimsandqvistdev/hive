@@ -9,7 +9,7 @@ const capabilities = [
   { icon: "models", title: "Model library", description: "Download supported models and use them in your workflows." },
   { icon: "media", title: "Media Library", description: "Search reusable assets, review tracked storage, and preview safe manual cleanup." },
   { icon: "publish", title: "Instagram publishing", description: "Publish posts and Reels automatically or after review." },
-  { icon: "jobs", title: "Jobs and Runs", description: "Schedule repeat runs, track progress, receive completion alerts, and bulk-delete runs by status, including queued runs." },
+  { icon: "jobs", title: "Jobs and Runs", description: "Schedule repeat runs, pause your queued runs after current work finishes, track progress, and manage run history." },
   { icon: "webhook", title: "Secure webhook triggers", description: "Create signed triggers, search by workflow, and review delivery history." },
 ] as const;
 
