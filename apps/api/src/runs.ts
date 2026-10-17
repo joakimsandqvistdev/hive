@@ -4,10 +4,9 @@ import { db, pool } from "./db.js";
 import { artifacts, instagramPublications, runDeletions, runNodes, runs, workflowTriggers } from "./schema.js";
 import { workflowExecutionOrder } from "./workflowExecutionOrder.js";
 import { parsePagination, totalPages } from "./pagination.js";
-import { canDeleteAwaitingPublishRun } from "./runDeletionPolicy.js";
+import { bulkDeleteRunStatuses, canDeleteAwaitingPublishRun, isBulkDeleteRunStatus } from "./runDeletionPolicy.js";
 
 const router = Router();
-const bulkDeleteStatuses = ["failed", "succeeded", "cancelled", "awaiting_publish"] as const;
 
 router.post("/:id/cancel", async (req, res, next) => {
   if (req.get("origin") !== (process.env.WEB_ORIGIN ?? "http://localhost:5173")) { res.status(403).json({ error: "invalid_origin" }); return; }
@@ -95,11 +94,11 @@ router.delete("/:id", async (req, res, next) => {
 router.post("/bulk-delete", async (req, res, next) => {
   if (req.get("origin") !== (process.env.WEB_ORIGIN ?? "http://localhost:5173")) { res.status(403).json({ error: "invalid_origin" }); return; }
   const statuses = req.body?.statuses;
-  if (!Array.isArray(statuses) || statuses.length === 0 || statuses.some((status: unknown) => typeof status !== "string" || !bulkDeleteStatuses.includes(status as typeof bulkDeleteStatuses[number]))) {
+  if (!Array.isArray(statuses) || statuses.length === 0 || statuses.some((status: unknown) => !isBulkDeleteRunStatus(status))) {
     res.status(400).json({ error: "invalid_statuses" }); return;
   }
   const ownerId = res.locals.userId as string;
-  const selectedStatuses = [...new Set(statuses as Array<typeof bulkDeleteStatuses[number]>)];
+  const selectedStatuses = [...new Set(statuses as Array<typeof bulkDeleteRunStatuses[number]>)];
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
@@ -110,6 +109,7 @@ router.post("/bulk-delete", async (req, res, next) => {
         FOR UPDATE
     `, [ownerId, selectedStatuses]);
     const matchedIds = matching.rows.map((run) => run.id);
+    const queuedIds = matching.rows.filter((run) => run.status === "queued").map((run) => run.id);
     const awaitingIds = matching.rows.filter((run) => run.status === "awaiting_publish").map((run) => run.id);
     const protectedIds = matchedIds.length ? await client.query<{ id: string }>(`
       SELECT DISTINCT artifact.run_id AS id FROM artifacts AS artifact
@@ -137,6 +137,18 @@ router.post("/bulk-delete", async (req, res, next) => {
       await client.query(
         "UPDATE instagram_publications SET status='discarded',updated_at=now() WHERE run_id=ANY($1::uuid[]) AND user_id=$2 AND status IN ('queued','awaiting_review')",
         [publicationSafeIds, ownerId],
+      );
+    }
+    if (queuedIds.length) {
+      // Cancel queued runs under their row locks before scheduling cleanup so a worker
+      // cannot claim them between selection and deletion.
+      await client.query(
+        "UPDATE runs SET status='cancelled',cancel_requested_at=COALESCE(cancel_requested_at,now()),finished_at=now(),error_summary='Run stopped by user.' WHERE id=ANY($1::uuid[]) AND user_id=$2 AND status='queued'",
+        [queuedIds, ownerId],
+      );
+      await client.query(
+        "UPDATE run_nodes SET status='cancelled',error_code='run_cancelled',error_summary='Step cancelled because the run was stopped.',finished_at=COALESCE(finished_at,now()) WHERE run_id=ANY($1::uuid[]) AND user_id=$2 AND status='queued'",
+        [queuedIds, ownerId],
       );
     }
     const eligibleIds = matching.rows

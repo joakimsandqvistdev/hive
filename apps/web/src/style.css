@@ -48,6 +48,7 @@ body { color: var(--mantine-color-text); background: var(--mantine-color-gray-0)
 .page-header-actions .page-header-button:active:not(:disabled) { transform: translateY(0); box-shadow: none; }
 .page-header-actions .page-header-button:focus-visible { outline: 2px solid var(--mantine-color-hiveSky-6); outline-offset: 2px; }
 @media (prefers-reduced-motion: reduce) { .page-header-actions .page-header-button { transition: none; } }
+.run-status-pills-list { min-width: 0; max-width: 100%; max-height: 2rem; flex-wrap: nowrap !important; overflow-x: auto; overflow-y: hidden; scrollbar-width: thin; }
 @media (min-width: 48em) {
   .side-navigation[data-compact] .brand-section { display: flex; justify-content: center; padding-inline: 0; }
   .side-navigation[data-compact] .brand-row { justify-content: center; }
@@ -88,7 +89,7 @@ body { color: var(--mantine-color-text); background: var(--mantine-color-gray-0)
 .home-capability-icon { flex: 0 0 auto; }
 .home-capability-title { color: var(--mantine-color-gray-8); font-size: var(--mantine-font-size-sm); font-weight: 650; }
 .home-capability-description { max-width: 270px; color: var(--mantine-color-dimmed); font-size: var(--mantine-font-size-xs); line-height: 1.55; }
-.workspace-page { width: min(100%, 1080px); margin: 0 auto; padding: 20px 0 40px; }
+.workspace-page { width: min(100%, 1400px); margin: 0 auto; padding: 20px 0 40px; }
 .workspace-empty { padding: clamp(20px, 4vw, 32px); border-color: var(--mantine-color-gray-2); background: var(--mantine-color-white); }
 .license-card { padding: clamp(16px, 3vw, 24px); border-color: var(--mantine-color-gray-2); background: var(--mantine-color-white); }
 .license-text { display: block; max-width: 100%; white-space: pre-wrap; overflow-wrap: anywhere; padding: 14px; color: var(--mantine-color-dimmed); background: var(--mantine-color-gray-0); font-size: 11px; line-height: 1.65; }
@@ -394,7 +395,6 @@ body { color: var(--mantine-color-text); background: var(--mantine-color-gray-0)
 .inventory-table .inventory-row-title { color: var(--mantine-color-text); font-size: var(--mantine-font-size-sm); font-weight: 600; line-height: var(--mantine-line-height-sm); }
 .workspace-table-footer { display: flex; min-height: 48px; align-items: center; justify-content: space-between; gap: var(--mantine-spacing-sm); border-top: 1px solid var(--mantine-color-gray-2); }
 .workspace-table-footer .mantine-Pagination-root { margin-left: auto; }
-.webhook-manager-page { width: min(100%, 1400px); }
 .webhook-manager-table-panel { min-width: 0; }
 .webhook-manager-toolbar { min-height: 52px; }
 .webhook-manager-filters { min-width: 0; flex: 1 1 420px; }
