@@ -4,6 +4,7 @@ import { stat } from "node:fs/promises";
 import { lookup } from "node:dns/promises";
 import { isIP } from "node:net";
 import { Router, raw } from "express";
+import sharp from "sharp";
 import { Agent, fetch as undiciFetch } from "undici";
 import { artifactPath, readArtifact, removeArtifact, saveUpload } from "./artifactStore.js";
 import { parseArtifactByteRange } from "./artifactRange.js";
@@ -107,6 +108,19 @@ router.get("/storage-protected", async (_req, res, next) => {
       FROM artifacts a WHERE a.user_id=$1 AND cardinality(${protectionSql})>0 ORDER BY a.created_at DESC LIMIT $2 OFFSET $3`, [res.locals.userId,pageSize,(page-1)*pageSize]);
     const count = await pool.query(`SELECT count(*)::int total FROM artifacts a WHERE a.user_id=$1 AND cardinality(${protectionSql})>0`, [res.locals.userId]);
     res.json({ items: result.rows, total: count.rows[0]?.total ?? 0, page, pageSize });
+  } catch (error) { next(error); }
+});
+router.get("/library-options", async (req, res, next) => {
+  const dataTypeId = String(req.query.dataTypeId ?? "");
+  if (!["image", "audio", "video"].includes(dataTypeId)) { res.status(400).json({ error: "invalid_media_type" }); return; }
+  const search = String(req.query.search ?? "").trim().slice(0, 120);
+  const artifactId = typeof req.query.artifactId === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(req.query.artifactId) ? req.query.artifactId : null;
+  try {
+    const result = await pool.query(`SELECT a.id,a.data_type_id AS "dataTypeId",a.display_name AS "displayName",a.saved_to_library AS "savedToLibrary"
+      FROM artifacts a WHERE a.user_id=$1 AND a.data_type_id=$2 AND (a.saved_to_library OR a.id=$4::uuid)
+      AND (strpos(lower(a.display_name),lower($3))>0 OR a.id=$4::uuid)
+      ORDER BY CASE WHEN a.id=$4::uuid THEN 0 ELSE 1 END,a.display_name,a.id LIMIT 100`, [res.locals.userId,dataTypeId,search,artifactId]);
+    res.json({ items: result.rows });
   } catch (error) { next(error); }
 });
 router.get("/cleanup/preview", async (req, res, next) => {
@@ -244,6 +258,22 @@ router.post("/import-url", async (req, res, next) => {
     next(error);
   }
 });
+router.patch("/:id/rename", async (req, res, next) => {
+  if (req.get("origin") !== (process.env.WEB_ORIGIN ?? "http://localhost:5173")) { res.status(403).json({ error: "invalid_origin" }); return; }
+  const displayName = typeof req.body?.displayName === "string" ? req.body.displayName.trim() : "";
+  if (!displayName || displayName.length > 120 || /[\u0000-\u001f\u007f]/.test(displayName)) { res.status(400).json({ error: "invalid_display_name" }); return; }
+  try {
+    const [item] = await db.update(artifacts).set({ displayName })
+      .where(and(eq(artifacts.id, req.params.id), eq(artifacts.userId, res.locals.userId as string), eq(artifacts.savedToLibrary, true)))
+      .returning({ id: artifacts.id, displayName: artifacts.displayName });
+    if (!item) {
+      const [owned] = await db.select({ id: artifacts.id }).from(artifacts).where(and(eq(artifacts.id, req.params.id), eq(artifacts.userId, res.locals.userId as string))).limit(1);
+      res.status(owned ? 409 : 404).json({ error: owned ? "media_not_saved" : "artifact_not_found" });
+      return;
+    }
+    res.json({ item });
+  } catch (error) { next(error); }
+});
 router.post("/:id/save-to-library", async (req, res, next) => {
   if (req.get("origin") !== (process.env.WEB_ORIGIN ?? "http://localhost:5173")) { res.status(403).json({ error: "invalid_origin" }); return; }
   try {
@@ -253,6 +283,23 @@ router.post("/:id/save-to-library", async (req, res, next) => {
     res.json({ saved: true });
   } catch (error) { next(error); }
 });
+router.get("/:id/thumbnail", async (req, res, next) => {
+  try {
+    const [artifact] = await db.select().from(artifacts).where(and(eq(artifacts.id, req.params.id), eq(artifacts.userId, res.locals.userId as string))).limit(1);
+    if (artifact?.runId) {
+      const [deletion] = await db.select({ runId: runDeletions.runId }).from(runDeletions).where(eq(runDeletions.runId, artifact.runId)).limit(1);
+      if (deletion) { res.status(404).json({ error: "artifact_not_found" }); return; }
+    }
+    if (!artifact || !artifact.mediaType.startsWith("image/")) { res.status(404).json({ error: "artifact_not_found" }); return; }
+    const thumbnail = await sharp(await readArtifact(artifact.storageKey), { limitInputPixels: 40_000_000 }).resize(100, 100, { fit: "cover", position: "attention" }).webp({ quality: 72 }).toBuffer();
+    res.setHeader("Content-Type", "image/webp");
+    res.setHeader("Cache-Control", "private, max-age=3600");
+    res.setHeader("X-Content-Type-Options", "nosniff");
+    res.setHeader("Content-Disposition", "inline");
+    res.send(thumbnail);
+  } catch (error) { next(error); }
+});
+
 router.get("/:id/preview", async (req, res, next) => {
   try {
     const [artifact] = await db.select().from(artifacts).where(and(eq(artifacts.id, req.params.id), eq(artifacts.userId, res.locals.userId as string))).limit(1);
@@ -265,7 +312,7 @@ router.get("/:id/preview", async (req, res, next) => {
     res.setHeader("Cache-Control", "private, no-store");
     res.setHeader("X-Content-Type-Options", "nosniff");
     res.setHeader("Content-Disposition", "inline");
-    if (artifact.mediaType === "video/mp4") {
+    if (artifact.mediaType.startsWith("audio/") || artifact.mediaType === "video/mp4") {
       const path = artifactPath(artifact.storageKey);
       const size = (await stat(path)).size;
       const range = req.headers.range;

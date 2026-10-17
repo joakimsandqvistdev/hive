@@ -19,6 +19,7 @@
 - Use medium-radius content panels, small-radius form controls, and subtle theme shadows. Keep tables readable with generous cell spacing and muted headings.
 - Keep the workflow canvas pale, nodes and configuration panels white, and selected nodes clearly outlined. Use darker semantic color shades for text on light surfaces.
 - Preserve existing navigation, responsive behavior, and product functionality when adjusting presentation.
+- When visualizing a change to an existing Hive page, use the current page layout and styles as the fixed baseline. Do not create detached or approximate mockups; vary only the requested component or detail within the real page context.
 
 ## Workflow editor appearance
 
@@ -48,6 +49,7 @@
 - Use the shared `inventory-table` typography and table surfaces for Models, Media Library, Workflows, Custom Nodes, Jobs, Runs, and Webhook Manager. Primary names use consistent medium emphasis (`600`) at the small body size; secondary metadata stays smaller and dimmed.
 - For paged lists, place the displayed item range and total (for example, `11-20 of 42 workflows`) at the bottom left of the table card and the pagination controls at the bottom right. Use `PaginatedTableFooter` rather than custom pagination markup.
 - Detail or activity tables should reuse the same compact headers, row separators, and text hierarchy as their parent inventory table.
+- Use icon-only buttons by default for actions in list rows to keep columns compact. Use visible text or an icon-plus-text combination only when the user specifically requests it. Reuse `WorkspaceTableActions` and `WorkspaceTableAction` with the shared action icons; each icon-only action must have a concise tooltip and an accessible `aria-label`, and destructive actions must retain the semantic error color. Keep text buttons for primary page-level actions, not repeated row actions.
 ## Selection details drawers
 
 - Keep inventory lists full width when a selected item needs a detail view. Open its details in a right-side Mantine Drawer so list rows retain useful column width.

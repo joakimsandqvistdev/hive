@@ -1,6 +1,6 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Alert, Button, ColorInput, FileInput, Group, Image, Loader, NumberInput, Select, Stack, Text, Textarea, TextInput, Title } from "@mantine/core";
-import { apiUrl } from "../apiClient";
+import { apiFetch, apiUrl } from "../apiClient";
 import { ImageModelParametersFields, type ImageModelParameters } from "../components/ImageModelParametersFields";
 import { VideoModelParametersFields, type VideoModelParameters } from "../components/VideoModelParametersFields";
 import { AudioModelParametersFields, type AudioModelParameters } from "../components/AudioModelParametersFields";
@@ -24,6 +24,25 @@ export function WorkflowNodeConfiguration({ selected, types, instagramAccounts, 
   onReplaceCustomNode: (id: string) => void;
 }) {
   const [sourceUrl, setSourceUrl] = useState("");
+  const [mediaSearch, setMediaSearch] = useState("");
+  const [libraryOptions, setLibraryOptions] = useState<Array<{ id: string; dataTypeId: string; displayName: string; savedToLibrary: boolean }>>([]);
+  const selectedMediaType = selected?.data.kind === "input" && typeof selected.data.dataTypeId === "string" && ["image", "audio", "video"].includes(selected.data.dataTypeId) ? selected.data.dataTypeId : null;
+  const selectedArtifactId = selected?.data.kind === "input" ? selected.data.artifactId ?? null : null;
+  useEffect(() => {
+    if (!selectedMediaType) { setLibraryOptions([]); return; }
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      const params = new URLSearchParams({ dataTypeId: selectedMediaType, search: mediaSearch });
+      if (selectedArtifactId) params.set("artifactId", selectedArtifactId);
+      void apiFetch(`/api/artifacts/library-options?${params}`).then(async (response) => {
+        if (!response.ok) throw new Error("Could not search saved media.");
+        const body = await response.json() as { items: Array<{ id: string; dataTypeId: string; displayName: string; savedToLibrary: boolean }> };
+        if (!cancelled) setLibraryOptions(body.items);
+      }).catch(() => { if (!cancelled) setLibraryOptions([]); });
+    }, 180);
+    return () => { cancelled = true; window.clearTimeout(timer); };
+  }, [mediaSearch, selectedArtifactId, selectedMediaType]);
+  useEffect(() => { setMediaSearch(""); }, [selected?.id, selectedMediaType]);
   if (!selected) return <Text size="sm" c="dimmed">Select a node to edit its data or model settings. Connect outputs to matching model input datatypes.</Text>;
   return <Stack>
     <Title order={2} size="h4">{selected.data.kind === "input" ? "Input node" : selected.data.kind === "processing" ? "Processing node" : selected.data.kind === "publishing" ? "Publishing node" : selected.data.kind === "custom" ? "Custom node" : "Model node"}</Title>
@@ -49,12 +68,17 @@ export function WorkflowNodeConfiguration({ selected, types, instagramAccounts, 
         <Textarea label="Text" value={selected.data.inputText} onChange={(event) => onUpdate({ inputText: event.currentTarget.value })} maxLength={8000} minRows={6} autosize />
         <TextInput label="Webhook identifier" description="Use this JSON path for webhook text, or clear it to keep this input private from webhooks. Dotted paths such as brief.captionPrompt are supported." value={typeof selected.data.parameters.webhookIdentifier === "string" ? selected.data.parameters.webhookIdentifier : defaultWebhookIdentifier(selected.data.label)} onChange={(event) => onUpdate({ parameters: { ...selected.data.parameters, webhookIdentifier: event.currentTarget.value } })} maxLength={200} />
       </> : <>
-        <Select label="Choose from Media Library" placeholder="Select saved media" clearable value={selected.data.artifactId ?? null} data={mediaItems.filter((item) => (item.savedToLibrary || item.id === selected.data.artifactId) && item.dataTypeId === selected.data.dataTypeId).map((item) => ({ value: item.id, label: item.displayName }))} onChange={(artifactId) => onUpdate({ artifactId, inputText: "" })} />
+        <Select label="Choose from Media Library" placeholder="Search saved media by file name" clearable searchable searchValue={mediaSearch} onSearchChange={setMediaSearch} nothingFoundMessage={mediaSearch ? "No file names match" : "No saved media"} value={selected.data.artifactId ?? null} data={(() => {
+          const options = new Map<string, { value: string; label: string }>();
+          for (const item of mediaItems) if (item.id === selected.data.artifactId && item.dataTypeId === selected.data.dataTypeId) options.set(item.id, { value: item.id, label: item.displayName });
+          for (const item of libraryOptions) if ((item.savedToLibrary || item.id === selected.data.artifactId) && item.dataTypeId === selected.data.dataTypeId) options.set(item.id, { value: item.id, label: item.displayName });
+          return [...options.values()];
+        })()} onChange={(artifactId) => { onUpdate({ artifactId, inputText: "" }); setMediaSearch(""); }} />
         <FileInput key={selected.id} label={selected.data.artifactId ? "Replace with uploaded file" : "Upload file to this workflow"} accept={selected.data.dataTypeId === "image" ? "image/png,image/jpeg,image/webp" : selected.data.dataTypeId === "audio" ? "audio/wav,audio/mpeg,audio/ogg,audio/flac" : "video/mp4"} onChange={onUpload} disabled={uploading} />
         <Text size="xs" c="dimmed">{selected.data.dataTypeId === "image" ? "PNG, JPEG, WebP · up to 10 MB" : selected.data.dataTypeId === "audio" ? "WAV, MP3, Ogg, FLAC · up to 25 MB" : "MP4 only · up to 50 MB"} Uploads stay with this workflow unless you save them to the Media Library.</Text>
         <Group align="end"><TextInput label="Import from URL" placeholder="https://example.com/media" value={sourceUrl} onChange={(event) => setSourceUrl(event.currentTarget.value)} style={{ flex: 1 }} /><Button variant="light" loading={uploading} disabled={!sourceUrl.trim()} onClick={() => { onImportUrl(sourceUrl.trim()); setSourceUrl(""); }}>Import</Button></Group>
         {uploading && <Loader size="sm" />}
-        {selected.data.artifactId && (selected.data.dataTypeId === "image" ? <Image src={apiUrl(`/api/artifacts/${selected.data.artifactId}/preview`)} alt={selected.data.label} fit="contain" mah={240} /> : selected.data.dataTypeId === "audio" ? <audio key={selected.data.artifactId} controls src={apiUrl(`/api/artifacts/${selected.data.artifactId}/preview`)} /> : <video key={selected.data.artifactId} controls playsInline src={apiUrl(`/api/artifacts/${selected.data.artifactId}/preview`)} style={{ width: "100%" }} />)}
+        {selected.data.artifactId && (selected.data.dataTypeId === "image" ? <Image src={apiUrl(`/api/artifacts/${selected.data.artifactId}/preview`)} alt={selected.data.label} fit="contain" w="100%" style={{ height: "auto" }} /> : selected.data.dataTypeId === "audio" ? <audio key={selected.data.artifactId} controls src={apiUrl(`/api/artifacts/${selected.data.artifactId}/preview`)} /> : <video key={selected.data.artifactId} controls playsInline src={apiUrl(`/api/artifacts/${selected.data.artifactId}/preview`)} style={{ display: "block", width: "100%" }} />)}
       </>}
     </> : selected.data.kind === "processing" ? <>
       {selected.data.parameters.operationId === "still-image-video" ? <>

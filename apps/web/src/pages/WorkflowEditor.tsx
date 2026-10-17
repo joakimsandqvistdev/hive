@@ -352,11 +352,11 @@ export function WorkflowEditor({ workflowId, onClose, onNavigate, customNodeEdit
     try {
       const response = await apiFetch("/api/artifacts/import-url", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ url, dataTypeId: target.data.dataTypeId, workflowId }) });
       const body = await response.json() as { artifact?: { id: string; displayName: string; mediaType: string }; error?: string };
-      if (!response.ok || !body.artifact) throw new Error(body.error === "invalid_import_url" ? "Use a public HTTP or HTTPS URL with no redirects to private/local addresses." : "Could not import media from this URL.");
+      if (!response.ok || !body.artifact) throw new Error(body.error === "invalid_import_url" ? "Use a public HTTP or HTTPS URL with no redirects to private or local addresses." : body.error === "request_too_large" ? "This media exceeds the size limit for its type." : body.error === "media_import_failed" ? "The URL could not be fetched as valid media. Check that it is publicly accessible and points directly to a supported file." : "Could not import media from this URL.");
       const artifact = body.artifact; createdUploads.current.add(artifact.id);
       setMediaItems((items) => [...items, { id: artifact.id, dataTypeId: target.data.dataTypeId ?? "", displayName: artifact.displayName, mediaType: artifact.mediaType, savedToLibrary: false }]);
       setGraph((current) => ({ ...current, nodes: current.nodes.map((node) => node.id === nodeId ? { ...node, description: "Media imported", metadata: { ...node.metadata, artifactId: artifact.id } } : node) })); setDirty(true);
-    } catch (cause) { setError(cause instanceof Error ? cause.message : "Could not import media from URL."); }
+    } catch (cause) { showFlash({ tone: "error", title: "Could not import media", message: cause instanceof Error ? cause.message : "Could not import media from this URL." }); }
     finally { setUploading(false); }
   }
   async function save() {
