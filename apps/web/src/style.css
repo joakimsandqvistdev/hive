@@ -288,6 +288,8 @@ body { color: var(--mantine-color-text); background: var(--mantine-color-gray-0)
 .media-filters { flex: 1 1 auto; }
 .media-table-wrap { min-width: 0; overflow: auto; }
 .media-inventory-table { min-width: 700px; }
+.media-table-placeholder-row { height: 68px; visibility: hidden; }
+.media-table-placeholder-row > td { height: 68px; }
 .media-actions-heading { min-width: 130px; text-align: right; }
 .media-actions-cell { width: 1%; white-space: nowrap; }
 .media-row-actions { justify-content: flex-end; }
@@ -309,10 +311,12 @@ span.media-row-thumbnail-video { background: var(--mantine-color-hiveSky-0); col
 .media-detail-audio { display: block; width: 100%; margin: 0; }
 .media-detail-section-title { margin-bottom: 3px; color: var(--mantine-color-gray-6); font-size: var(--mantine-font-size-xs); font-weight: 600; }
 .media-reference-tooltip { min-width: 0; }
-.media-reference-tooltip-title { padding-bottom: 5px; border-bottom: 1px solid color-mix(in srgb, currentColor 20%, transparent); }
-.media-reference-tooltip-group { min-width: 0; }
-.media-reference-tooltip-source { opacity: .72; }
-.media-reference-tooltip-name { overflow-wrap: anywhere; }
+.media-reference-tooltip-heading { padding-bottom: 6px; border-bottom: 1px solid var(--mantine-color-gray-2); }
+.media-reference-tooltip-list { min-width: 0; }
+.media-reference-tooltip-row { min-width: 0; padding: 6px 0; border-bottom: 1px solid var(--mantine-color-gray-1); }
+.media-reference-tooltip-row:last-child { border-bottom: 0; }
+.media-reference-tooltip-source { flex: 0 0 64px; color: var(--mantine-color-dimmed); }
+.media-reference-tooltip-name { min-width: 0; flex: 1 1 auto; overflow-wrap: anywhere; text-align: right; }
 .media-empty { min-height: 180px; justify-content: center; }
 .run-details-modal { display: flex; max-height: calc(100dvh - 32px); flex-direction: column; overflow: hidden; }
 .run-details-modal-body { min-height: 0; overflow: auto; padding: var(--mantine-spacing-sm) var(--mantine-spacing-md); background: var(--mantine-color-gray-0); }

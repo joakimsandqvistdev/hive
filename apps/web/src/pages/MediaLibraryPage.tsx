@@ -50,13 +50,21 @@ function getReferenceGroups(item: Media) {
 function MediaReferenceTooltip({ item }: { item: Media }) {
   const groups = getReferenceGroups(item);
   const count = groups.reduce((sum, group) => sum + group.names.length, 0);
-  return <Stack className="media-reference-tooltip" gap={8}>
-    <Text className="media-reference-tooltip-title" size="xs" fw={600}>{count} {count === 1 ? "reference" : "references"}</Text>
+  const references = groups.flatMap((group) => group.names.map((name, index) => ({
+    category: group.label.slice(0, -1),
+    name,
+    key: `${group.label}-${name}-${index}`,
+  })));
+  return <Stack className="media-reference-tooltip" gap={6}>
+    <Group className="media-reference-tooltip-heading" justify="space-between" gap="sm" wrap="nowrap">
+      <Text size="xs" fw={600}>Used in</Text>
+      <Text size="xs" c="dimmed">{count} {count === 1 ? "reference" : "references"}</Text>
+    </Group>
     {groups.length > 0
-      ? groups.map((group) => <Stack className="media-reference-tooltip-group" gap={2} key={group.label}>
-        <Text className="media-reference-tooltip-source" size="xs" fw={600}>{group.label}</Text>
-        {group.names.map((name, index) => <Text className="media-reference-tooltip-name" size="xs" lineClamp={2} key={`${name}-${index}`}>{name}</Text>)}
-      </Stack>)
+      ? <Stack className="media-reference-tooltip-list" gap={0}>{references.map((reference) => <Group className="media-reference-tooltip-row" justify="space-between" gap="sm" wrap="nowrap" key={reference.key}>
+        <Text className="media-reference-tooltip-source" size="xs">{reference.category}</Text>
+        <Text className="media-reference-tooltip-name" size="xs" lineClamp={2}>{reference.name}</Text>
+      </Group>)}</Stack>
       : <Text size="xs">No workflow, node, or webhook references.</Text>}
   </Stack>;
 }
@@ -340,7 +348,27 @@ export function MediaLibraryPage() {
                           {getReferenceGroups(item).length > 0 && <WorkspaceTableInfo
                             label="View media references"
                             tooltip={<MediaReferenceTooltip item={item} />}
-                            tooltipProps={{ multiline: true, w: 260, position: "top", withArrow: true, openDelay: 250, withinPortal: true }}
+                            tooltipProps={{
+                              multiline: true,
+                              w: 280,
+                              position: "top",
+                              withArrow: true,
+                              openDelay: 250,
+                              withinPortal: true,
+                              styles: {
+                                tooltip: {
+                                  padding: "12px 14px",
+                                  backgroundColor: "var(--mantine-color-white)",
+                                  color: "var(--mantine-color-text)",
+                                  border: "1px solid var(--mantine-color-gray-3)",
+                                  boxShadow: "var(--mantine-shadow-md)",
+                                },
+                                arrow: {
+                                  backgroundColor: "var(--mantine-color-white)",
+                                  border: "1px solid var(--mantine-color-gray-3)",
+                                },
+                              },
+                            }}
                           ><MediaReferencesIcon /></WorkspaceTableInfo>}
                           {item.savedToLibrary
                             ? <WorkspaceTableAction label="Rename media" tooltip="Rename" onClick={() => { setRenameTarget(item); setRenameValue(item.displayName); }}><EditIcon /></WorkspaceTableAction>
@@ -349,6 +377,7 @@ export function MediaLibraryPage() {
                         </WorkspaceTableActions>
                       </Table.Td>
                     </Table.Tr>)}
+                    {Array.from({ length: Math.max(0, PAGE_SIZE - pageItems.length) }, (_, index) => <Table.Tr className="media-table-placeholder-row" aria-hidden="true" key={`media-placeholder-${index}`}><Table.Td colSpan={4} /></Table.Tr>)}
                   </Table.Tbody>
                 </Table>
                 <PaginatedTableFooter total={total} itemName="item" page={page} pageSize={PAGE_SIZE} totalPages={totalPages} onPageChange={(nextPage) => { setPage(nextPage); setSelectedId(null); }} />
@@ -406,7 +435,7 @@ export function MediaLibraryPage() {
           <Paper className="media-storage-card media-protected-list" withBorder radius="md" p="md">
             <Group justify="space-between" mb="sm"><Title order={2} size="h6">Protected media</Title><Badge variant="light" color="gray">{protectedTotal} files</Badge></Group>
             {protectedItems.length === 0 ? <Text size="sm" c="dimmed">No media is currently protected by an active reference.</Text> : <>
-              <Table className="inventory-table" withRowBorders><Table.Thead><Table.Tr><Table.Th>File</Table.Th><Table.Th>Protected by</Table.Th><Table.Th>Size</Table.Th><Table.Th>Age</Table.Th></Table.Tr></Table.Thead><Table.Tbody>{protectedItems.map((item) => <Table.Tr key={item.id}><Table.Td><Text fw={600} size="sm">{item.displayName}</Text><Text size="xs" c="dimmed">{item.savedToLibrary ? "Saved to library" : item.runId ? "Run output" : "Workflow input"}</Text></Table.Td><Table.Td>{item.protectedBy?.join(" · ") || "Active reference"}</Table.Td><Table.Td>{formatFileSize(item.byteSize)}</Table.Td><Table.Td>{mediaAge(item.createdAt)}</Table.Td></Table.Tr>)}</Table.Tbody></Table>
+              <Table className="inventory-table" withRowBorders><Table.Thead><Table.Tr><Table.Th>File</Table.Th><Table.Th>Protected by</Table.Th><Table.Th>Size</Table.Th><Table.Th>Age</Table.Th></Table.Tr></Table.Thead><Table.Tbody>{protectedItems.map((item) => <Table.Tr key={item.id}><Table.Td><Text fw={600} size="sm">{item.displayName}</Text><Text size="xs" c="dimmed">{item.savedToLibrary ? "Saved to library" : item.runId ? "Run output" : "Workflow input"}</Text></Table.Td><Table.Td>{item.protectedBy?.join(" · ") || "Active reference"}</Table.Td><Table.Td>{formatFileSize(item.byteSize)}</Table.Td><Table.Td>{mediaAge(item.createdAt)}</Table.Td></Table.Tr>)}{Array.from({ length: Math.max(0, 10 - protectedItems.length) }, (_, index) => <Table.Tr className="media-table-placeholder-row" aria-hidden="true" key={`protected-placeholder-${index}`}><Table.Td colSpan={4} /></Table.Tr>)}</Table.Tbody></Table>
               <PaginatedTableFooter total={protectedTotal} itemName="protected file" page={protectedPage} pageSize={10} totalPages={Math.max(1, Math.ceil(protectedTotal / 10))} onPageChange={setProtectedPage} />
             </>}
           </Paper>
