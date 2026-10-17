@@ -2,7 +2,7 @@ import { z } from "zod";
 
 export const imageModelIds = ["z-image-turbo", "qwen-image-edit-2511", "instruct-pix2pix", "sd15-inpainting", "longcat-image-edit-turbo", "flux2-klein-4b", "sd15-base", "sdxl-base-1.0", "sd35-medium", "sdxl-turbo", "sana-sprint-06b"] as const;
 export const imageModelIdSchema = z.enum(imageModelIds);
-export const imageResolutionSchema = z.enum(["128x128", "256x256", "512x512", "768x768", "1024x1024", "512x768", "768x512", "1024x1280", "768x1360"]);
+export const imageResolutionSchema = z.enum(["128x128", "256x256", "512x512", "768x768", "1024x1024", "512x768", "768x512", "768x960", "1024x1280", "768x1360"]);
 
 export const defaultImageModelParameters = {
   modelId: "z-image-turbo",

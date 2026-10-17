@@ -16,7 +16,7 @@ from fastapi.responses import StreamingResponse
 from fastapi.responses import PlainTextResponse
 from PIL import Image
 from audio_generation import generation_worker as run_audio_generation_worker
-from generation_process import GenerationProcessError, run_generation_process
+from generation_process import GenerationProcessError, PersistentGenerationProcess, run_generation_process
 from image_generation import generate_image as run_image_generation
 from image_generation import generation_worker as run_image_generation_worker
 from image_generation import load_pipeline as load_image_pipeline
@@ -27,6 +27,7 @@ from text_generation import generation_worker as run_text_generation_worker
 
 PIPELINE = None
 CURRENT_MODEL_KEY = os.getenv("STARTUP_MODEL_KEY", "z-image-turbo")
+IMAGE_GENERATION_PROCESS = None
 DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
 GPU_MEMORY_GIB = (
     torch.cuda.get_device_properties(0).total_memory / (1024**3)
@@ -67,7 +68,13 @@ def report_generation_failure(error: Exception, model_key: str) -> str:
 
 
 def load_pipeline(model_key: str):
-    return load_image_pipeline(model_key, MODEL_REPOSITORIES, DEVICE, GPU_MEMORY_GIB)
+    global PIPELINE, CURRENT_MODEL_KEY
+    if PIPELINE is not None and CURRENT_MODEL_KEY == model_key:
+        return PIPELINE
+    release_pipeline()
+    PIPELINE = load_image_pipeline(model_key, MODEL_REPOSITORIES, DEVICE, GPU_MEMORY_GIB)
+    CURRENT_MODEL_KEY = model_key
+    return PIPELINE
 
 
 def set_pipeline(pipeline) -> None:
@@ -89,6 +96,23 @@ def generation_worker(sender, model_key, prompt, width, height, seed, steps, tru
         set_pipeline_fn=set_pipeline, generate_image_fn=generate_image,
         report_failure_fn=report_generation_failure, release_pipeline_fn=release_pipeline,
     )
+
+
+def persistent_image_generation_worker(sender, model_key, prompt, width, height, seed, steps, true_cfg_scale, references,
+                                       image_guidance_scale=1.5, strength=0.75, guidance_scale=7.5):
+    return run_image_generation_worker(
+        sender, model_key, prompt, width, height, seed, steps, true_cfg_scale, references,
+        image_guidance_scale, strength, guidance_scale, load_pipeline_fn=load_pipeline,
+        set_pipeline_fn=set_pipeline, generate_image_fn=generate_image,
+        report_failure_fn=report_generation_failure, release_pipeline_fn=lambda: None,
+    )
+
+
+async def stop_image_generation_process(*, terminate=False):
+    global IMAGE_GENERATION_PROCESS
+    if IMAGE_GENERATION_PROCESS is not None:
+        await IMAGE_GENERATION_PROCESS.stop(terminate=terminate)
+        IMAGE_GENERATION_PROCESS = None
 
 
 def video_generation_worker(sender, model_key, prompt, negative_prompt, frames, seed, steps, guidance_scale):
@@ -116,11 +140,12 @@ def text_generation_worker(sender, model_key, instruction, prompt, max_new_token
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    # Load weights only for generation; idle startup must not retain model memory.
+    # The image worker loads weights lazily and keeps them only while it remains alive.
     release_pipeline()
     try:
         yield
     finally:
+        await stop_image_generation_process(terminate=True)
         release_pipeline()
 
 
@@ -131,7 +156,8 @@ app.include_router(model_downloads_router)
 async def health() -> dict[str, str | bool | float]:
     return {
         "status": "busy" if GENERATION_LOCK.locked() else "ready",
-        "pipeline_loaded": False,
+        "pipeline_loaded": IMAGE_GENERATION_PROCESS is not None and IMAGE_GENERATION_PROCESS.process is not None
+        and IMAGE_GENERATION_PROCESS.process.is_alive() and IMAGE_GENERATION_PROCESS.pipeline_loaded,
         "generation_active": GENERATION_LOCK.locked(),
         "model": MODEL_REPOSITORIES[CURRENT_MODEL_KEY],
         "device": DEVICE,
@@ -154,10 +180,11 @@ async def generate(
     image_guidance_scale: float = Form(default=1.5, ge=0, le=3),
     strength: float = Form(default=0.75, gt=0, le=1),
     guidance_scale: float = Form(default=7.5, ge=0, le=20),
+    keep_model_cached: bool = Form(default=False),
     images: list[UploadFile] = File(default=[]),
 ) -> StreamingResponse:
     global CURRENT_MODEL_KEY
-    if (width, height) not in {(128, 128), (256, 256), (512, 512), (768, 768), (1024, 1024), (512, 768), (768, 512), (1024, 1280), (768, 1360)}:
+    if (width, height) not in {(128, 128), (256, 256), (512, 512), (768, 768), (1024, 1024), (512, 768), (768, 512), (768, 960), (1024, 1280), (768, 1360)}:
         raise HTTPException(status_code=422, detail="Unsupported image dimensions")
     if model_id == "qwen-image-edit-2511" and not 1 <= len(images) <= 10:
         raise HTTPException(status_code=422, detail="Qwen-Image-Edit-2511 requires 1 to 10 reference images")
@@ -184,11 +211,15 @@ async def generate(
         try:
             reference_images = await load_reference_images(images)
             CURRENT_MODEL_KEY = model_id
-            encoded = await run_generation_process(
-                generation_worker,
+            global IMAGE_GENERATION_PROCESS
+            if IMAGE_GENERATION_PROCESS is None:
+                IMAGE_GENERATION_PROCESS = PersistentGenerationProcess(persistent_image_generation_worker)
+            encoded = await IMAGE_GENERATION_PROCESS.run(
                 (model_id, prompt, width, height, seed, num_inference_steps, true_cfg_scale, reference_images, image_guidance_scale, strength, guidance_scale),
                 request.is_disconnected,
             )
+            if not keep_model_cached:
+                await stop_image_generation_process(terminate=True)
         except GenerationProcessError as error:
             status_code = 499 if error.code == "request_cancelled" else 504 if error.code == "generation_timeout" else 500
             raise HTTPException(status_code=status_code, detail={"code": error.code}) from None
@@ -204,7 +235,6 @@ async def generate(
             for reference in reference_images:
                 reference.close()
             reference_images.clear()
-            release_pipeline()
 
     return StreamingResponse(io.BytesIO(encoded), media_type="image/png")
 
@@ -229,6 +259,7 @@ async def generate_video(
 
     async with GENERATION_LOCK:
         try:
+            await stop_image_generation_process(terminate=True)
             CURRENT_MODEL_KEY = model_id
             encoded = await run_generation_process(
                 video_generation_worker,
@@ -261,6 +292,7 @@ async def generate_audio(
 
     async with GENERATION_LOCK:
         try:
+            await stop_image_generation_process(terminate=True)
             CURRENT_MODEL_KEY = model_id
             encoded = await run_generation_process(audio_generation_worker, (model_id, prompt, voice, speed), request.is_disconnected, environment={"HF_HUB_OFFLINE": "1"})
         except GenerationProcessError as error:
@@ -290,6 +322,7 @@ async def generate_text(
 
     async with GENERATION_LOCK:
         try:
+            await stop_image_generation_process(terminate=True)
             CURRENT_MODEL_KEY = model_id
             generated = await run_generation_process(
                 text_generation_worker,

@@ -4,7 +4,7 @@ import { setTimeout as delay } from "node:timers/promises";
 import { db, pool } from "./db.js";
 import { readArtifact, removeArtifact, saveJpeg, saveMp4, savePng, saveWav } from "./artifactStore.js";
 import { artifacts, instagramAccounts, instagramPublications, runs } from "./schema.js";
-import { claimNextRun, failRun, finishCancelledRun, finishRun, finishRunNode, heartbeatRun, runCancellationRequested, setRunNodeRunning, type ClaimedRun } from "./runQueue.js";
+import { claimNextRun, failRun, finishCancelledRun, finishRun, finishRunNode, hasQueuedModelUse, heartbeatRun, runCancellationRequested, setRunNodeRunning, type ClaimedRun } from "./runQueue.js";
 import { workflowExecutionOrder } from "./workflowExecutionOrder.js";
 import { modelRunnerRejection, modelRunnerTransportFailure } from "./modelRunnerErrors.js";
 import { createModelRunnerClient } from "./modelRunnerClient.js";
@@ -122,6 +122,10 @@ async function execute(run: ClaimedRun, signal: AbortSignal): Promise<void> {
       if (!artifact || artifact.dataTypeId !== dataTypeId || (artifact.runId !== null && artifact.runId !== run.id)) throw new Error("Connected file is unavailable.");
       return { ...artifact, readBytes: () => readArtifact(artifact.storageKey) };
     });
+    if (runnerInput.modality === "image") {
+      const keepModelCached = await hasQueuedModelUse(String(object(resolved.modelParameters).modelId), run.id, node.id);
+      runnerInput.form.set("keep_model_cached", String(keepModelCached));
+    }
     const response = await modelRunner.generate(runnerInput.modality, runnerInput.form, signal);
     if (!response.ok) throw new Error(await modelRunnerRejection(response, runnerInput.modality));
     if (!response.headers.get("content-type")?.toLowerCase().startsWith(runnerInput.mediaType)) throw new Error("Model returned an unsupported output format.");

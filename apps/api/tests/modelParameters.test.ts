@@ -8,6 +8,8 @@ test("supported image models accept configured dimensions and reject smaller siz
     assert.deepEqual(dimensionsForResolution(smallest.resolution), { width: 128, height: 128 });
     const selected = imageModelParametersSchema.parse({ modelId, resolution: "256x256" });
     assert.deepEqual(dimensionsForResolution(selected.resolution), { width: 256, height: 256 });
+    const instagramPortrait = imageModelParametersSchema.parse({ modelId, resolution: "768x960" });
+    assert.deepEqual(dimensionsForResolution(instagramPortrait.resolution), { width: 768, height: 960 });
     assert.equal(imageModelParametersSchema.parse({ modelId }).resolution, "512x512");
     assert.equal(imageModelParametersSchema.safeParse({ modelId, resolution: "64x64" }).success, false);
   }

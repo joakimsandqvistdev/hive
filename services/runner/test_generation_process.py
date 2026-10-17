@@ -3,7 +3,9 @@ import multiprocessing
 import os
 import time
 import unittest
-from generation_process import GenerationProcessError, run_generation_process
+from generation_process import GenerationProcessError, PersistentGenerationProcess, run_generation_process
+
+PERSISTENT_REQUESTS = 0
 
 
 def successful_worker(sender):
@@ -27,6 +29,17 @@ def stalled_worker(sender):
 
 def crashed_worker(sender):
     os._exit(1)
+
+
+def persistent_worker(sender, value):
+    global PERSISTENT_REQUESTS
+    PERSISTENT_REQUESTS += 1
+    sender.send(("result", f"{value}:{PERSISTENT_REQUESTS}"))
+    sender.close()
+
+
+def persistent_stalled_worker(sender):
+    time.sleep(60)
 
 
 async def connected():
@@ -70,4 +83,36 @@ class ProcessCleanupTests(unittest.IsolatedAsyncioTestCase):
         task.cancel()
         with self.assertRaises(asyncio.CancelledError):
             await task
+        self.assertEqual(multiprocessing.active_children(), [])
+
+
+class PersistentProcessTests(unittest.IsolatedAsyncioTestCase):
+    async def asyncTearDown(self):
+        for process in multiprocessing.active_children():
+            process.terminate()
+            process.join(5)
+
+    async def test_successful_requests_reuse_worker_until_stopped(self):
+        process = PersistentGenerationProcess(persistent_worker)
+        self.assertEqual(await process.run(("first",), connected, 10), "first:1")
+        self.assertTrue(process.process.is_alive())
+        self.assertEqual(await process.run(("second",), connected, 10), "second:2")
+        await process.stop()
+        self.assertEqual(multiprocessing.active_children(), [])
+
+    async def test_disconnect_terminates_persistent_worker(self):
+        process = PersistentGenerationProcess(persistent_stalled_worker)
+        task = asyncio.create_task(process.run((), connected, 10))
+        await asyncio.sleep(0.2)
+        task.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await task
+        self.assertIsNone(process.process)
+        self.assertEqual(multiprocessing.active_children(), [])
+
+    async def test_disconnected_request_terminates_persistent_worker(self):
+        process = PersistentGenerationProcess(persistent_stalled_worker)
+        with self.assertRaises(GenerationProcessError) as caught:
+            await process.run((), disconnected, 10)
+        self.assertEqual(caught.exception.code, "request_cancelled")
         self.assertEqual(multiprocessing.active_children(), [])
