@@ -19,7 +19,7 @@
 - Use medium-radius content panels, small-radius form controls, and subtle theme shadows. Keep tables readable with generous cell spacing and muted headings.
 - Keep the workflow canvas pale, nodes and configuration panels white, and selected nodes clearly outlined. Use darker semantic color shades for text on light surfaces.
 - Preserve existing navigation, responsive behavior, and product functionality when adjusting presentation.
-- When visualizing a change to an existing Hive page, use the current page layout and styles as the fixed baseline. Do not create detached or approximate mockups; vary only the requested component or detail within the real page context.
+- When visualizing a change to an existing Hive page, use its current layout, content density, theme, and styling as the baseline. Faithful mockups are welcome when they preserve that context and vary only the requested component or detail; avoid generic or approximate redesigns. Present design options first and wait for the user's selection before implementing them.
 
 ## Workflow editor appearance
 
