@@ -1,6 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { canDeleteAwaitingPublishRun } from "../src/runDeletionPolicy.js";
+import { bulkDeleteRunStatuses, canDeleteAwaitingPublishRun, isBulkDeleteRunStatus } from "../src/runDeletionPolicy.js";
+
+test("allows queued runs in bulk deletion while keeping active statuses excluded", () => {
+  assert.equal(bulkDeleteRunStatuses.includes("queued"), true);
+  assert.equal(isBulkDeleteRunStatus("queued"), true);
+  assert.equal(isBulkDeleteRunStatus("running"), false);
+  assert.equal(isBulkDeleteRunStatus("cancel_requested"), false);
+});
 
 test("allows deletion when the publication is awaiting review", () => {
   assert.equal(canDeleteAwaitingPublishRun(["awaiting_review"]), true);

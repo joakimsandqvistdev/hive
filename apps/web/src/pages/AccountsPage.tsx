@@ -69,7 +69,7 @@ export function AccountsPage() {
   };
 
   if (loading) return <Group justify="center" py="xl"><Loader /><Text>Loading accounts…</Text></Group>;
-  return <Stack maw={900} mx="auto" w="100%">
+  return <Stack className="workspace-page">
     <Text c="dimmed">Connect a professional Instagram account for workflow publishing and prepare a profile picture from your Hive assets.</Text>
     {error && <Alert color="hiveError" title="Instagram settings unavailable">{error}</Alert>}
     {!account ? <Card withBorder><Stack><Text fw={600}>Instagram</Text><Text size="sm" c="dimmed">Connect one Business or Creator account to publish posts and Reels from workflows.</Text><Button w="fit-content" onClick={() => void connect()}>Connect Instagram</Button></Stack></Card> : <>
