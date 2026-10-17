@@ -4,7 +4,7 @@ import tempfile
 from typing import Callable
 
 import torch
-from diffusers import QwenImageEditPlusPipeline, StableDiffusionInpaintPipeline, StableDiffusionInstructPix2PixPipeline, ZImagePipeline
+from diffusers import BitsAndBytesConfig, QwenImageEditPlusPipeline, StableDiffusionInpaintPipeline, StableDiffusionInstructPix2PixPipeline, ZImagePipeline, ZImageTransformer2DModel
 from fastapi import HTTPException, UploadFile
 from PIL import Image
 
@@ -14,6 +14,31 @@ def load_pipeline(model_key: str, repositories: dict[str, str], device: str, gpu
         raise ValueError("Unsupported image model")
     dtype = (torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16) if device == "cuda" else torch.float32
     repository = repositories[model_key]
+    if model_key == "z-image-turbo" and device == "cuda":
+        # Turing GPUs such as the RTX 2080 SUPER do not support BF16 arithmetic.
+        compute_dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
+        quantization_config = BitsAndBytesConfig(
+            load_in_4bit=True,
+            bnb_4bit_quant_type="nf4",
+            bnb_4bit_compute_dtype=compute_dtype,
+        )
+        transformer = ZImageTransformer2DModel.from_pretrained(
+            repository,
+            subfolder="transformer",
+            quantization_config=quantization_config,
+            torch_dtype=compute_dtype,
+            local_files_only=True,
+        )
+        pipeline = ZImagePipeline.from_pretrained(
+            repository,
+            transformer=transformer,
+            torch_dtype=compute_dtype,
+            local_files_only=True,
+        )
+        pipeline.vae.enable_tiling()
+        pipeline.text_encoder.to("cpu")
+        pipeline.enable_model_cpu_offload()
+        return pipeline
     if model_key == "qwen-image-edit-2511":
         pipeline_class = QwenImageEditPlusPipeline
     elif model_key == "instruct-pix2pix":

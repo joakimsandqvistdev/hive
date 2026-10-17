@@ -16,6 +16,25 @@ export type ClaimedRunDeletion = {
   attempt_count: number;
 };
 
+/** Whether another queued model step will need this model after the current step. */
+export async function hasQueuedModelUse(modelId: string, currentRunId: string, currentNodeId: string): Promise<boolean> {
+  const result = await pool.query<{ pending: boolean }>(`
+    SELECT EXISTS (
+      SELECT 1
+      FROM runs AS run
+      JOIN run_nodes AS node ON node.run_id=run.id
+      CROSS JOIN LATERAL jsonb_array_elements(run.workflow_snapshot_json->'nodes') AS workflow_node
+      WHERE run.status IN ('queued','running')
+        AND node.status IN ('queued','running')
+        AND node.node_id=workflow_node->>'id'
+        AND workflow_node->>'kind'='model'
+        AND workflow_node->>'modelId'=$1
+        AND NOT (run.id=$2 AND node.node_id=$3)
+    ) AS pending
+  `, [modelId, currentRunId, currentNodeId]);
+  return result.rows[0]?.pending ?? false;
+}
+
 /** Claim one run-artifact cleanup task with a lease so crashes can be retried safely. */
 export async function claimNextRunDeletion(workerId: string, leaseSeconds = 120): Promise<ClaimedRunDeletion | null> {
   const result = await pool.query<ClaimedRunDeletion>(`
