@@ -11,6 +11,12 @@ body { color: var(--mantine-color-text); background: var(--mantine-color-gray-0)
 .hive-header { border-color: var(--mantine-color-gray-2); background: var(--mantine-color-white); }
 .header-inner { width: 100%; }
 .header-context { color: var(--mantine-color-dimmed); font-size: var(--mantine-font-size-sm); }
+.app-breadcrumb-nav { min-width: 0; max-width: min(62vw, 600px); }
+.app-breadcrumbs { min-width: 0; }
+.app-breadcrumb-parent { color: var(--mantine-color-gray-6); font-size: var(--mantine-font-size-sm); white-space: nowrap; }
+.app-breadcrumb-separator { color: var(--mantine-color-gray-4); font-size: 18px; line-height: 1; }
+.app-breadcrumb-current { min-width: 0; max-width: min(42vw, 420px); color: var(--mantine-color-gray-8); font-size: var(--mantine-font-size-sm); font-weight: 600; white-space: nowrap; }
+.app-breadcrumb-parent:focus-visible { outline: 2px solid var(--mantine-color-hiveSky-6); outline-offset: 2px; border-radius: var(--mantine-radius-xs); }
 .mobile-header-brand { height: 44px; }
 .hive-header .mantine-Burger-root, .hive-navbar .mantine-Burger-root { --burger-color: var(--mantine-color-gray-7); }
 .hive-navbar { border-color: transparent; background: var(--mantine-color-gray-0); transition: width 160ms ease, transform 160ms ease; }
@@ -109,7 +115,7 @@ body { color: var(--mantine-color-text); background: var(--mantine-color-gray-0)
 .workflow-editor-canvas .hive-ionodes { width: 100%; height: 100%; min-height: 0; color-scheme: dark; }
 .workflow-editor-canvas .hive-ionodes .ionodes-canvas,
 .workflow-editor-canvas .hive-ionodes .ionodes-canvas .react-flow { background: var(--hive-canvas-background); }
-.workflow-editor-canvas .hive-ionodes .ionodes-canvas-label { color: var(--hive-canvas-label); }
+.workflow-editor-canvas .hive-ionodes .ionodes-canvas-label { display: none; }
 .workflow-editor-canvas .hive-ionodes .ionodes-canvas-count { color: var(--hive-canvas-label); }
 .workflow-editor-canvas .hive-ionodes .ionodes-canvas .react-flow__controls { border-color: var(--hive-canvas-control-border); border-radius: 7px; background: var(--hive-canvas-control-surface); box-shadow: 0 2px 6px rgba(36, 55, 74, 0.08); }
 .workflow-editor-canvas .hive-ionodes .ionodes-canvas .react-flow__controls-button { border-color: var(--hive-canvas-control-border); background: var(--hive-canvas-control-surface); color: var(--hive-canvas-control-text); fill: var(--hive-canvas-control-text); }
@@ -186,7 +192,8 @@ body { color: var(--mantine-color-text); background: var(--mantine-color-gray-0)
 @keyframes hive-flash-enter { from { opacity: 0; transform: translate3d(12px, -5px, 0); } to { opacity: 1; transform: translate3d(0, 0, 0); } }
 @media (prefers-reduced-motion: reduce) { .hive-flash-entry { transition: none; animation: none; } }
 @media (max-width: 520px) {
-  .header-context { display: none; }
+  .app-breadcrumb-nav { max-width: min(58vw, 360px); }
+  .app-breadcrumb-current { max-width: min(40vw, 220px); }
   .brand-section { padding-bottom: 10px; }
   .page-date { display: none; }
   .home-page { gap: 22px; padding-top: 14px; }

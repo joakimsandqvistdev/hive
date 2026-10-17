@@ -8,6 +8,7 @@ import { RunDetailsInspector } from "../components/RunDetailsInspector";
 import { active, date, statusColor, timingLabel } from "../runFormatting";
 import type { Artifact, Detail, PageResult, Run } from "../runTypes";
 import { useFlashMessages } from "../components/FlashMessages";
+import { useAppBreadcrumb } from "../components/AppBreadcrumbs";
 
 import type { AppView } from "../navigation/navigationState";
 
@@ -25,6 +26,8 @@ export function RunsPage({ onNavigate }: { onNavigate: (view: AppView) => void }
   const [error, setError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(runIdFromHash);
   const [detail, setDetail] = useState<Detail | null>(null);
+  const navigateToRuns = useCallback(() => { setSelectedId(null); if (runIdFromHash()) window.location.hash = "runs"; }, []);
+  useAppBreadcrumb(selectedId && detail ? { parentView: "runs", currentLabel: "Run details", onParentNavigate: navigateToRuns } : null);
   const [inspectorSelection, setInspectorSelection] = useState("publication");
   const captionDirty = useRef(false);
   const [detailError, setDetailError] = useState<string | null>(null);
