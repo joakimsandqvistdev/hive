@@ -10,7 +10,7 @@ This file tracks the proposed feature backlog and keeps implementation specifica
 | Workflow and Custom Node revision history | Proposed |
 | Workflow test cases | Proposed |
 | Model cache and download manager | Proposed |
-| Media storage overview and safe cleanup planner | Proposed |
+| Media storage overview and safe cleanup planner | In progress |
 | Portable workflow packages | Proposed |
 | Instagram publishing outbox and recovery | Proposed |
 | Multiple Instagram accounts and publishing calendar | Proposed |
@@ -375,6 +375,10 @@ Give users clear control over model downloads and Docker cache storage so a larg
 Make generated, uploaded, and library media storage understandable and controllable. Users should be able to see what consumes space, what is protected by a saved-library or active reference, and what a proposed cleanup will delete before confirming it.
 
 This complements existing run deletion and the Media Library's saved/non-saved filter. It does not change their existing retention rules by default.
+
+### Accepted v1 decisions
+
+V1 is a manual cleanup planner with no automatic retention or quarantine period. The library uses one free-text search across file name, media format, workflow, node, and webhook names, with separate Type and Save state filters. Cleanup includes unsaved terminal-run outputs older than 30 days and unreferenced workflow uploads of any age. Incomplete uploads are omitted because they are not persisted in the current upload lifecycle. Protected bytes are an overlapping indicator. Confirmation is permanent; the worker rechecks eligibility and keeps run history. See [Decision 0032](docs/decisions/0032-media-storage-cleanup-planner.md).
 
 ### User stories
 
