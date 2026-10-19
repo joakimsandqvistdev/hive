@@ -39,7 +39,7 @@ export function ArtifactPreview({ artifactId, label, mediaType, className }: { a
       : src ? mediaType.startsWith("video/")
       ? <video src={src} controls crossOrigin="use-credentials" playsInline preload="metadata" onError={() => setFailed(true)} aria-label={`${label} generated video`} style={{ width: "100%", maxHeight: 320 }} />
       : mediaType.startsWith("audio/") ? <audio src={src} controls aria-label={label} style={{ width: "100%" }} />
-      : <Image src={src} alt={`${label} output`} h={240} fit="contain" radius="sm" />
+      : <Image src={src} alt={`${label} output`} fit="contain" radius="sm" />
       : <Group h={240} justify="center"><Loader size="sm" /></Group>}
   </Paper>;
 }
@@ -140,11 +140,11 @@ export function RunDetailsInspector({
           const usedSeed = node.resolvedInputJson?.modelParameters?.seed;
           const artifact = node.outputJson?.artifactId ? detail.artifacts.find((item) => item.id === node.outputJson?.artifactId) : undefined;
           const mediaType = artifact?.mediaType ?? `${node.outputJson?.dataTypeId ?? "application"}/unknown`;
-          return <Stack gap="sm">
+          return <Stack className="run-inspector-node-content" gap="sm">
             <Group justify="space-between" align="start"><div><Text fw={600} size="sm">{label}</Text><Text size="xs" c="dimmed">{node.nodeSnapshotJson?.kind === "processing" ? "Text Overlay" : nodeTypeLabel(node.nodeSnapshotJson?.modality ?? node.nodeSnapshotJson?.kind ?? "input", node.parameters?.modelId ?? node.nodeSnapshotJson?.parameters?.modelId)}</Text><Text size="xs" c="dimmed" mt={3}>{timingLabel(node.startedAt, node.finishedAt, now)}{typeof usedSeed === "number" ? ` · Seed ${usedSeed}` : ""}</Text></div><Badge variant="light" color={statusColor(node.status)}>{node.status.replaceAll("_", " ")}</Badge></Group>
             {node.errorSummary && <Alert color="hiveError" title="Step failed">{node.errorSummary}</Alert>}
             {node.outputJson?.text && <Paper className="run-inspector-text-output" withBorder radius="sm" p="sm"><Text size="xs" c="dimmed" mb={4}>Text output</Text><Text size="sm" style={{ whiteSpace: "pre-wrap" }}>{node.outputJson.text}</Text></Paper>}
-            {artifact && <ArtifactPreview className="run-inspector-preview" artifactId={artifact.id} label={label} mediaType={mediaType} />}
+            {artifact && <ArtifactPreview className="run-inspector-preview run-inspector-output-preview" artifactId={artifact.id} label={label} mediaType={mediaType} />}
             {!artifact && !node.outputJson?.text && !node.errorSummary && <Text size="sm" c="dimmed">No output was recorded for this step.</Text>}
           </Stack>;
         })()}
