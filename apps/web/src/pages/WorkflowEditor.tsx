@@ -234,7 +234,7 @@ export function WorkflowEditor({ workflowId, onClose, onNavigate, customNodeEdit
     setGraph(toIonodesGraph(definition, contracts, types, workflowId));
     setDirty(true); setError(null);
   }
-  function duplicateNode(graphNode: GraphDocument["nodes"][number]) {
+  const duplicateNode = useCallback((graphNode: GraphDocument["nodes"][number]) => {
     const source = toWorkflowNode(graphNode, contracts);
     const nodeId = createId("node");
     const nodeDefinition: Definition["nodes"][number] = {
@@ -250,7 +250,7 @@ export function WorkflowEditor({ workflowId, onClose, onNavigate, customNodeEdit
     };
     const next = addWorkflowNode(graph, nodeDefinition, contracts, types);
     setGraph(next); setSelectedNodeId(nodeId); setSelectedNodeIds([nodeId]); setSelectedConnectionId(null); setDirty(true); setError(null);
-  }
+  }, [contracts, graph, types]);
   async function openImport() {
     setImportOpen(true); setImportError(null); setImportLoading(true);
     try {
@@ -346,9 +346,9 @@ export function WorkflowEditor({ workflowId, onClose, onNavigate, customNodeEdit
       showFlash({ tone: "error", title: "Could not export selection", message: cause instanceof Error ? cause.message : "Could not create a workflow from this selection." });
     } finally { setExporting(false); }
   }
-  function requestRemoveNode(graphNode: GraphDocument["nodes"][number]) {
+  const requestRemoveNode = useCallback((graphNode: GraphDocument["nodes"][number]) => {
     setSelectedNodeId(graphNode.id); setSelectedNodeIds([graphNode.id]); setSelectedConnectionId(null); setRemoveOpen(true);
-  }
+  }, []);
   function removeSelection() {
     if (uploading) return;
     if (selectedNodeIds.length > 0) {
@@ -423,6 +423,15 @@ export function WorkflowEditor({ workflowId, onClose, onNavigate, customNodeEdit
     } catch (cause) { showFlash({ tone: "error", title: `Could not start ${customNodeEditor ? "Custom Node" : "workflow"}`, message: cause instanceof Error ? cause.message : "Could not start this run." }); }
     finally { setRunning(false); }
   }
+  const handleGraphChange = useCallback((next: GraphDocument) => { setGraph(next); setDirty(true); setError(null); }, []);
+  const renderNodeActions = useCallback((graphNode: GraphDocument["nodes"][number]) => <>
+    <Tooltip label={`Duplicate ${graphNode.title}`}>
+      <ActionIcon className="nodrag nopan" variant="subtle" color="hiveSky" size="sm" aria-label={`Duplicate ${graphNode.title}`} disabled={uploading} onClick={(event) => { event.stopPropagation(); duplicateNode(graphNode); }}><DuplicateIcon /></ActionIcon>
+    </Tooltip>
+    <Tooltip label={`Remove ${graphNode.title}`}>
+      <ActionIcon className="nodrag nopan" variant="subtle" color="hiveError" size="sm" aria-label={`Remove ${graphNode.title}`} disabled={uploading} onClick={(event) => { event.stopPropagation(); requestRemoveNode(graphNode); }}><RemoveIcon /></ActionIcon>
+    </Tooltip>
+  </>, [duplicateNode, requestRemoveNode, uploading]);
   return <div className="workflow-editor-page">
     <header className="workflow-editor-header">
       <Group justify="space-between" align="center" wrap="wrap" gap="sm" className="workflow-editor-header-row">
@@ -453,7 +462,7 @@ export function WorkflowEditor({ workflowId, onClose, onNavigate, customNodeEdit
           graph={graph}
           graphTitle={workflow?.name ?? "Workflow"}
           selectedNodeId={selectedNodeId}
-          onChange={(next) => { setGraph(next); setDirty(true); setError(null); }}
+          onChange={handleGraphChange}
           onSelectionChange={({ nodeIds, connectionIds }) => { setSelectedNodeIds(nodeIds); setSelectedNodeId(nodeIds[0] ?? null); setSelectedConnectionId(connectionIds[0] ?? null); }}
           validateConnection={validateWorkflowConnection}
           showConnectionWarnings={false}
@@ -462,14 +471,7 @@ export function WorkflowEditor({ workflowId, onClose, onNavigate, customNodeEdit
           showInspector={false}
           showStatusBar={false}
           className="hive-ionodes"
-          renderNodeActions={(graphNode) => <>
-            <Tooltip label={`Duplicate ${graphNode.title}`}>
-              <ActionIcon className="nodrag nopan" variant="subtle" color="hiveSky" size="sm" aria-label={`Duplicate ${graphNode.title}`} disabled={uploading} onClick={(event) => { event.stopPropagation(); duplicateNode(graphNode); }}><DuplicateIcon /></ActionIcon>
-            </Tooltip>
-            <Tooltip label={`Remove ${graphNode.title}`}>
-              <ActionIcon className="nodrag nopan" variant="subtle" color="hiveError" size="sm" aria-label={`Remove ${graphNode.title}`} disabled={uploading} onClick={(event) => { event.stopPropagation(); requestRemoveNode(graphNode); }}><RemoveIcon /></ActionIcon>
-            </Tooltip>
-          </>}
+          renderNodeActions={renderNodeActions}
           theme={{ "--ionodes-bg": "var(--hive-canvas-background)", "--ionodes-surface": "var(--hive-canvas-surface)", "--ionodes-text": "var(--hive-canvas-text)", "--ionodes-muted": "var(--hive-canvas-muted)", "--ionodes-border": "var(--hive-canvas-border)", "--ionodes-accent": "var(--hive-canvas-accent)", "--ionodes-danger": "var(--hive-canvas-danger)" }}
           canvas={{ hideAttribution: true, backgroundColor: "var(--mantine-color-gray-5)", miniMapMaskColor: "rgba(124, 135, 148, 0.16)", miniMapNodeColor: (_node, invalid) => invalid ? "#ba514d" : "#4285f4" }}
         />

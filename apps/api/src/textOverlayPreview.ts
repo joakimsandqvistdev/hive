@@ -77,7 +77,13 @@ textOverlayPreviewRouter.put("/defaults", async (req, res, next) => {
 textOverlayPreviewRouter.post("/preview", async (req, res, next) => {
   try {
     const input = z.object({ artifactId: z.string().uuid(), text: z.string().trim().min(1).max(8000), settings: textOverlaySettingsSchema }).safeParse(req.body);
-    if (!input.success) { res.status(400).json({ error: "invalid_request" }); return; }
+    if (!input.success) {
+      res.status(400).json({
+        error: "invalid_request",
+        invalidFields: input.error.issues.map((issue) => issue.path.join(".")).filter(Boolean),
+      });
+      return;
+    }
     const [artifact] = await db.select().from(artifacts).where(and(eq(artifacts.id, input.data.artifactId), eq(artifacts.userId, res.locals.userId as string))).limit(1);
     if (!artifact || artifact.dataTypeId !== "image" || !artifact.mediaType.startsWith("image/")) { res.status(404).json({ error: "image_unavailable" }); return; }
     const settingsKey = createHash("sha256").update(JSON.stringify(input.data.settings)).digest("hex");

@@ -43,9 +43,11 @@ export async function renderTextOverlay(source: Buffer, text: string, settings: 
   const lines = wrapText(text, maxCharacters);
   const lineHeight = Math.round(settings.fontSize * settings.lineSpacing);
   const blockHeight = lines.length * lineHeight;
-  const horizontalPlacement = settings.placement.endsWith("left") ? "left" : settings.placement.endsWith("right") ? "right" : "center";
+  const horizontalPlacement = settings.backgroundEnabled ? "center" : settings.placement.endsWith("left") ? "left" : settings.placement.endsWith("right") ? "right" : "center";
   const boxLeft = horizontalPlacement === "left" ? margin : horizontalPlacement === "right" ? width - margin - maxWidth : Math.round((width - maxWidth) / 2);
-  const x = settings.alignment === "left" ? boxLeft : settings.alignment === "right" ? boxLeft + maxWidth : boxLeft + maxWidth / 2;
+  const x = settings.backgroundEnabled
+    ? settings.alignment === "left" ? margin : settings.alignment === "right" ? width - margin : Math.round(width / 2)
+    : settings.alignment === "left" ? boxLeft : settings.alignment === "right" ? boxLeft + maxWidth : boxLeft + maxWidth / 2;
   const y = settings.placement.startsWith("top") ? margin + settings.fontSize : settings.placement.startsWith("bottom") ? height - margin - blockHeight + settings.fontSize : Math.round((height - blockHeight) / 2) + settings.fontSize;
   const anchor = settings.alignment === "left" ? "start" : settings.alignment === "right" ? "end" : "middle";
   const tspans = lines.map((line, index) => `<tspan x="${x}" dy="${index === 0 ? 0 : lineHeight}">${escapeXml(line)}</tspan>`).join("");
@@ -59,7 +61,16 @@ export async function renderTextOverlay(source: Buffer, text: string, settings: 
   const shadow = settings.shadowOpacity > 0
     ? `<filter id="shadow" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur in="SourceAlpha" stdDeviation="${settings.shadowBlur}" result="blur"/><feOffset in="blur" dx="${settings.shadowOffsetX}" dy="${settings.shadowOffsetY}" result="offset"/><feFlood flood-color="${settings.shadowColor}" flood-opacity="${settings.shadowOpacity}"/><feComposite in2="offset" operator="in"/><feMerge><feMergeNode/><feMergeNode in="SourceGraphic"/></feMerge></filter>`
     : "";
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}"><defs>${shadow}</defs><text x="${x}" y="${y}" text-anchor="${anchor}" font-family="${escapeXml(font.family)}" font-size="${settings.fontSize}" font-weight="${settings.fontWeight}" font-style="${settings.fontStyle}" font-variation-settings="${escapeXml(variations)}" letter-spacing="${settings.letterSpacing}" text-decoration="${settings.textDecoration}" fill="${settings.color}" ${outline} ${shadow ? 'filter="url(#shadow)"' : ""}>${tspans}</text></svg>`;
+  const background = settings.backgroundEnabled
+    ? (() => {
+      const padding = Math.round(Math.min(width, height) * settings.backgroundPadding / 100);
+      const stripHeight = Math.min(height, blockHeight + padding * 2);
+      const blockTop = y - settings.fontSize;
+      const stripTop = Math.max(0, Math.min(height - stripHeight, blockTop - padding));
+      return `<rect x="0" y="${stripTop}" width="${width}" height="${stripHeight}" fill="${settings.backgroundColor}" fill-opacity="${settings.backgroundOpacity}"/>`;
+    })()
+    : "";
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}"><defs>${shadow}</defs>${background}<text x="${x}" y="${y}" text-anchor="${anchor}" font-family="${escapeXml(font.family)}" font-size="${settings.fontSize}" font-weight="${settings.fontWeight}" font-style="${settings.fontStyle}" font-variation-settings="${escapeXml(variations)}" letter-spacing="${settings.letterSpacing}" text-decoration="${settings.textDecoration}" fill="${settings.color}" ${outline} ${shadow ? 'filter="url(#shadow)"' : ""}>${tspans}</text></svg>`;
   const renderOptions = { font: { fontFiles: [fontFile], loadSystemFonts: false }, fitTo: { mode: "original" } } as unknown as ResvgRenderOptions;
   const overlay = new Resvg(svg, renderOptions).render().asPng();
   return image.composite([{ input: overlay, blend: "over" }]).png().toBuffer();

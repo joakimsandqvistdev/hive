@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Alert, Button, Checkbox, ColorInput, FileInput, Group, Image, Loader, NumberInput, Select, Slider, Stack, Text, Textarea, TextInput, Title } from "@mantine/core";
+import { Alert, Button, Checkbox, ColorInput, FileInput, Group, Image, Loader, NumberInput, Select, Slider, Stack, Switch, Text, Textarea, TextInput, Title } from "@mantine/core";
 import { apiFetch, apiUrl } from "../apiClient";
 import { ImageModelParametersFields, type ImageModelParameters } from "../components/ImageModelParametersFields";
 import { VideoModelParametersFields, type VideoModelParameters } from "../components/VideoModelParametersFields";
@@ -164,6 +164,11 @@ export function WorkflowNodeConfiguration({ selected, types, instagramAccounts, 
       </> : <>
       <Text fw={600}>Text Overlay</Text>
       <Text size="sm" c="dimmed">Connect one image and one text input. Text is rendered directly; no model is used.</Text>
+      <Switch label="Full-width background strip" description="Add a colored box behind the text across the full image width." checked={selected.data.parameters.backgroundEnabled === true} onChange={(event) => onUpdate({ parameters: { ...selected.data.parameters, backgroundEnabled: event.currentTarget.checked } })} />
+      {selected.data.parameters.backgroundEnabled === true && <Stack gap="xs" className="text-overlay-background-settings">
+        <Group grow><ColorInput label="Strip color" format="hex" value={String(selected.data.parameters.backgroundColor ?? textOverlayDefaults.backgroundColor)} onChange={(backgroundColor) => onUpdate({ parameters: { ...selected.data.parameters, backgroundColor: /^#[0-9a-fA-F]{6}$/.test(backgroundColor) ? backgroundColor : textOverlayDefaults.backgroundColor } })} /><NumberInput label="Strip opacity" min={0} max={1} step={0.05} decimalScale={2} value={Number(selected.data.parameters.backgroundOpacity ?? textOverlayDefaults.backgroundOpacity)} onChange={(backgroundOpacity) => typeof backgroundOpacity === "number" && onUpdate({ parameters: { ...selected.data.parameters, backgroundOpacity } })} /></Group>
+        <NumberInput label="Strip vertical padding" description="Percent of the shorter image dimension" min={0} max={15} step={0.5} decimalScale={1} value={Number(selected.data.parameters.backgroundPadding ?? textOverlayDefaults.backgroundPadding)} onChange={(backgroundPadding) => typeof backgroundPadding === "number" && onUpdate({ parameters: { ...selected.data.parameters, backgroundPadding } })} />
+      </Stack>}
       <Select label="Google Font" placeholder="Search 1,900+ font families" searchable data={fontCatalog.map((font) => ({ value: font.id, label: font.family }))} renderOption={({ option }) => {
         const font = fontCatalog.find((item) => item.id === option.value);
         return font ? <GoogleFontPickerOption font={font} /> : <span>{option.label}</span>;

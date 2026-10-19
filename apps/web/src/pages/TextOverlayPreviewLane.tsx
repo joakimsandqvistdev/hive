@@ -32,7 +32,14 @@ export function TextOverlayPreviewLane({ artifactId, text, settings, nodeId, onS
         body: JSON.stringify({ artifactId, text, settings }),
       })
         .then(async (response) => {
-          if (!response.ok) throw new Error("Preview is unavailable for these settings.");
+          if (!response.ok) {
+            if (response.status === 400) {
+              const body = await response.json().catch(() => null) as { invalidFields?: unknown } | null;
+              const fields = Array.isArray(body?.invalidFields) ? body.invalidFields.filter((field): field is string => typeof field === "string") : [];
+              if (fields.length) throw new Error(`Invalid Text Overlay settings: ${fields.join(", ")}.`);
+            }
+            throw new Error("Preview is unavailable for these settings.");
+          }
           return response.blob();
         })
         .then((blob) => {
