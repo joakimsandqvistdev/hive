@@ -3,14 +3,11 @@ import { useAuth } from "../auth";
 import type { AppView } from "../navigation/navigationState";
 import { AppIcon } from "../components/AppIcon";
 
-const capabilities = [
-  { icon: "workflows", title: "Visual workflows", description: "Connect inputs and AI models, wrap generated text with optional prefixes and suffixes, preview text overlays, and save reusable node settings." },
-  { icon: "customNodes", title: "Reusable Custom Nodes", description: "Reuse shared workflow logic; deletion is blocked while referenced." },
-  { icon: "models", title: "Model library", description: "Track runner cache storage, pause and resume downloads, recover after restarts, and manage downloaded model weights." },
-  { icon: "media", title: "Media Library", description: "Rename and search reusable assets in Image, Audio, and Video inputs; review storage and manual cleanup." },
-  { icon: "publish", title: "Instagram publishing", description: "Publish posts and Reels automatically or after review." },
-  { icon: "jobs", title: "Jobs and Runs", description: "Schedule repeat runs, pause your queued runs after current work finishes, track progress, and manage run history." },
-  { icon: "webhook", title: "Secure webhook triggers", description: "Create signed triggers, search by workflow, and review delivery history." },
+const stages = [
+  { icon: "accounts", number: "01", title: "Prepare", description: "Connect an Instagram account, organize images and audio, and choose downloadable AI models for your work." },
+  { icon: "workflows", number: "02", title: "Create", description: "Connect inputs, AI models, image and video tools, and reusable Custom Nodes in a visual workflow." },
+  { icon: "jobs", number: "03", title: "Automate", description: "Run a workflow when you need it, on a schedule, or from a signed webhook trigger." },
+  { icon: "runs", number: "04", title: "Review", description: "Follow each run, inspect the results, and publish Instagram posts or Reels after review or automatically." },
 ] as const;
 
 export function HomePage({ onNavigate }: { onNavigate: (view: AppView) => void }) {
@@ -21,12 +18,12 @@ export function HomePage({ onNavigate }: { onNavigate: (view: AppView) => void }
       <Stack className="home-hero-copy" gap="md">
         <Badge className="home-eyebrow" variant="light" color="hiveSky" leftSection={<span className="home-eyebrow-mark" aria-hidden="true" />}>Creative workflow automation</Badge>
         <Stack gap="sm">
-          <Title order={1} className="home-title">Turn ideas into repeatable workflows.</Title>
-          <Text className="home-description">Bring AI models, media processing, and publishing together in one visual workspace. Build reusable flows, schedule runs, trigger workflows from secure webhooks, and keep every output easy to find.</Text>
+          <Title order={1} className="home-title">Plan it. Make it. Know what happened.</Title>
+          <Text className="home-description">Hive brings the pieces of creative automation together, so you can create a workflow and understand each step along the way.</Text>
         </Stack>
         <Group gap="sm" className="home-actions">
           {user
-            ? <Button onClick={() => onNavigate("workflows")}>Open workflows</Button>
+            ? <Button onClick={() => onNavigate("workflows")}>Explore workflows</Button>
             : <Button onClick={openLoginModal}>Sign in to Hive</Button>}
           {!user && <Text size="sm" c="dimmed">Your workspace is private to your account.</Text>}
         </Group>
@@ -34,36 +31,50 @@ export function HomePage({ onNavigate }: { onNavigate: (view: AppView) => void }
 
       <Paper className="home-flow-card" withBorder>
         <Group justify="space-between" align="center">
-          <Text className="home-flow-label">A connected workflow</Text>
-          <span className="home-flow-status"><span aria-hidden="true" /> Ready to run</span>
+          <Text className="home-flow-label">How the pieces fit</Text>
+          <span className="home-flow-status"><span aria-hidden="true" /> Connected</span>
         </Group>
         <Stack className="home-flow-steps" gap={0}>
-          <FlowStep number="01" title="Build" description="Connect models and media" />
-          <FlowStep number="02" title="Run" description="Generate and process outputs" />
-          <FlowStep number="03" title="Publish" description="Review or automate delivery" last />
+          <FlowStep number="01" title="Prepare" description="Accounts · Models · Media" />
+          <FlowStep number="02" title="Create" description="Workflows · Custom Nodes" />
+          <FlowStep number="03" title="Automate" description="Jobs · Runs · Webhooks" />
+          <FlowStep number="04" title="Review" description="Check results · Publish" last />
         </Stack>
-        <Text className="home-flow-footnote">From a single run to a scheduled job</Text>
+        <Text className="home-flow-footnote">One clear path from setup through finished work</Text>
       </Paper>
     </Paper>
 
     <Stack className="home-capabilities" gap="md">
       <Stack gap={4}>
-        <Title order={2} className="home-section-title">Everything around your workflow</Title>
+        <Title order={2} className="home-section-title">Hive, at each step</Title>
+        <Text size="sm" c="dimmed">A quick map of what lives where.</Text>
       </Stack>
-      <SimpleGrid cols={{ base: 1, sm: 2, lg: 3 }} spacing="sm">
-        {capabilities.map((item) => <Paper className="home-capability" withBorder key={item.title}>
+      <SimpleGrid cols={{ base: 1, sm: 2, lg: 4 }} spacing="sm">
+        {stages.map((stage) => <Paper className="home-capability" withBorder key={stage.title}>
           <Group align="flex-start" wrap="nowrap" gap="sm">
-            <ThemeIcon className="home-capability-icon" variant="light" color="hiveSky" size={38} radius="sm"><AppIcon name={item.icon} size={19} /></ThemeIcon>
+            <ThemeIcon className="home-capability-icon" variant="light" color="hiveSky" size={38} radius="sm"><AppIcon name={stage.icon} size={19} /></ThemeIcon>
             <Stack gap={4}>
-              <Text className="home-capability-title">{item.title}</Text>
-              <Text className="home-capability-description">{item.description}</Text>
+              <Text className="home-stage-number">{stage.number} — {stage.title.toUpperCase()}</Text>
+              <Text className="home-capability-title">{stage.title}</Text>
+              <Text className="home-capability-description">{stage.description}</Text>
             </Stack>
           </Group>
         </Paper>)}
       </SimpleGrid>
+
+      <Paper className="home-capability-summary" withBorder>
+        <Group align="flex-start" wrap="nowrap" gap="sm">
+          <ThemeIcon className="home-capability-icon" variant="light" color="hiveSky" size={38} radius="sm"><AppIcon name="workflows" size={19} /></ThemeIcon>
+          <Stack gap={4}>
+            <Text className="home-capability-title">Built for a clear workflow</Text>
+            <Text className="home-capability-description">Connect each step visually, reuse shared logic with Custom Nodes, and see the results in run history. Workflows can generate and process media, then publish Instagram posts or Reels manually or automatically.</Text>
+          </Stack>
+        </Group>
+      </Paper>
     </Stack>
   </Stack>;
 }
+
 function FlowStep({ number, title, description, last = false }: { number: string; title: string; description: string; last?: boolean }) {
   return <Group className="home-flow-step" wrap="nowrap" align="stretch" gap="sm">
     <Stack className="home-flow-marker-column" align="center" gap={0}>

@@ -133,20 +133,32 @@ export function SideNavigation({
             />
           </Box>
           <Box>
-            <Text className="nav-caption">Workspace</Text>
+            <Text className="nav-caption">Studio</Text>
             <Stack gap={5} mt="sm">
-            {!loading && user && <NavigationButton label="Accounts" active={activeView === "accounts"} icon={<AppIcon name="accounts" />} compact={compact} onClick={() => { onViewChange("accounts"); onNavigate(); }} />}
-            {!loading && user && <NavigationButton label="Media Library" active={activeView === "media"} icon={<AppIcon name="media" />} compact={compact} onClick={() => { onViewChange("media"); onNavigate(); }} />}
-            <NavigationButton label="Models" active={activeView === "models"} icon={<AppIcon name="models" />} compact={compact} onClick={() => { onViewChange("models"); onNavigate(); }} />
             {!loading && user && <>
-              <NavigationButton label="Workflows" active={activeView === "workflows"} icon={<AppIcon name="workflows" />} compact={compact} rightSection={attentionRightSection(summary.workflowsNeedAttention, "Workflows")} ariaLabel={`Workflows${summary.workflowsNeedAttention ? ", needs attention" : ""}`} onClick={() => { onViewChange("workflows"); onNavigate(); }} />
-              <NavigationButton label="Webhook Manager" active={activeView === "webhook-manager"} icon={<AppIcon name="webhook" />} compact={compact} onClick={() => { onViewChange("webhook-manager"); onNavigate(); }} />
               <NavigationButton label="Custom Nodes" active={activeView === "custom-nodes"} icon={<AppIcon name="customNodes" />} compact={compact} rightSection={attentionRightSection(summary.customNodesNeedAttention, "Custom Nodes")} ariaLabel={`Custom Nodes${summary.customNodesNeedAttention ? ", needs attention" : ""}`} onClick={() => { onViewChange("custom-nodes"); onNavigate(); }} />
-              <NavigationButton label="Jobs" active={activeView === "jobs"} icon={<AppIcon name="jobs" />} compact={compact} rightSection={attentionRightSection(summary.jobsNeedAttention, "Jobs")} ariaLabel={`Jobs${summary.jobsNeedAttention ? ", needs attention" : ""}`} onClick={() => { onViewChange("jobs"); onNavigate(); }} />
+              <NavigationButton label="Workflows" active={activeView === "workflows"} icon={<AppIcon name="workflows" />} compact={compact} rightSection={attentionRightSection(summary.workflowsNeedAttention, "Workflows")} ariaLabel={`Workflows${summary.workflowsNeedAttention ? ", needs attention" : ""}`} onClick={() => { onViewChange("workflows"); onNavigate(); }} />
               <NavigationButton label="Runs" active={activeView === "runs"} icon={<AppIcon name="runs" />} compact={compact} rightSection={<RunCountIndicators succeeded={summary.succeededRuns} awaitingPublish={summary.awaitingPublishRuns} />} ariaLabel={`Runs, ${summary.succeededRuns} succeeded, ${summary.awaitingPublishRuns} awaiting publishing${summary.runsNeedAttention ? ", needs attention" : ""}`} onClick={() => { onViewChange("runs"); onNavigate(); }} />
+              <NavigationButton label="Jobs" active={activeView === "jobs"} icon={<AppIcon name="jobs" />} compact={compact} rightSection={attentionRightSection(summary.jobsNeedAttention, "Jobs")} ariaLabel={`Jobs${summary.jobsNeedAttention ? ", needs attention" : ""}`} onClick={() => { onViewChange("jobs"); onNavigate(); }} />
             </>}
             </Stack>
           </Box>
+          <Box mt="lg">
+            <Text className="nav-caption">Resources</Text>
+            <Stack gap={5} mt="sm">
+              <NavigationButton label="Models" active={activeView === "models"} icon={<AppIcon name="models" />} compact={compact} onClick={() => { onViewChange("models"); onNavigate(); }} />
+              {!loading && user && <>
+                <NavigationButton label="Media Library" active={activeView === "media"} icon={<AppIcon name="media" />} compact={compact} onClick={() => { onViewChange("media"); onNavigate(); }} />
+                <NavigationButton label="Accounts" active={activeView === "accounts"} icon={<AppIcon name="accounts" />} compact={compact} onClick={() => { onViewChange("accounts"); onNavigate(); }} />
+              </>}
+            </Stack>
+          </Box>
+          {!loading && user && <Box mt="lg">
+            <Text className="nav-caption">Integrations</Text>
+            <Stack gap={5} mt="sm">
+              <NavigationButton label="Webhook Manager" active={activeView === "webhook-manager"} icon={<AppIcon name="webhook" />} compact={compact} onClick={() => { onViewChange("webhook-manager"); onNavigate(); }} />
+            </Stack>
+          </Box>}
         </Box>
       </Stack>
 

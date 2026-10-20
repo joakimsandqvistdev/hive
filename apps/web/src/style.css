@@ -93,8 +93,11 @@ body { color: var(--mantine-color-text); background: var(--mantine-color-gray-0)
 .home-section-title { color: var(--mantine-color-gray-8); font-size: clamp(20px, 2.4vw, 25px); font-weight: 600; letter-spacing: -.03em; }
 .home-capability { min-height: 116px; padding: 17px; border-color: var(--mantine-color-gray-2); background: var(--mantine-color-white); box-shadow: var(--mantine-shadow-xs); }
 .home-capability-icon { flex: 0 0 auto; }
+.home-stage-number { color: var(--mantine-color-hiveSky-7); font-family: var(--mantine-font-family-monospace); font-size: 9px; font-weight: 700; letter-spacing: .025em; }
 .home-capability-title { color: var(--mantine-color-gray-8); font-size: var(--mantine-font-size-sm); font-weight: 650; }
 .home-capability-description { max-width: 270px; color: var(--mantine-color-dimmed); font-size: var(--mantine-font-size-xs); line-height: 1.55; }
+.home-capability-summary { padding: 17px; border-color: var(--mantine-color-gray-2); background: var(--mantine-color-white); box-shadow: var(--mantine-shadow-xs); }
+.home-capability-summary .home-capability-description { max-width: 850px; }
 .home-page, .workspace-page { width: min(100%, 1400px); margin-inline: auto; }
 .workspace-page { padding: 20px 0 40px; }
 .workspace-empty { padding: clamp(20px, 4vw, 32px); border-color: var(--mantine-color-gray-2); background: var(--mantine-color-white); }
