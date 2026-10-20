@@ -132,8 +132,13 @@ async function execute(run: ClaimedRun, signal: AbortSignal): Promise<void> {
     if (Number(response.headers.get("content-length") ?? 0) > runnerInput.maxOutputBytes) throw new Error("Model output exceeds the size limit.");
     const bytes = Buffer.from(await response.arrayBuffer().catch((error) => { throw new Error(modelRunnerTransportFailure(error, runnerInput.modality)); }));
     if (runnerInput.modality === "text") {
-      const text = bytes.toString("utf8").trim();
-      if (!text || text.length > 128_000) throw new Error("Text model returned empty text or exceeded the output limit.");
+      const generatedText = bytes.toString("utf8").trim();
+      if (!generatedText) throw new Error("Text model returned empty text.");
+      const textSettings = object(resolved.modelParameters);
+      const prefix = typeof textSettings.prefix === "string" ? textSettings.prefix : "";
+      const suffix = typeof textSettings.suffix === "string" ? textSettings.suffix : "";
+      const text = `${prefix}${generatedText}${suffix}`;
+      if (Buffer.byteLength(text, "utf8") > 128 * 1024) throw new Error("Text model output with its prefix and suffix exceeds the output limit.");
       const output = { dataTypeId: "text", text };
       if (!await finishRunNode(run.id, node.id, workerId, output)) throw new Error("Worker lease was lost after text generation.");
       outputs.set(node.id, output);
