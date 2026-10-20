@@ -1,7 +1,7 @@
 import { Router } from "express";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { db } from "./db.js";
-import { models } from "./schema.js";
+import { models, workflowNodes, workflows } from "./schema.js";
 import { loadDataTypes, loadModelIoContracts } from "./modelContracts.js";
 import { loadCustomNodeCatalog } from "./customNodeCatalog.js";
 
@@ -24,7 +24,27 @@ router.get("/", async (_req, res) => {
   try {
     const { response, body } = await forwardRunnerRequest("/models");
     if (!response.ok) { res.status(502).json({ error: "model_runner_unavailable" }); return; }
-    res.json(body);
+    const modelIds = Array.isArray((body as { models?: unknown[] }).models)
+      ? ((body as { models: Array<{ id?: unknown }> }).models).map((item) => String(item.id ?? "")).filter(Boolean)
+      : [];
+    const usageRows = modelIds.length ? await db.select({ modelId: workflowNodes.modelId, workflowId: workflows.id, isCustomNode: workflows.isCustomNode })
+      .from(workflowNodes).innerJoin(workflows, and(eq(workflowNodes.workflowId, workflows.id), eq(workflowNodes.userId, workflows.userId)))
+      .where(and(eq(workflowNodes.userId, res.locals.userId as string), inArray(workflowNodes.modelId, modelIds))) : [];
+    const usage = new Map<string, { workflowIds: Set<string>; customNodeIds: Set<string> }>();
+    for (const row of usageRows) {
+      if (!row.modelId) continue;
+      const counts = usage.get(row.modelId) ?? { workflowIds: new Set<string>(), customNodeIds: new Set<string>() };
+      (row.isCustomNode ? counts.customNodeIds : counts.workflowIds).add(row.workflowId);
+      usage.set(row.modelId, counts);
+    }
+    const runnerBody = body as { models?: Array<Record<string, unknown>> };
+    res.json({
+      ...runnerBody,
+      models: (runnerBody.models ?? []).map((model) => {
+        const counts = usage.get(String(model.id));
+        return { ...model, usage: { workflowCount: counts?.workflowIds.size ?? 0, customNodeCount: counts?.customNodeIds.size ?? 0 } };
+      }),
+    });
   } catch {
     res.status(503).json({ error: "model_runner_unavailable" });
   }
@@ -52,6 +72,24 @@ router.post("/:id/download", async (req, res) => {
   }
 });
 
+router.post("/:id/download/pause", async (req, res) => {
+  if (req.get("origin") !== (process.env.WEB_ORIGIN ?? "http://localhost:5173")) { res.status(403).json({ error: "invalid_origin" }); return; }
+  try {
+    if (!await isEnabledModel(req.params.id)) { res.status(404).json({ error: "unknown_model" }); return; }
+    const { response, body } = await forwardRunnerRequest(`/models/${req.params.id}/download/pause`, "POST", 180_000);
+    res.status(response.status).json(body);
+  } catch { res.status(503).json({ error: "model_runner_unavailable" }); }
+});
+
+router.post("/:id/download/resume", async (req, res) => {
+  if (req.get("origin") !== (process.env.WEB_ORIGIN ?? "http://localhost:5173")) { res.status(403).json({ error: "invalid_origin" }); return; }
+  try {
+    if (!await isEnabledModel(req.params.id)) { res.status(404).json({ error: "unknown_model" }); return; }
+    const { response, body } = await forwardRunnerRequest(`/models/${req.params.id}/download/resume`, "POST");
+    res.status(response.status).json(body);
+  } catch { res.status(503).json({ error: "model_runner_unavailable" }); }
+});
+
 router.delete("/:id/download", async (req, res) => {
   if (req.get("origin") !== (process.env.WEB_ORIGIN ?? "http://localhost:5173")) {
     res.status(403).json({ error: "invalid_origin" });
@@ -64,6 +102,15 @@ router.delete("/:id/download", async (req, res) => {
   } catch {
     res.status(503).json({ error: "model_runner_unavailable" });
   }
+});
+
+router.delete("/:id/cache", async (req, res) => {
+  if (req.get("origin") !== (process.env.WEB_ORIGIN ?? "http://localhost:5173")) { res.status(403).json({ error: "invalid_origin" }); return; }
+  try {
+    if (!await isEnabledModel(req.params.id)) { res.status(404).json({ error: "unknown_model" }); return; }
+    const { response, body } = await forwardRunnerRequest(`/models/${req.params.id}/cache`, "DELETE", 180_000);
+    res.status(response.status).json(body);
+  } catch { res.status(503).json({ error: "model_runner_unavailable" }); }
 });
 
 export const modelsRouter = router;

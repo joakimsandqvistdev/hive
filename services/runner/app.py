@@ -11,7 +11,14 @@ from typing import Literal
 
 import torch
 from model_catalog import MODEL_REPOSITORIES
-from model_downloads import kokoro_english_model_path, model_is_downloaded, router as model_downloads_router
+from model_downloads import (
+    kokoro_english_model_path,
+    model_is_downloaded,
+    resume_interrupted_downloads,
+    router as model_downloads_router,
+    set_model_cache_in_use_check,
+    shutdown_model_downloads,
+)
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import StreamingResponse
 from fastapi.responses import PlainTextResponse
@@ -24,6 +31,7 @@ from image_generation import load_pipeline as load_image_pipeline
 from image_generation import load_reference_images
 from video_generation import generation_worker as run_video_generation_worker
 from text_generation import generation_worker as run_text_generation_worker
+from runner_operation import GENERATION_LOCK
 
 
 PIPELINE = None
@@ -35,7 +43,6 @@ GPU_MEMORY_GIB = (
     if DEVICE == "cuda"
     else 0
 )
-GENERATION_LOCK = asyncio.Semaphore(1)
 LOGGER = logging.getLogger("uvicorn.error")
 try:
     MALLOC_TRIM = getattr(ctypes.CDLL(None), "malloc_trim", None)
@@ -44,6 +51,20 @@ except OSError:
 if MALLOC_TRIM is not None:
     MALLOC_TRIM.argtypes = [ctypes.c_size_t]
     MALLOC_TRIM.restype = ctypes.c_int
+
+
+def model_cache_is_in_use(model_id: str) -> bool:
+    image_worker = IMAGE_GENERATION_PROCESS
+    image_model_loaded = bool(
+        image_worker is not None
+        and image_worker.process is not None
+        and image_worker.process.is_alive()
+        and image_worker.pipeline_loaded
+    )
+    return CURRENT_MODEL_KEY == model_id and image_model_loaded
+
+
+set_model_cache_in_use_check(model_cache_is_in_use)
 
 
 def release_pipeline():
@@ -143,9 +164,11 @@ def text_generation_worker(sender, model_key, instruction, prompt, max_new_token
 async def lifespan(_: FastAPI):
     # The image worker loads weights lazily and keeps them only while it remains alive.
     release_pipeline()
+    await resume_interrupted_downloads()
     try:
         yield
     finally:
+        await shutdown_model_downloads()
         await stop_image_generation_process(terminate=True)
         release_pipeline()
 
@@ -217,6 +240,8 @@ async def generate(
 
     # Reject invalid references before potentially downloading or swapping in the large Qwen model.
     async with GENERATION_LOCK:
+        if not await asyncio.to_thread(model_is_downloaded, model_id):
+            raise HTTPException(status_code=409, detail={"code": "model_not_downloaded"})
         reference_images = []
         try:
             reference_images = await load_reference_images(images)
@@ -268,6 +293,8 @@ async def generate_video(
         raise HTTPException(status_code=409, detail={"code": "model_not_downloaded"})
 
     async with GENERATION_LOCK:
+        if not await asyncio.to_thread(model_is_downloaded, model_id):
+            raise HTTPException(status_code=409, detail={"code": "model_not_downloaded"})
         try:
             await stop_image_generation_process(terminate=True)
             CURRENT_MODEL_KEY = model_id
@@ -301,6 +328,8 @@ async def generate_audio(
         raise HTTPException(status_code=409, detail={"code": "model_not_downloaded"})
 
     async with GENERATION_LOCK:
+        if not await asyncio.to_thread(model_is_downloaded, model_id):
+            raise HTTPException(status_code=409, detail={"code": "model_not_downloaded"})
         try:
             await stop_image_generation_process(terminate=True)
             CURRENT_MODEL_KEY = model_id
@@ -331,6 +360,8 @@ async def generate_text(
         raise HTTPException(status_code=409, detail={"code": "model_not_downloaded"})
 
     async with GENERATION_LOCK:
+        if not await asyncio.to_thread(model_is_downloaded, model_id):
+            raise HTTPException(status_code=409, detail={"code": "model_not_downloaded"})
         try:
             await stop_image_generation_process(terminate=True)
             CURRENT_MODEL_KEY = model_id

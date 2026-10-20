@@ -17,6 +17,7 @@ COPY download_worker.py ./download_worker.py
 COPY generation_process.py ./generation_process.py
 COPY model_catalog.py ./model_catalog.py
 COPY model_downloads.py ./model_downloads.py
+COPY runner_operation.py ./runner_operation.py
 COPY image_generation.py ./image_generation.py
 COPY audio_generation.py ./audio_generation.py
 COPY video_generation.py ./video_generation.py

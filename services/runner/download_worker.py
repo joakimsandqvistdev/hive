@@ -8,14 +8,22 @@ import shutil
 import sys
 import threading
 import time
-from urllib.request import urlopen
+from urllib.request import Request, urlopen
 from zipfile import ZipFile
 
 from model_catalog import MODEL_REPOSITORIES
 
 PROGRESS_LOCK = threading.Lock()
-DOWNLOADED_BYTES = 0
-TOTAL_BYTES = 0
+def environment_counter(name: str) -> int:
+    try:
+        return max(0, int(os.getenv(name, "0")))
+    except ValueError:
+        return 0
+
+
+DOWNLOADED_BYTES = environment_counter("HIVE_DOWNLOAD_BASE_BYTES")
+TOTAL_BYTES = environment_counter("HIVE_DOWNLOAD_BASE_TOTAL")
+DOWNLOAD_PROGRESS_RESUMED = DOWNLOADED_BYTES > 0 or TOTAL_BYTES > 0
 LAST_EMIT = 0.0
 KOKORO_ENGLISH_MODEL_URL = "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl"
 
@@ -29,19 +37,29 @@ def download_kokoro_english_model() -> None:
     wheel_path = cache_root / "en_core_web_sm-3.8.0.whl.partial"
     if (model_path / "en_core_web_sm" / "__init__.py").is_file():
         return
+    complete_marker = partial_path / ".hive-complete"
+    if complete_marker.is_file() and (partial_path / "en_core_web_sm" / "__init__.py").is_file():
+        shutil.rmtree(model_path, ignore_errors=True)
+        partial_path.replace(model_path)
+        wheel_path.unlink(missing_ok=True)
+        return
 
     cache_root.mkdir(parents=True, exist_ok=True)
     shutil.rmtree(partial_path, ignore_errors=True)
-    wheel_path.unlink(missing_ok=True)
-
-    with urlopen(KOKORO_ENGLISH_MODEL_URL, timeout=30) as response:
-        total = int(response.headers.get("Content-Length", 0))
-        track_progress(total=total)
-        downloaded = 0
-        with wheel_path.open("wb") as wheel:
+    initial = wheel_path.stat().st_size if wheel_path.is_file() else 0
+    request = Request(KOKORO_ENGLISH_MODEL_URL, headers={"Range": f"bytes={initial}-"} if initial else {})
+    with urlopen(request, timeout=30) as response:
+        response_start = initial if response.status == 206 else 0
+        if response_start == 0 and initial:
+            initial = 0
+        content_length = int(response.headers.get("Content-Length", 0))
+        content_range = response.headers.get("Content-Range", "")
+        total = int(content_range.rsplit("/", 1)[1]) if "/" in content_range else content_length + response_start
+        track_progress(total=total, downloaded=response_start)
+        with wheel_path.open("ab" if response_start else "wb") as wheel:
             while chunk := response.read(1024 * 1024):
                 wheel.write(chunk)
-                downloaded += len(chunk)
+                wheel.flush()
                 track_progress(downloaded=len(chunk))
 
     partial_path.mkdir()
@@ -52,6 +70,7 @@ def download_kokoro_english_model() -> None:
             if destination != root and root not in destination.parents:
                 raise ValueError("English model archive contains an invalid path")
         archive.extractall(partial_path)
+    complete_marker.touch()
     wheel_path.unlink(missing_ok=True)
     shutil.rmtree(model_path, ignore_errors=True)
     partial_path.replace(model_path)
@@ -92,7 +111,7 @@ def install_progress_hook() -> None:
             initial = kwargs.get("initial", 0)
             kwargs["disable"] = True
             super().__init__(*args, **kwargs)
-            if self._tracks_download:
+            if self._tracks_download and not DOWNLOAD_PROGRESS_RESUMED:
                 track_progress(total=total, downloaded=initial)
 
         def update(self, amount=1):

@@ -6,7 +6,7 @@ import { AppIcon } from "../components/AppIcon";
 const capabilities = [
   { icon: "workflows", title: "Visual workflows", description: "Connect inputs and AI models, preview text overlays with optional full-width background strips, and save reusable node settings." },
   { icon: "customNodes", title: "Reusable Custom Nodes", description: "Reuse shared workflow logic; deletion is blocked while referenced." },
-  { icon: "models", title: "Model library", description: "Download supported models and use them in your workflows." },
+  { icon: "models", title: "Model library", description: "Track runner cache storage, pause and resume downloads, recover after restarts, and manage downloaded model weights." },
   { icon: "media", title: "Media Library", description: "Rename and search reusable assets in Image, Audio, and Video inputs; review storage and manual cleanup." },
   { icon: "publish", title: "Instagram publishing", description: "Publish posts and Reels automatically or after review." },
   { icon: "jobs", title: "Jobs and Runs", description: "Schedule repeat runs, pause your queued runs after current work finishes, track progress, and manage run history." },

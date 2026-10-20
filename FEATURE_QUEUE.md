@@ -9,7 +9,7 @@ This file tracks the proposed feature backlog and keeps implementation specifica
 | Run comparison and regression detection | Proposed |
 | Workflow and Custom Node revision history | Proposed |
 | Workflow test cases | Proposed |
-| Model cache and download manager | Proposed |
+| Model cache and download manager | In progress |
 | Media storage overview and safe cleanup planner | In progress |
 | Portable workflow packages | Proposed |
 | Instagram publishing outbox and recovery | Proposed |
@@ -307,64 +307,67 @@ These proposals were chosen after checking the current Models, Media Library, ar
 
 ### Goal
 
-Give users clear control over model downloads and Docker cache storage so a large or concurrent download does not unexpectedly monopolize disk or make the host difficult to use. Hive already shows model download status and progress; this proposal adds a safe download queue, cache inventory, and explicit cleanup.
+Give users clear control over model downloads and Docker cache storage. The Models page already shows per-model status and progress; this feature adds a cache-focused storage overview, durable pause/resume and restart recovery, and safe one-model-at-a-time cleanup.
+
+### Accepted decisions (2026-10-20)
+
+- Downloads have no concurrency limit. Starting one never waits behind another, and there is no queue-pause control.
+- Each active model download can be paused and resumed. Paused and interrupted downloads preserve their partial cache and progress; downloads that were active resume automatically after runner restarts.
+- Cancel removes that model's incomplete transfer cache. Pause preserves it.
+- When free runner-filesystem space is below the estimated download size plus 10% headroom, Hive warns and lets the user continue.
+- Cache cleanup removes one downloaded model at a time after a review. The confirmation shows its approximate size and direct workflow/Custom Node references. Definitions remain and need a re-download before the model can run again.
+- Cache removal is blocked while downloads are active or the runner is using the model. Unknown and unattributed cache files remain untouched.
+- Storage and download controls belong to the local workspace's shared runner/cache.
+- Use the Media Library's two top-level tabs: Library and Storage. Keep active downloads at the top of Library, followed by the model inventory and type filters; put cache capacity and per-model cache review in Storage.
 
 ### User stories
 
-- As a user, I can see which models are downloaded, downloading, queued, incomplete, or unavailable.
-- As a user, I can see estimated model size, downloaded size, and remaining runner-cache disk space before I start a download.
-- As a user, I can limit the number of simultaneous model downloads; the safe default is one active download.
-- As a user, I can pause the queue or cancel one download without losing track of other downloads.
-- As a user, I can remove a downloaded model's cache after seeing what workflows and Custom Nodes depend on it.
-- As a user, I can distinguish deleting model weights from deleting a model definition or changing workflow data.
+- As a user, I can see available models, active or paused downloads, downloaded cache size, and runner filesystem capacity.
+- As a user, I can start concurrent downloads without a hidden limit, pause/resume one transfer, cancel it, and recover from runner or environment restarts.
+- As a user, I can see a low-space warning and choose to continue.
+- As a user, I can remove one model's cache after seeing its size and direct workflow and Custom Node references.
+- As a user, I can distinguish deleting downloaded weights from deleting a model definition or changing workflow data.
 
 ### UX and interaction
 
-1. Keep the existing Models category/table layout. Add a compact storage summary above the table: runner reachable state, downloaded cache size, available cache volume space, and active/queued download count.
-2. Add a Download queue section listing model, progress, current state, estimated remaining bytes, and per-item Cancel action.
-3. Add a setting for maximum concurrent downloads with options 1, 2, or 3. Default to 1. Apply the limit to new downloads and let already-running downloads finish or cancel; never kill active model inference to enforce the setting.
-4. Add Pause queue and Resume queue controls. Pause prevents queued downloads from starting but does not interrupt an active transfer.
-5. Add a Manage cache action per downloaded model. Its confirmation shows approximate disk size, dependent workflow and Custom Node counts, and that those definitions remain but their next run will require a re-download.
-6. Cache removal is disabled while that model is downloading or being used for inference. If currently in use, explain the blocking activity and offer retry after it finishes.
-7. Show stale/partial cache data only when the runner can positively identify it as safe to remove. Do not infer cache ownership from filenames alone.
-8. Keep model card and license links near the model detail panel. The cache manager must not imply that local downloaded weights grant rights beyond the model license.
-9. In narrow layouts, keep queue actions reachable and display progress as text plus a bar.
+1. Use Library and Storage as the top-level tabs, matching Media Library. Library contains the model type filters and inventory; Storage contains runner capacity and downloaded cache entries.
+2. Show active downloads at the top of Library, with progress, downloaded/estimated bytes, state, and per-model Pause, Resume, and Cancel controls. No concurrency setting or queue-pause action appears.
+3. Pause stops only the selected transfer and preserves its partial cache. Resume continues it. Cancel removes only that model's incomplete files.
+4. Warn before a new transfer if current free space is below estimated size plus 10%. Let the user continue. Treat model size as an estimate; a transfer can still exhaust storage.
+5. Add Manage cache for downloaded models in Storage. Its confirmation shows approximate size, direct workflow and Custom Node counts, and explains those definitions remain but require a re-download before running.
+6. Disable removal while the download is active, inference uses that model, or the runner is busy; explain the reason.
+7. Report known model cache bytes and container-visible free/total filesystem capacity in Storage. Report unattributed cache usage only when safely identifiable. Never infer ownership from filenames or delete unknown files.
+8. Keep model-card and license links near model details. Cache management does not change model licensing.
+9. Keep per-download controls reachable on narrow layouts and show progress as text plus a bar.
 
 ### Runner and API approach
 
-- Extend the internal runner model endpoint to report per-model cached byte size and overall model-cache filesystem free/total bytes. Do not expose host paths.
-- Add a runner operation to remove only the selected allow-listed model's cache, using the model catalog's known repository/cache locations. Validate that the model is not active and that removal paths are contained under the configured cache directory.
-- Add an API download queue with persisted status if downloads must survive API restarts. The runner already tracks progress and supports multiple concurrent model downloads; API-side scheduling should enforce the user-selected limit.
-- Define queue ownership: downloads occur in a shared local runner/cache, but Hive auth/tenant boundaries are per user. If Hive remains single-user/local, mark queue controls as local workspace settings. If multi-user hosting is later added, use a server-wide concurrency policy rather than allowing each user to independently launch three downloads.
-- Add a runner health/capacity response that reports only safe operational values: runner busy/idle, active model ID, cache volume bytes, and optionally container-visible RAM/GPU memory when reliably available. Label values as container-visible, not host-wide, and omit unsupported metrics instead of returning misleading zero.
-- Re-check free disk space immediately before download when possible; treat catalog size as an estimate because shards and temporary files may need additional headroom.
-- Removing a model deletes cache files only. It must not delete workflows, Custom Nodes, run snapshots, or artifacts.
+- Extend the private runner model endpoint with per-model cache bytes, attributable/unknown cache usage, and free/total bytes for the filesystem containing the cache. Never expose host paths.
+- Persist download state and byte progress in the mounted model cache volume. On runner start, automatically restart downloads that were active; leave explicitly paused transfers paused.
+- Preserve Hugging Face partial/cache files on pause and unexpected restarts. Resume using the existing cache; retain range-resume data for Kokoro's sidecar download. Explicit Cancel may remove the incomplete files for only that allow-listed model.
+- Add authenticated runner pause, resume, and cache-removal operations. Cache deletion uses only allow-listed repository paths beneath the configured cache roots and serializes against inference. Reject active downloads and model use with a retryable conflict.
+- Return direct owner-scoped workflow and Custom Node reference counts from the API. Removing weights never deletes definitions, run snapshots, or artifacts.
+- Report current storage from the runner; estimates remain advisory. Recheck current free bytes before starting and show the low-space warning rather than blocking.
+- Keep controls local-workspace scoped because the runner/cache is shared by the local deployment.
 
 ### State transitions and edge cases
 
-- Queued → downloading → downloaded or failed; cancellation records cancelled and removes incomplete transfer files only.
-- Queue paused: active entries continue, queued entries remain queued.
-- API or runner restart: persisted queued entries resume in FIFO order; an active transfer without a valid process/lease is marked interrupted and can be retried safely.
-- Insufficient disk: do not start if known free space is below estimated size plus configured safety margin; if the download still runs out of space, mark failed and clean only its incomplete files.
-- Cache removal failure: preserve the downloaded status if files remain; return a clear error and do not claim the model is removed.
-- Active inference: reject cache deletion with conflict and include a retryable error code.
-- Unknown files: leave them untouched and report that some cache usage could not be attributed to a catalog model.
+- Downloading → paused → downloading; downloading → downloaded or failed; explicit cancellation removes incomplete files and returns the model to Available.
+- A runner restart resumes previously active downloads from persistent partial files and leaves paused downloads paused.
+- Insufficient disk shows a continue-or-cancel warning. If a transfer later runs out of space, mark it failed and preserve resumable partial cache.
+- Cache removal failure returns a clear error and does not claim success. If some files were removed, refresh actual cache state before reporting.
+- Cache removal is serialized against inference and rejected while the selected model is loaded or in use.
+- Unknown files remain untouched and are reported separately when attributable.
 
 ### Acceptance criteria
 
-- Default behavior permits one concurrent download and never starts queued downloads while the queue is paused.
-- Progress and status remain accurate across UI refresh and API restart.
-- Disk figures are explicitly identified as estimates or container-visible measurements.
-- Cache deletion cannot escape the runner cache root and cannot run while the model is active.
-- Deleting weights does not alter workflows or custom-node definitions; missing-model preflight continues to explain what users need to download.
-- Existing model download cancellation and incomplete-cache cleanup continue to work.
-
-### Open questions for review
-
-1. Should the download concurrency limit be a workspace setting only, or should each user in a future multi-user server have an individual queue?
-2. Should Hive prevent downloads whenever free space is below estimated size plus 10%, or should it only warn and let the user choose?
-3. Should model cache cleanup allow removal of every unused model in one reviewed operation, or only one model at a time initially?
-4. Should downloads support a true pause/resume protocol, or is queue pausing plus current cancel/retry behavior enough for v1?
+- Multiple model downloads start concurrently; no concurrency ceiling or queue-pause control is present.
+- Pausing and resuming preserves partial transfer data. Unexpected runner/environment restarts automatically recover transfers that were active.
+- Storage figures are explicitly estimates or container-visible measurements; host paths are never exposed.
+- Low disk space warns below estimated size plus 10% and allows the user to continue.
+- Cache deletion stays within allow-listed cache roots and is blocked during active download or model use.
+- Removing weights leaves workflow, Custom Node, run snapshot, and artifact data unchanged.
+- Cancel still removes incomplete data for the selected model only.
 
 ---
 
