@@ -15,18 +15,14 @@ function readBoolean(value: string | null): boolean | null {
 }
 
 function initialState(): NavigationState {
-  const preferred = readBoolean(window.localStorage.getItem(SIDEBAR_COLLAPSED_KEY)) ?? false;
+  const preferred = readBoolean(window.localStorage.getItem(SIDEBAR_COLLAPSED_KEY));
   const remembered = readBoolean(window.localStorage.getItem(SIDEBAR_BEFORE_EDITOR_KEY));
-  return createNavigationState(window.location.hash, preferred, remembered);
+  return createNavigationState(window.location.hash, remembered ?? preferred ?? false);
 }
 
 function persistState(state: NavigationState) {
   window.localStorage.setItem(SIDEBAR_COLLAPSED_KEY, String(state.sidebarCollapsed));
-  if (state.workflowEditorActive && state.sidebarBeforeEditor !== null) {
-    window.localStorage.setItem(SIDEBAR_BEFORE_EDITOR_KEY, String(state.sidebarBeforeEditor));
-  } else {
-    window.localStorage.removeItem(SIDEBAR_BEFORE_EDITOR_KEY);
-  }
+  window.localStorage.removeItem(SIDEBAR_BEFORE_EDITOR_KEY);
 }
 
 export function useAppNavigation() {
