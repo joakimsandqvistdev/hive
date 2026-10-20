@@ -6,7 +6,6 @@ This file tracks the proposed feature backlog and keeps implementation specifica
 
 | Feature | Status |
 | --- | --- |
-| Run comparison and regression detection | Proposed |
 | Workflow and Custom Node revision history | Proposed |
 | Workflow test cases | Proposed |
 | Model cache and download manager | In progress |
@@ -17,7 +16,7 @@ This file tracks the proposed feature backlog and keeps implementation specifica
 
 ---
 
-This document proposes three additions that build on Hive's existing workflow, run, Custom Node, Job, and Media Library foundations. Each proposal is scoped so it can be reviewed independently and turned into an implementation plan after product decisions are settled.
+This document proposes additions that build on Hive's existing workflow, run, Custom Node, Job, and Media Library foundations. Each proposal is scoped so it can be reviewed independently and turned into an implementation plan after product decisions are settled.
 
 ## Project context considered
 
@@ -27,98 +26,14 @@ Hive already supports editable workflows and reusable Custom Nodes, snapshots a 
 
 | Rank | Feature | Primary benefit | Likely effort |
 | --- | --- | --- | --- |
-| 1 | Run comparison and regression detection | Explains what changed between two executions of the same workflow | Medium; most run and output data already exists |
-| 2 | Workflow and Custom Node revision history | Makes iterative graph editing safer and supports recovery from accidental changes | Medium to high; requires immutable revision storage and diffing |
-| 3 | Workflow test cases | Lets users check reusable inputs and expected outcomes before relying on a workflow or Job | High; adds a distinct test-case and evaluation layer |
+| 1 | Workflow and Custom Node revision history | Makes iterative graph editing safer and supports recovery from accidental changes | Medium to high; requires immutable revision storage and diffing |
+| 2 | Workflow test cases | Lets users check reusable inputs and expected outcomes before relying on a workflow or Job | High; adds a distinct test-case and evaluation layer |
 
-The first feature is the best initial implementation: it builds directly on persisted run snapshots, per-node states, outputs, and the existing Run details experience. Revision history is a strong next step because it protects valuable workflow and Custom Node definitions. Test cases are useful once users have stable workflows to validate, but need the most product decisions and evaluation logic.
-
----
-
-## Feature 1 — Run comparison and regression detection
-
-### Goal
-
-Let users compare two runs of the same workflow to see what changed in inputs, per-node outputs, status, duration, and generated media. This is a read-only diagnostic tool: it helps users decide whether a workflow edit, changed prompt, model update, or different input caused an unexpected result. It does not claim semantic image quality or automatically label a result as a regression.
-
-### User stories
-
-- As a user, I can compare a run with another run from its details view or the Runs list.
-- As a user, I can compare two runs even when the workflow has changed, with the definition differences made visible.
-- As a user, I can quickly find nodes whose status, output, timing, or configuration differs.
-- As a user, I can inspect two text outputs side by side and read a line-level text diff.
-- As a user, I can view generated images/videos side by side and open their full previews.
-- As a user, I can distinguish actual changes from missing data, deleted artifacts, and nodes that have no safe automatic match.
-
-### UX and interaction
-
-1. Add Compare with another run to the existing Run details inspector and a Compare action to each eligible Runs list row.
-2. Run selection opens a searchable, paginated picker limited to the current user. Prefer runs from the same workflow, then allow other workflows only when the user explicitly switches the picker filter.
-3. Default orientation: selected run is the baseline on the left; comparison run is on the right. Show both statuses, start times, durations, workflow names, and run IDs.
-4. Show a compact summary of differences: changed inputs, changed nodes, added/removed nodes, status changes, changed outputs, and duration deltas only where both measurements exist.
-5. Add a node-by-node comparison list. Each matched node shows:
-   - status in both runs;
-   - duration and delta, when measured;
-   - configuration/parameter changes with sensitive values redacted;
-   - output comparison state: same, changed, only in baseline, only in comparison, or unavailable.
-6. Selecting a node opens a split detail area:
-   - text outputs get a line-level diff with additions and removals labeled in text as well as color;
-   - images and videos get side-by-side previews with independent playback/zoom, never an auto-generated quality score;
-   - audio remains separately playable with file metadata and an explicit note that the comparison is playback-based;
-   - non-media structured outputs display a safe, bounded key/value diff.
-7. Show a workflow-definition notice when snapshots differ. The user can see graph, node configuration, model ID/version, and connector differences that may explain the output change.
-8. Provide a switch to show only changed nodes. Keep the default concise while preserving a way to inspect identical steps.
-9. Comparison is read-only. It cannot rerun, cancel, publish, delete, or modify either run.
-10. On narrow screens, stack baseline and comparison values. Preserve labels and statuses without horizontal page overflow.
-
-### Matching and comparison rules
-
-- Match node instances by stable node ID when available.
-- If IDs differ, do not silently treat nodes with the same display name as identical. Offer a suggested match using node type and normalized name, and require confirmation before comparing those records.
-- Nodes with no match appear in Added to comparison or Removed from comparison groups.
-- Compare text values exactly after normalizing only transport-level representations such as JSON key order; preserve whitespace and punctuation for actual text content.
-- Compare artifact files using stored checksum and metadata when available. Matching checksums mean same file; differing checksums mean changed file. Missing files are marked unavailable, not changed.
-- For images/video, present both previews and metadata such as dimensions, duration, media type, and size when recorded. Do not add computer vision or perceptual similarity in the first release.
-- Duration delta is descriptive, not a performance alert. Exclude queued wait time unless both runs have consistent queue timestamps and the UI labels it separately.
-
-### Data and API approach
-
-- The run-details API already returns each run's snapshot, input JSON, node snapshots, resolved inputs, outputs, timestamps, artifacts, and status. Confirm it includes artifact checksum and metadata needed for safe comparison.
-- Add a read-only endpoint that returns both run details in a single owner-scoped request, or reuse current endpoints if doing so does not create excessive duplicate downloads. Never trust a client-provided owner ID.
-- Keep comparison in the client initially, as a pure derived view over the returned data. Add server-side comparison only if payload sizes or normalization make client work impractical.
-- For large workflows, fetch the comparison run only after the user selects it, then render node differences incrementally if needed. Avoid loading artifact bytes until the user selects an output.
-- Do not add a database table for the first version. Do not retain duplicate copies of run outputs; each run remains the source of truth.
-- Use only safe, normalized output data in the UI. Do not render arbitrary HTML, expose local storage paths, or show access tokens/configuration secrets.
-
-### Status and edge-case behavior
-
-- Runs may be compared regardless of outcome, including queued, running, awaiting_publish, succeeded, failed, and cancelled states. For active runs, label the comparison as live and explain that values can change on refresh.
-- Awaiting publication compares workflow-generation outputs separately from Instagram publication state; it must never trigger publishing.
-- If the run's source workflow was deleted, compare using its stored workflow snapshot.
-- If model metadata or artifact files are no longer available, preserve run metadata and mark those comparison fields unavailable.
-- If a node failed in one run and succeeded in another, show both state and available errors; do not coerce missing output into an empty output.
-- Runs from different workflow families are supported only with explicit selection and clear unmatched-node groups.
-- If run deletion begins during comparison, show a refresh/unavailable state and do not cause the deletion to fail or restore data.
-
-### Acceptance criteria
-
-- Only runs owned by the signed-in user can be selected or compared.
-- Comparison accurately represents stored statuses, inputs, snapshots, outputs, artifacts, and timings.
-- Different snapshots are clearly identified; unmatched nodes are not mispaired by name alone.
-- Text, artifact, and configuration differences are deterministic and bounded.
-- Media previews remain authenticated and use the existing preview/download behavior.
-- The comparison cannot modify or execute runs and leaves existing run actions untouched.
-- The comparison works for large workflows and responsive layouts without requiring the whole artifact collection to download.
-
-### Open questions for review
-
-1. Should the picker allow any two runs, or default to the same workflow and hide cross-workflow comparison behind a filter? The proposal recommends same-workflow-first.
-2. Should users be able to pin a baseline run for repeated comparisons, or is choosing both runs each time sufficient?
-3. Should comparison include execution-time differences by default, or keep those in an optional details row to avoid overemphasizing variable model latency?
-4. Should a node with a different ID but same type/name be automatically suggested for matching, or should the user choose matches manually?
+Revision history protects valuable workflow and Custom Node definitions. Test cases are useful once users have stable workflows to validate, but need the most product decisions and evaluation logic.
 
 ---
-## Feature 2 — Workflow and Custom Node revision history
+
+## Feature 1 — Workflow and Custom Node revision history
 
 ### Goal
 
@@ -192,7 +107,7 @@ Let users inspect previous saved definitions, compare a prior definition with th
 
 ---
 
-## Feature 3 — Workflow test cases
+## Feature 2 — Workflow test cases
 
 ### Goal
 
