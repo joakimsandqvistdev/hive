@@ -7,7 +7,7 @@ const stages = [
   { icon: "accounts", number: "01", title: "Prepare", description: "Connect an Instagram account, organize images and audio, and choose downloadable AI models for your work." },
   { icon: "workflows", number: "02", title: "Create", description: "Connect inputs, AI models, image and video tools, and reusable Custom Nodes in a visual workflow." },
   { icon: "jobs", number: "03", title: "Automate", description: "Run a workflow when you need it, on a schedule, or from a signed webhook trigger." },
-  { icon: "runs", number: "04", title: "Review", description: "Follow runs, compare their inputs and outputs, and publish Instagram posts or Reels after review or automatically." },
+  { icon: "publish", number: "04", title: "Publish", description: "Compose Instagram photo posts and carousels from saved images or runs awaiting publish." },
 ] as const;
 
 export function HomePage({ onNavigate }: { onNavigate: (view: AppView) => void }) {
@@ -38,7 +38,7 @@ export function HomePage({ onNavigate }: { onNavigate: (view: AppView) => void }
           <FlowStep number="01" title="Prepare" description="Accounts · Models · Media" />
           <FlowStep number="02" title="Create" description="Workflows · Custom Nodes" />
           <FlowStep number="03" title="Automate" description="Jobs · Runs · Webhooks" />
-          <FlowStep number="04" title="Review" description="Check results · Publish" last />
+          <FlowStep number="04" title="Publish" description="Review runs · Compose posts" last />
         </Stack>
         <Text className="home-flow-footnote">One clear path from setup through finished work</Text>
       </Paper>
@@ -67,7 +67,7 @@ export function HomePage({ onNavigate }: { onNavigate: (view: AppView) => void }
           <ThemeIcon className="home-capability-icon" variant="light" color="hiveSky" size={38} radius="sm"><AppIcon name="workflows" size={19} /></ThemeIcon>
           <Stack gap={4}>
             <Text className="home-capability-title">Built for a clear workflow</Text>
-          <Text className="home-capability-description">Connect each step visually, reuse shared logic with Custom Nodes, and inspect or compare results in run history. Workflows can generate and process media, then publish Instagram posts or Reels manually or automatically.</Text>
+          <Text className="home-capability-description">Connect each step visually, reuse shared logic with Custom Nodes, and inspect or compare results in run history. Compose Instagram posts from saved Media Library images and workflow runs awaiting publish.</Text>
           </Stack>
         </Group>
       </Paper>

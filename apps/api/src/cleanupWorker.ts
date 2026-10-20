@@ -33,7 +33,7 @@ async function processNextArtifactCleanup(): Promise<boolean> {
           EXISTS(SELECT 1 FROM workflow_triggers t, LATERAL jsonb_array_elements(t.input_mappings) mapping WHERE t.user_id=$2 AND mapping->>'artifactId'=$1::text) OR
           EXISTS(SELECT 1 FROM run_nodes n WHERE n.input_artifact_id=$1 AND n.user_id=$2) OR
           EXISTS(SELECT 1 FROM instagram_accounts i WHERE i.profile_image_artifact_id=$1 AND i.user_id=$2) OR
-          EXISTS(SELECT 1 FROM instagram_publications p WHERE p.artifact_id=$1 AND p.user_id=$2) AS referenced,
+          EXISTS(SELECT 1 FROM instagram_publications p WHERE p.user_id=$2 AND (p.artifact_id=$1 OR EXISTS(SELECT 1 FROM instagram_publication_media pm WHERE pm.publication_id=p.id AND pm.artifact_id=$1))) AS referenced,
           EXISTS(SELECT 1 FROM runs r WHERE r.id=$3 AND r.user_id=$2 AND r.status IN ('queued','running','awaiting_publish','cancel_requested')) AS active`, [item.artifact_id,job.user_id,current.run_id]);
         const candidateAllowed = current.id && canCleanupArtifact({
           runId: current.run_id,

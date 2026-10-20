@@ -1,0 +1,3 @@
+ALTER TABLE "instagram_publication_media" DROP CONSTRAINT "instagram_publication_media_source_publication_id_instagram_publications_id_fk";
+--> statement-breakpoint
+ALTER TABLE "instagram_publication_media" ADD CONSTRAINT "instagram_publication_media_source_publication_id_instagram_publications_id_fk" FOREIGN KEY ("source_publication_id") REFERENCES "public"."instagram_publications"("id") ON DELETE set null ON UPDATE no action;

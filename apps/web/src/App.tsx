@@ -13,6 +13,7 @@ import { AccountsPage } from "./pages/AccountsPage";
 import { MediaLibraryPage } from "./pages/MediaLibraryPage";
 import { CustomNodesPage } from "./pages/CustomNodesPage";
 import { WebhookManagerPage } from "./pages/WebhookManagerPage";
+import { PublishPage } from "./pages/PublishPage";
 import { useAppNavigation } from "./navigation/useAppNavigation";
 import type { AppView } from "./navigation/navigationState";
 import { FlashMessagesProvider } from "./components/FlashMessages";
@@ -39,7 +40,7 @@ function AppContent({ view, onNavigate, sidebarCollapsed, workflowEditorActive, 
   onToggleNavigation: () => void;
 }) {
   const { user, loading } = useAuth();
-  const isProtectedView = view === "workflows" || view === "custom-nodes" || view === "jobs" || view === "runs" || view === "models" || view === "accounts" || view === "media" || view === "webhook-manager";
+  const isProtectedView = view === "workflows" || view === "custom-nodes" || view === "jobs" || view === "runs" || view === "publish" || view === "models" || view === "accounts" || view === "media" || view === "webhook-manager";
   return (
     <AppLayout view={view} onNavigate={onNavigate} workflowEditorActive={workflowEditorActive} sidebarCollapsed={sidebarCollapsed} onToggleNavigation={onToggleNavigation}>
       {isProtectedView && loading ? <SignInRequiredPage loading />
@@ -47,6 +48,7 @@ function AppContent({ view, onNavigate, sidebarCollapsed, workflowEditorActive, 
             : view === "workflows" ? <WorkflowsPage onNavigate={onNavigate} />
               : view === "custom-nodes" ? <CustomNodesPage onNavigate={onNavigate} />
               : view === "runs" ? <RunsPage onNavigate={onNavigate} />
+              : view === "publish" ? <PublishPage onNavigate={onNavigate} />
                 : view === "jobs" ? <JobsPage onNavigate={onNavigate} />
                 : view === "models" ? <ModelsPage />
                 : view === "accounts" ? <AccountsPage />

@@ -1,0 +1,4 @@
+ALTER TABLE "instagram_publication_media" ADD COLUMN "alt_text" text DEFAULT '' NOT NULL;--> statement-breakpoint
+ALTER TABLE "instagram_publication_media" ADD COLUMN "source_publication_id" uuid;--> statement-breakpoint
+ALTER TABLE "instagram_publication_media" ADD CONSTRAINT "instagram_publication_media_source_publication_id_instagram_publications_id_fk" FOREIGN KEY ("source_publication_id") REFERENCES "public"."instagram_publications"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
+CREATE UNIQUE INDEX "instagram_publication_media_source_publication_unique" ON "instagram_publication_media" USING btree ("source_publication_id");

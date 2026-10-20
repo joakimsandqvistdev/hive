@@ -140,6 +140,7 @@ export function SideNavigation({
               <NavigationButton label="Workflows" active={activeView === "workflows"} icon={<AppIcon name="workflows" />} compact={compact} rightSection={attentionRightSection(summary.workflowsNeedAttention, "Workflows")} ariaLabel={`Workflows${summary.workflowsNeedAttention ? ", needs attention" : ""}`} onClick={() => { onViewChange("workflows"); onNavigate(); }} />
               <NavigationButton label="Runs" active={activeView === "runs"} icon={<AppIcon name="runs" />} compact={compact} rightSection={<RunCountIndicators succeeded={summary.succeededRuns} awaitingPublish={summary.awaitingPublishRuns} />} ariaLabel={`Runs, ${summary.succeededRuns} succeeded, ${summary.awaitingPublishRuns} awaiting publishing${summary.runsNeedAttention ? ", needs attention" : ""}`} onClick={() => { onViewChange("runs"); onNavigate(); }} />
               <NavigationButton label="Jobs" active={activeView === "jobs"} icon={<AppIcon name="jobs" />} compact={compact} rightSection={attentionRightSection(summary.jobsNeedAttention, "Jobs")} ariaLabel={`Jobs${summary.jobsNeedAttention ? ", needs attention" : ""}`} onClick={() => { onViewChange("jobs"); onNavigate(); }} />
+              <NavigationButton label="Publish" active={activeView === "publish"} icon={<AppIcon name="publish" />} compact={compact} onClick={() => { onViewChange("publish"); onNavigate(); }} />
             </>}
             </Stack>
           </Box>

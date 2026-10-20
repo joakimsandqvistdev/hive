@@ -1,9 +1,10 @@
 import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
-import { and, eq, gt } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, isNull } from "drizzle-orm";
 import { Router } from "express";
+import sharp from "sharp";
 import { db, pool } from "./db.js";
 import { requireAuthenticatedUser } from "./auth.js";
-import { artifacts, instagramAccounts, instagramOauthStates, instagramPublications, runs } from "./schema.js";
+import { artifacts, instagramAccounts, instagramOauthStates, instagramPublicationMedia, instagramPublications, runs } from "./schema.js";
 import { readArtifact } from "./artifactStore.js";
 
 const router = Router();
@@ -49,6 +50,41 @@ export function instagramMediaUrl(artifactId: string) {
 }
 const ownerId = (res: import("express").Response) => res.locals.userId as string;
 const validOrigin = (req: import("express").Request) => req.get("origin") === (process.env.WEB_ORIGIN ?? "http://localhost:5173");
+const validUuid = (value: unknown): value is string => typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+type DraftMediaInput = { artifactId: string; sourcePublicationId: string | null; altText: string };
+const parseDraftMedia = (value: unknown): DraftMediaInput[] | null => {
+  if (!Array.isArray(value) || value.length < 1 || value.length > 10) return null;
+  const media: DraftMediaInput[] = [];
+  const artifactIds = new Set<string>();
+  const sourcePublicationIds = new Set<string>();
+  for (const item of value) {
+    if (!item || typeof item !== "object") return null;
+    const candidate = item as Record<string, unknown>;
+    const sourcePublicationId = candidate.sourcePublicationId ?? null;
+    if (!validUuid(candidate.artifactId) || (sourcePublicationId !== null && !validUuid(sourcePublicationId)) || typeof candidate.altText !== "string" || candidate.altText.length > 1000) return null;
+    if (artifactIds.has(candidate.artifactId) || (sourcePublicationId && sourcePublicationIds.has(sourcePublicationId))) return null;
+    artifactIds.add(candidate.artifactId);
+    if (sourcePublicationId) sourcePublicationIds.add(sourcePublicationId);
+    media.push({ artifactId: candidate.artifactId, sourcePublicationId, altText: candidate.altText });
+  }
+  return media;
+};
+
+router.get("/awaiting-publish", requireAuthenticatedUser, async (_req, res, next) => {
+  try {
+    const result = await pool.query<{ run_id: string; publication_id: string; artifact_id: string; display_name: string; media_type: string; workflow_name: string; caption: string | null; created_at: Date }>(`
+      SELECT r.id AS run_id, p.id AS publication_id, a.id AS artifact_id, a.display_name, a.media_type, p.caption,
+        COALESCE(r.workflow_snapshot_json->>'name', 'Workflow') AS workflow_name, r.created_at
+      FROM runs r
+      JOIN instagram_publications p ON p.run_id=r.id AND p.user_id=r.user_id AND p.status='awaiting_review'
+      JOIN artifacts a ON a.id=p.artifact_id AND a.user_id=p.user_id AND a.data_type_id='image'
+      WHERE r.user_id=$1 AND r.status='awaiting_publish'
+        AND NOT EXISTS (SELECT 1 FROM instagram_publication_media pm WHERE pm.source_publication_id=p.id)
+      ORDER BY r.created_at DESC, p.created_at DESC`, [ownerId(res)]);
+    res.json({ items: result.rows.map((item) => ({ runId: item.run_id, sourcePublicationId: item.publication_id, artifactId: item.artifact_id, displayName: item.display_name, mediaType: item.media_type, workflowName: item.workflow_name, caption: item.caption, createdAt: item.created_at })) });
+  } catch (error) { next(error); }
+});
+
 
 router.get("/oauth/callback", async (req, res, next) => {
   const state = String(req.query.state ?? ""); const code = String(req.query.code ?? "");
@@ -81,6 +117,101 @@ router.get("/oauth/callback", async (req, res, next) => {
 router.get("/account", requireAuthenticatedUser, async (_req, res, next) => {
   try { const [account] = await db.select({ id: instagramAccounts.id, username: instagramAccounts.username, profileImageArtifactId: instagramAccounts.profileImageArtifactId, connectedAt: instagramAccounts.connectedAt }).from(instagramAccounts).where(eq(instagramAccounts.userId, ownerId(res))).limit(1); res.json({ account: account ?? null }); }
   catch (error) { next(error); }
+});
+
+router.get("/drafts", requireAuthenticatedUser, async (_req, res, next) => {
+  try {
+    const drafts = await db.select().from(instagramPublications).where(and(eq(instagramPublications.userId, ownerId(res)), isNull(instagramPublications.runId), eq(instagramPublications.status, "draft"))).orderBy(desc(instagramPublications.updatedAt));
+    if (!drafts.length) { res.json({ items: [] }); return; }
+    const media = await db.select({ publicationId: instagramPublicationMedia.publicationId, artifactId: artifacts.id, displayName: artifacts.displayName, mediaType: artifacts.mediaType, position: instagramPublicationMedia.position, altText: instagramPublicationMedia.altText, sourcePublicationId: instagramPublicationMedia.sourcePublicationId })
+      .from(instagramPublicationMedia).innerJoin(artifacts, and(eq(artifacts.id, instagramPublicationMedia.artifactId), eq(artifacts.userId, ownerId(res)))).where(inArray(instagramPublicationMedia.publicationId, drafts.map((item) => item.id))).orderBy(asc(instagramPublicationMedia.position));
+    const byPublication = new Map<string, typeof media>();
+    for (const item of media) byPublication.set(item.publicationId, [...(byPublication.get(item.publicationId) ?? []), item]);
+    res.json({ items: drafts.map((item) => ({ ...item, media: byPublication.get(item.id) ?? [] })) });
+  } catch (error) { next(error); }
+});
+
+router.post("/drafts", requireAuthenticatedUser, async (req, res, next) => {
+  if (!validOrigin(req)) { res.status(403).json({ error: "invalid_origin" }); return; }
+  const { accountId, caption } = req.body ?? {};
+  const media = parseDraftMedia(req.body?.media);
+  if (!validUuid(accountId) || !media || typeof caption !== "string" || caption.length > 2200) { res.status(400).json({ error: "invalid_publication_draft" }); return; }
+  try {
+    const result = await db.transaction(async (tx) => {
+      const [account] = await tx.select({ id: instagramAccounts.id }).from(instagramAccounts).where(and(eq(instagramAccounts.id, accountId), eq(instagramAccounts.userId, ownerId(res)))).limit(1);
+      if (!account) return null;
+      const libraryIds = media.filter((item) => !item.sourcePublicationId).map((item) => item.artifactId);
+      const savedImages = libraryIds.length ? await tx.select({ id: artifacts.id }).from(artifacts).where(and(inArray(artifacts.id, libraryIds), eq(artifacts.userId, ownerId(res)), eq(artifacts.dataTypeId, "image"), eq(artifacts.savedToLibrary, true))) : [];
+      const sourceIds = media.flatMap((item) => item.sourcePublicationId ? [item.sourcePublicationId] : []);
+      const sources = sourceIds.length ? await tx.select({ id: instagramPublications.id, artifactId: instagramPublications.artifactId }).from(instagramPublications).innerJoin(runs, and(eq(runs.id, instagramPublications.runId), eq(runs.userId, instagramPublications.userId))).where(and(inArray(instagramPublications.id, sourceIds), eq(instagramPublications.userId, ownerId(res)), eq(instagramPublications.status, "awaiting_review"), eq(runs.status, "awaiting_publish"))).for("update") : [];
+      const validSources = new Map(sources.map((source) => [source.id, source.artifactId]));
+      if (savedImages.length !== libraryIds.length || sourceIds.some((id) => !validSources.has(id)) || media.some((item) => item.sourcePublicationId && validSources.get(item.sourcePublicationId) !== item.artifactId)) return null;
+      const [publication] = await tx.insert(instagramPublications).values({ userId: ownerId(res), runId: null, nodeId: null, accountId, artifactId: media[0]!.artifactId, mediaKind: "image", mode: "manual", status: "draft", caption }).returning();
+      await tx.insert(instagramPublicationMedia).values(media.map((item, position) => ({ publicationId: publication!.id, artifactId: item.artifactId, sourcePublicationId: item.sourcePublicationId, altText: item.altText, position })));
+      if (sourceIds.length) await tx.update(instagramPublications).set({ status: "reserved", updatedAt: new Date() }).where(inArray(instagramPublications.id, sourceIds));
+      return publication;
+    });
+    if (!result) { res.status(404).json({ error: "account_or_saved_image_not_found" }); return; }
+    res.status(201).json({ publication: result });
+  } catch (error) { next(error); }
+});
+
+router.patch("/drafts/:id", requireAuthenticatedUser, async (req, res, next) => {
+  if (!validOrigin(req)) { res.status(403).json({ error: "invalid_origin" }); return; }
+  const { accountId, caption } = req.body ?? {};
+  const media = parseDraftMedia(req.body?.media);
+  if (!validUuid(accountId) || !media || typeof caption !== "string" || caption.length > 2200) { res.status(400).json({ error: "invalid_publication_draft" }); return; }
+  try {
+    const result = await db.transaction(async (tx) => {
+      const [publication] = await tx.select({ id: instagramPublications.id }).from(instagramPublications).where(and(eq(instagramPublications.id, String(req.params.id)), eq(instagramPublications.userId, ownerId(res)), isNull(instagramPublications.runId), eq(instagramPublications.status, "draft"))).limit(1).for("update");
+      const [account] = await tx.select({ id: instagramAccounts.id }).from(instagramAccounts).where(and(eq(instagramAccounts.id, accountId), eq(instagramAccounts.userId, ownerId(res)))).limit(1);
+      if (!publication || !account) return null;
+      const previous = await tx.select({ sourcePublicationId: instagramPublicationMedia.sourcePublicationId }).from(instagramPublicationMedia).where(eq(instagramPublicationMedia.publicationId, publication.id));
+      const previousSourceIds = previous.flatMap((item) => item.sourcePublicationId ? [item.sourcePublicationId] : []);
+      if (previousSourceIds.length) await tx.update(instagramPublications).set({ status: "awaiting_review", updatedAt: new Date() }).where(and(inArray(instagramPublications.id, previousSourceIds), eq(instagramPublications.status, "reserved")));
+      const libraryIds = media.filter((item) => !item.sourcePublicationId).map((item) => item.artifactId);
+      const savedImages = libraryIds.length ? await tx.select({ id: artifacts.id }).from(artifacts).where(and(inArray(artifacts.id, libraryIds), eq(artifacts.userId, ownerId(res)), eq(artifacts.dataTypeId, "image"), eq(artifacts.savedToLibrary, true))) : [];
+      const sourceIds = media.flatMap((item) => item.sourcePublicationId ? [item.sourcePublicationId] : []);
+      const sources = sourceIds.length ? await tx.select({ id: instagramPublications.id, artifactId: instagramPublications.artifactId }).from(instagramPublications).innerJoin(runs, and(eq(runs.id, instagramPublications.runId), eq(runs.userId, instagramPublications.userId))).where(and(inArray(instagramPublications.id, sourceIds), eq(instagramPublications.userId, ownerId(res)), eq(instagramPublications.status, "awaiting_review"), eq(runs.status, "awaiting_publish"))).for("update") : [];
+      const validSources = new Map(sources.map((source) => [source.id, source.artifactId]));
+      if (savedImages.length !== libraryIds.length || sourceIds.some((id) => !validSources.has(id)) || media.some((item) => item.sourcePublicationId && validSources.get(item.sourcePublicationId) !== item.artifactId)) return null;
+      const [updated] = await tx.update(instagramPublications).set({ accountId, artifactId: media[0]!.artifactId, caption, updatedAt: new Date() }).where(eq(instagramPublications.id, publication.id)).returning();
+      await tx.delete(instagramPublicationMedia).where(eq(instagramPublicationMedia.publicationId, publication.id));
+      await tx.insert(instagramPublicationMedia).values(media.map((item, position) => ({ publicationId: publication.id, artifactId: item.artifactId, sourcePublicationId: item.sourcePublicationId, altText: item.altText, position })));
+      if (sourceIds.length) await tx.update(instagramPublications).set({ status: "reserved", updatedAt: new Date() }).where(inArray(instagramPublications.id, sourceIds));
+      return updated;
+    });
+    if (!result) { res.status(404).json({ error: "draft_or_saved_image_not_found" }); return; }
+    res.json({ publication: result });
+  } catch (error) { next(error); }
+});
+
+router.post("/drafts/:id/publish", requireAuthenticatedUser, async (req, res, next) => {
+  if (!validOrigin(req)) { res.status(403).json({ error: "invalid_origin" }); return; }
+  const encryptionKey = Buffer.from(process.env.INSTAGRAM_TOKEN_ENCRYPTION_KEY ?? "", "base64");
+  if (!appId() || !appSecret() || encryptionKey.length !== 32 || !(process.env.INSTAGRAM_PUBLIC_API_URL ?? "").startsWith("https://")) { res.status(503).json({ error: "instagram_not_configured" }); return; }
+  try {
+    const [publication] = await db.update(instagramPublications).set({ status: "queued", updatedAt: new Date() }).where(and(eq(instagramPublications.id, String(req.params.id)), eq(instagramPublications.userId, ownerId(res)), isNull(instagramPublications.runId), eq(instagramPublications.status, "draft"))).returning();
+    if (!publication) { res.status(409).json({ error: "publication_draft_not_ready" }); return; }
+    res.json({ publication });
+  } catch (error) { next(error); }
+});
+
+router.delete("/drafts/:id", requireAuthenticatedUser, async (req, res, next) => {
+  if (!validOrigin(req)) { res.status(403).json({ error: "invalid_origin" }); return; }
+  try {
+    const publication = await db.transaction(async (tx) => {
+      const [draft] = await tx.select({ id: instagramPublications.id }).from(instagramPublications).where(and(eq(instagramPublications.id, String(req.params.id)), eq(instagramPublications.userId, ownerId(res)), isNull(instagramPublications.runId), eq(instagramPublications.status, "draft"))).limit(1).for("update");
+      if (!draft) return null;
+      const sources = await tx.select({ sourcePublicationId: instagramPublicationMedia.sourcePublicationId }).from(instagramPublicationMedia).where(eq(instagramPublicationMedia.publicationId, draft.id));
+      const sourceIds = sources.flatMap((item) => item.sourcePublicationId ? [item.sourcePublicationId] : []);
+      if (sourceIds.length) await tx.update(instagramPublications).set({ status: "awaiting_review", updatedAt: new Date() }).where(and(inArray(instagramPublications.id, sourceIds), eq(instagramPublications.status, "reserved")));
+      const [deleted] = await tx.delete(instagramPublications).where(eq(instagramPublications.id, draft.id)).returning({ id: instagramPublications.id });
+      return deleted ?? null;
+    });
+    if (!publication) { res.status(404).json({ error: "publication_draft_not_found" }); return; }
+    res.status(204).end();
+  } catch (error) { next(error); }
 });
 router.get("/connect", requireAuthenticatedUser, async (_req, res, next) => {
   if (!appId() || !appSecret()) { res.status(503).json({ error: "instagram_not_configured" }); return; }
@@ -123,6 +254,18 @@ router.delete("/account", requireAuthenticatedUser, async (req, res, next) => {
   catch (error) { next(error); }
 });
 
+router.get("/history", requireAuthenticatedUser, async (_req, res, next) => {
+  try {
+    const publications = await db.select().from(instagramPublications).where(and(eq(instagramPublications.userId, ownerId(res)), isNull(instagramPublications.runId), inArray(instagramPublications.status, ["queued", "publishing", "published", "awaiting_review"]))).orderBy(desc(instagramPublications.updatedAt)).limit(50);
+    if (!publications.length) { res.json({ items: [] }); return; }
+    const media = await db.select({ publicationId: instagramPublicationMedia.publicationId, artifactId: artifacts.id, displayName: artifacts.displayName, mediaType: artifacts.mediaType, position: instagramPublicationMedia.position, altText: instagramPublicationMedia.altText, sourcePublicationId: instagramPublicationMedia.sourcePublicationId })
+      .from(instagramPublicationMedia).innerJoin(artifacts, and(eq(artifacts.id, instagramPublicationMedia.artifactId), eq(artifacts.userId, ownerId(res)))).where(inArray(instagramPublicationMedia.publicationId, publications.map((item) => item.id))).orderBy(asc(instagramPublicationMedia.position));
+    const byPublication = new Map<string, typeof media>();
+    for (const item of media) byPublication.set(item.publicationId, [...(byPublication.get(item.publicationId) ?? []), item]);
+    res.json({ items: publications.map((item) => ({ ...item, media: byPublication.get(item.id) ?? [] })) });
+  } catch (error) { next(error); }
+});
+
 router.get("/publications/:id", requireAuthenticatedUser, async (req, res, next) => {
   try { const id = String(req.params.id); const [publication] = await db.select().from(instagramPublications).where(and(eq(instagramPublications.id, id), eq(instagramPublications.userId, ownerId(res)))).limit(1); if (!publication) { res.status(404).json({ error: "publication_not_found" }); return; } res.json({ publication }); }
   catch (error) { next(error); }
@@ -145,7 +288,7 @@ router.post("/publications/:id/discard", requireAuthenticatedUser, async (req, r
       const [item] = await tx.select().from(instagramPublications).where(and(eq(instagramPublications.id, String(req.params.id)), eq(instagramPublications.userId, ownerId(res)))).limit(1).for("update");
       if (!item || item.status !== "awaiting_review") return false;
       await tx.update(instagramPublications).set({ status: "discarded", updatedAt: new Date() }).where(eq(instagramPublications.id, item.id));
-      await tx.update(runs).set({ status: "succeeded", finishedAt: new Date() }).where(and(eq(runs.id, item.runId), eq(runs.userId, ownerId(res)), eq(runs.status, "awaiting_publish")));
+      if (item.runId) await tx.update(runs).set({ status: "succeeded", finishedAt: new Date() }).where(and(eq(runs.id, item.runId), eq(runs.userId, ownerId(res)), eq(runs.status, "awaiting_publish")));
       return true;
     });
     if (!resolved) { res.status(409).json({ error: "publication_not_discardable" }); return; }
@@ -160,9 +303,11 @@ router.get("/media/:artifactId", async (req, res, next) => {
     const expected = createHmac("sha256", key()).update(`${req.params.artifactId}.${expires}`).digest();
     const supplied = Buffer.from(signature, "hex");
     if (expected.length !== supplied.length || !timingSafeEqual(expected, supplied)) { res.status(403).end(); return; }
-    const found = await pool.query<{ media_type: string; storage_key: string }>("SELECT a.media_type,a.storage_key FROM artifacts a JOIN instagram_publications p ON p.artifact_id=a.id WHERE a.id=$1 AND p.status IN ('queued','publishing') LIMIT 1", [String(req.params.artifactId)]);
+    const found = await pool.query<{ media_type: string; storage_key: string }>("SELECT a.media_type,a.storage_key FROM artifacts a JOIN instagram_publications p ON p.user_id=a.user_id AND (p.artifact_id=a.id OR EXISTS(SELECT 1 FROM instagram_publication_media pm WHERE pm.publication_id=p.id AND pm.artifact_id=a.id)) WHERE a.id=$1 AND p.status IN ('queued','publishing') LIMIT 1", [String(req.params.artifactId)]);
     const artifact = found.rows[0]; if (!artifact) { res.status(404).end(); return; }
-    res.setHeader("Content-Type", artifact.media_type); res.setHeader("Cache-Control", "public, max-age=300"); res.setHeader("X-Content-Type-Options", "nosniff"); res.send(await readArtifact(artifact.storage_key));
+    let bytes = await readArtifact(artifact.storage_key);
+    if (artifact.media_type.startsWith("image/") && artifact.media_type !== "image/jpeg") bytes = await sharp(bytes).jpeg({ quality: 92, mozjpeg: true }).toBuffer();
+    res.setHeader("Content-Type", artifact.media_type.startsWith("image/") ? "image/jpeg" : artifact.media_type); res.setHeader("Cache-Control", "public, max-age=300"); res.setHeader("X-Content-Type-Options", "nosniff"); res.send(bytes);
   } catch (error) { next(error); }
 });
 

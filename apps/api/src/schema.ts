@@ -346,8 +346,8 @@ export const artifactCleanupItems = pgTable("artifact_cleanup_items", {
 export const instagramPublications = pgTable("instagram_publications", {
   id: uuid("id").defaultRandom().primaryKey(),
   userId: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
-  runId: uuid("run_id").notNull().references(() => runs.id, { onDelete: "cascade" }),
-  nodeId: text("node_id").notNull(),
+  runId: uuid("run_id").references(() => runs.id, { onDelete: "cascade" }),
+  nodeId: text("node_id"),
   accountId: uuid("account_id").notNull().references(() => instagramAccounts.id, { onDelete: "restrict" }),
   artifactId: uuid("artifact_id").notNull().references(() => artifacts.id, { onDelete: "restrict" }),
   mediaKind: text("media_kind").notNull(),
@@ -364,6 +364,20 @@ export const instagramPublications = pgTable("instagram_publications", {
 }, (table): PgTableExtraConfigValue[] => [
   uniqueIndex("instagram_publications_run_node_unique").on(table.runId, table.nodeId),
   index("instagram_publications_queue_idx").on(table.status, table.createdAt),
+]);
+
+export const instagramPublicationMedia = pgTable("instagram_publication_media", {
+  id: uuid("id").defaultRandom().primaryKey(),
+  publicationId: uuid("publication_id").notNull().references(() => instagramPublications.id, { onDelete: "cascade" }),
+  artifactId: uuid("artifact_id").notNull().references(() => artifacts.id, { onDelete: "restrict" }),
+  position: integer("position").notNull(),
+  altText: text("alt_text").notNull().default(""),
+  sourcePublicationId: uuid("source_publication_id").references(() => instagramPublications.id, { onDelete: "set null" }),
+  containerId: text("container_id"),
+}, (table): PgTableExtraConfigValue[] => [
+  uniqueIndex("instagram_publication_media_position_unique").on(table.publicationId, table.position),
+  uniqueIndex("instagram_publication_media_source_publication_unique").on(table.sourcePublicationId),
+  index("instagram_publication_media_artifact_idx").on(table.artifactId),
 ]);
 
 export type RunNotificationType = "run_failed" | "run_succeeded" | "run_awaiting_publish";

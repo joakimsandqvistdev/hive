@@ -1,9 +1,9 @@
 import { hostname } from "node:os";
-import { and, eq } from "drizzle-orm";
+import { and, eq, inArray } from "drizzle-orm";
 import { setTimeout as delay } from "node:timers/promises";
 import { db, pool } from "./db.js";
 import { readArtifact, removeArtifact, saveJpeg, saveMp4, savePng, saveWav } from "./artifactStore.js";
-import { artifacts, instagramAccounts, instagramPublications, runs } from "./schema.js";
+import { artifacts, instagramAccounts, instagramPublicationMedia, instagramPublications, runs } from "./schema.js";
 import { claimNextRun, failRun, finishCancelledRun, finishRun, finishRunNode, hasQueuedModelUse, heartbeatRun, runCancellationRequested, setRunNodeRunning, type ClaimedRun } from "./runQueue.js";
 import { workflowExecutionOrder } from "./workflowExecutionOrder.js";
 import { modelRunnerRejection, modelRunnerTransportFailure } from "./modelRunnerErrors.js";
@@ -169,12 +169,50 @@ async function processInstagramPublication(): Promise<boolean> {
     if (!account) throw new Error("Connected Instagram account is unavailable.");
     const token = await usableInstagramToken(account);
     const graphBase = `https://graph.instagram.com/${process.env.INSTAGRAM_GRAPH_API_VERSION ?? "v22.0"}/${account.instagramUserId}`;
+    const mediaItems = await db.select().from(instagramPublicationMedia).where(eq(instagramPublicationMedia.publicationId, publication.id)).orderBy(instagramPublicationMedia.position);
+    const mediaIds = mediaItems.length ? mediaItems.map((item) => item.artifactId) : [publication.artifactId];
     let containerId = publication.containerId;
     if (!containerId) {
-      const form = new URLSearchParams({ caption: publication.caption, access_token: token });
+      const form = new URLSearchParams({ access_token: token });
       if (publication.mediaKind === "video") {
+        form.set("caption", publication.caption);
         form.set("media_type", "REELS"); form.set("video_url", instagramMediaUrl(publication.artifactId)); form.set("share_to_feed", String(publication.shareToFeed));
-      } else form.set("image_url", instagramMediaUrl(publication.artifactId));
+      } else if (mediaIds.length > 1) {
+        const childContainerIds: string[] = [];
+        for (const item of mediaItems) {
+          let childContainerId = item.containerId;
+          if (!childContainerId) {
+            const childForm = new URLSearchParams({ image_url: instagramMediaUrl(item.artifactId), alt_text: item.altText, is_carousel_item: "true", access_token: token });
+            const childResponse = await fetch(`${graphBase}/media`, { method: "POST", body: childForm });
+            const child = await childResponse.json() as { id?: string; error?: { message?: string } };
+            if (!childResponse.ok || !child.id) throw new Error(child.error?.message ?? "Instagram could not prepare a carousel slide.");
+            childContainerId = child.id;
+            await db.update(instagramPublicationMedia).set({ containerId: childContainerId }).where(eq(instagramPublicationMedia.id, item.id));
+          }
+          let childReady = false;
+          for (let attempt = 0; attempt < 150; attempt += 1) {
+            const statusUrl = `https://graph.instagram.com/${process.env.INSTAGRAM_GRAPH_API_VERSION ?? "v22.0"}/${childContainerId}?fields=status_code,status&access_token=${encodeURIComponent(token)}`;
+            const childStatusResponse = await fetch(statusUrl);
+            const childStatus = await childStatusResponse.json() as { status_code?: string; status?: string; error?: { message?: string } };
+            if (!childStatusResponse.ok) throw new Error(childStatus.error?.message ?? "Instagram could not check a carousel slide.");
+            if (childStatus.status_code === "FINISHED") { childReady = true; break; }
+            if (childStatus.status_code === "ERROR" || childStatus.status_code === "EXPIRED") {
+              if (childStatus.status_code === "EXPIRED") await db.update(instagramPublicationMedia).set({ containerId: null }).where(eq(instagramPublicationMedia.id, item.id));
+              throw new Error(childStatus.status ?? "Instagram could not process a carousel slide.");
+            }
+            await delay(2000);
+          }
+          if (!childReady) throw new Error("Instagram carousel slide processing timed out. Review the draft before retrying.");
+          childContainerIds.push(childContainerId);
+        }
+        form.set("caption", publication.caption);
+        form.set("media_type", "CAROUSEL");
+        form.set("children", childContainerIds.join(","));
+      } else {
+        form.set("caption", publication.caption);
+        form.set("image_url", instagramMediaUrl(mediaIds[0]!));
+        if (mediaItems[0]?.altText) form.set("alt_text", mediaItems[0].altText);
+      }
       const response = await fetch(`${graphBase}/media`, { method: "POST", body: form });
       const body = await response.json() as { id?: string; error?: { message?: string } };
       if (!response.ok || !body.id) throw new Error(body.error?.message ?? "Instagram could not create a media container.");
@@ -189,6 +227,7 @@ async function processInstagramPublication(): Promise<boolean> {
       if (!response.ok) throw new Error(body.error?.message ?? "Instagram could not check media processing status.");
       if (body.status_code === "FINISHED") { ready = true; break; }
       if (body.status_code === "ERROR" || body.status_code === "EXPIRED") {
+        if (body.status_code === "EXPIRED") await db.update(instagramPublications).set({ containerId: null, updatedAt: new Date() }).where(eq(instagramPublications.id, publication.id));
         throw new Error(body.status ?? (publication.mediaKind === "video" ? "Instagram could not process the Reel video." : "Instagram could not process the post image."));
       }
       if (body.status_code === "PUBLISHED") throw new Error("Instagram reports that this media container was already published. Check Instagram before retrying.");
@@ -200,8 +239,17 @@ async function processInstagramPublication(): Promise<boolean> {
     const published = await publishedResponse.json() as { id?: string; error?: { message?: string } };
     if (!publishedResponse.ok || !published.id) throw new Error(published.error?.message ?? "Instagram did not publish the media.");
     await db.transaction(async (tx) => {
-      await tx.update(instagramPublications).set({ status: "published", instagramMediaId: published.id!, publishedAt: new Date(), updatedAt: new Date() }).where(eq(instagramPublications.id, publication.id));
-      await tx.update(runs).set({ status: "succeeded", finishedAt: new Date() }).where(and(eq(runs.id, publication.runId), eq(runs.userId, publication.userId), eq(runs.status, "awaiting_publish")));
+      const publishedAt = new Date();
+      await tx.update(instagramPublications).set({ status: "published", instagramMediaId: published.id!, publishedAt, updatedAt: publishedAt }).where(eq(instagramPublications.id, publication.id));
+      if (publication.runId) {
+        await tx.update(runs).set({ status: "succeeded", finishedAt: publishedAt }).where(and(eq(runs.id, publication.runId), eq(runs.userId, publication.userId), eq(runs.status, "awaiting_publish")));
+      }
+      const sourcePublicationIds = mediaItems.flatMap((item) => item.sourcePublicationId ? [item.sourcePublicationId] : []);
+      if (sourcePublicationIds.length) {
+        const sources = await tx.update(instagramPublications).set({ status: "published", instagramMediaId: published.id!, publishedAt, updatedAt: publishedAt }).where(and(inArray(instagramPublications.id, sourcePublicationIds), eq(instagramPublications.userId, publication.userId), eq(instagramPublications.status, "reserved"))).returning({ runId: instagramPublications.runId });
+        const sourceRunIds = [...new Set(sources.flatMap((source) => source.runId ? [source.runId] : []))];
+        if (sourceRunIds.length) await tx.update(runs).set({ status: "succeeded", finishedAt: publishedAt }).where(and(inArray(runs.id, sourceRunIds), eq(runs.userId, publication.userId), eq(runs.status, "awaiting_publish")));
+      }
     });
   } catch (error) {
     const message = error instanceof Error ? error.message.slice(0, 1000) : "Instagram publishing failed.";

@@ -85,9 +85,9 @@ export function RunDetailsInspector({
     {detail.run.errorSummary && <Alert color={detail.run.status === "cancelled" ? "gray" : "hiveError"} title={detail.run.status === "cancelled" ? "Run stopped" : "Run failed"}>{detail.run.errorSummary}</Alert>}
     {detail.publication && <Paper className="run-publication-strip" radius="sm" p="xs">
       <div className="run-publication-mark" aria-hidden="true">◎</div>
-      <div className="run-publication-copy"><Text fw={600} size="sm">{detail.publication.mediaKind === "video" ? "Instagram Reel" : "Instagram Post"}</Text><Text size="xs" c="dimmed">{detail.publication.status === "awaiting_review" ? "Review the generated media and caption" : detail.publication.status.replaceAll("_", " ")}</Text></div>
+      <div className="run-publication-copy"><Text fw={600} size="sm">{detail.publication.mediaKind === "video" ? "Instagram Reel" : "Instagram Post"}</Text><Text size="xs" c="dimmed">{detail.publication.status === "awaiting_review" ? "Review the generated media and caption" : detail.publication.status === "reserved" ? "Included in a Publish draft" : detail.publication.status.replaceAll("_", " ")}</Text></div>
       <Badge color={statusColor(detail.publication.status)} variant="light">{detail.publication.status.replaceAll("_", " ")}</Badge>
-      <Button size="xs" variant="light" onClick={() => setInspectorSelection("publication")}>Review publication</Button>
+      <Button size="xs" variant="light" onClick={() => setInspectorSelection("publication")}>{detail.publication.status === "reserved" ? "View publication" : "Review publication"}</Button>
     </Paper>}
 
     <div className="run-inspector-layout">
@@ -115,7 +115,7 @@ export function RunDetailsInspector({
 
       <Paper className="run-inspector-detail" withBorder radius="sm" p="md">
         {inspectorSelection === "publication" && detail.publication ? <Stack gap="sm">
-          <Group justify="space-between" align="start"><div><Text fw={600} size="sm">{detail.publication.mediaKind === "video" ? "Instagram Reel" : "Instagram Post"}</Text><Text size="xs" c="dimmed">{detail.publication.status === "awaiting_review" ? "Review before publishing" : "Publication details"}</Text></div><Badge color={statusColor(detail.publication.status)} variant="light">{detail.publication.status.replaceAll("_", " ")}</Badge></Group>
+          <Group justify="space-between" align="start"><div><Text fw={600} size="sm">{detail.publication.mediaKind === "video" ? "Instagram Reel" : "Instagram Post"}</Text><Text size="xs" c="dimmed">{detail.publication.status === "awaiting_review" ? "Review before publishing" : detail.publication.status === "reserved" ? "Included in a Publish draft" : "Publication details"}</Text></div><Badge color={statusColor(detail.publication.status)} variant="light">{detail.publication.status === "reserved" ? "in draft" : detail.publication.status.replaceAll("_", " ")}</Badge></Group>
           <div className="run-inspector-publication-content">
             <ArtifactPreview className="run-inspector-preview" artifactId={detail.publication.artifactId} label="Instagram media" mediaType={detail.publication.mediaKind === "video" ? "video/mp4" : "image/jpeg"} />
             <div className="run-inspector-caption">
@@ -124,7 +124,7 @@ export function RunDetailsInspector({
                 <Textarea label="Caption" maxLength={2200} autosize minRows={3} value={detail.publication.caption} onChange={(event) => { captionDirty.current = true; const caption = event.currentTarget.value; setDetail((current) => current?.publication ? { ...current, publication: { ...current.publication, caption } } : current); }} />
                 <Group justify="flex-end" gap="xs" className="run-inspector-publish-actions"><Button size="xs" color="hiveError" variant="light" onClick={() => void updatePublication("discard")}>Discard</Button><span className="run-inspector-action-spacer" /><Button size="xs" variant="default" onClick={() => void updatePublication("save")}>Save caption</Button><Button size="xs" onClick={() => void updatePublication("publish")}>Publish now</Button></Group>
                 <Text size="xs" c="dimmed">Workflow generation is complete. Scheduled Jobs continue while this publication needs review.</Text>
-              </> : detail.publication.status === "published" ? <Text size="sm" c="dimmed">Published successfully.</Text> : detail.publication.status === "discarded" ? <Text size="sm" c="dimmed">Publication discarded.</Text> : <Text size="sm" c="dimmed">Publication processing continues independently. Repeating Jobs can queue their next run after workflow generation finishes.</Text>}
+              </> : detail.publication.status === "published" ? <Text size="sm" c="dimmed">Published successfully.</Text> : detail.publication.status === "discarded" ? <Text size="sm" c="dimmed">Publication discarded.</Text> : detail.publication.status === "reserved" ? <Text size="sm" c="dimmed">This image is included in a draft on Publish. The run will remain Awaiting publish until Instagram confirms that post.</Text> : <Text size="sm" c="dimmed">Publication processing continues independently. Repeating Jobs can queue their next run after workflow generation finishes.</Text>}
             </div>
           </div>
         </Stack> : inspectorSelection === "outputs" ? <Stack gap="sm">

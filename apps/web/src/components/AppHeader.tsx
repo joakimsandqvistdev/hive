@@ -10,6 +10,7 @@ const viewTitles: Record<AppView, string> = {
   "custom-nodes": "Custom Nodes",
   jobs: "Jobs",
   runs: "Runs",
+  publish: "Publish",
   models: "Models",
   accounts: "Accounts",
   media: "Media Library",

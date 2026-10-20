@@ -10,7 +10,7 @@ import { artifactPath, readArtifact, removeArtifact, saveUpload } from "./artifa
 import { parseArtifactByteRange } from "./artifactRange.js";
 import { db, pool } from "./db.js";
 import { isPublicAddress } from "./publicAddress.js";
-import { artifacts, instagramAccounts, instagramPublications, runDeletions, runNodes, workflowNodes, workflows, runs } from "./schema.js";
+import { artifacts, instagramAccounts, instagramPublicationMedia, instagramPublications, runDeletions, runNodes, workflowNodes, workflows, runs } from "./schema.js";
 
 const router = Router();
 const cleanupScopes = new Set(["old-run-outputs", "orphaned-workflow-uploads"]);
@@ -23,7 +23,7 @@ const protectionSql = `ARRAY_REMOVE(ARRAY[
   CASE WHEN EXISTS (SELECT 1 FROM workflow_triggers t JOIN workflows w ON w.id=t.workflow_id AND w.user_id=t.user_id, LATERAL jsonb_array_elements(t.input_mappings) mapping WHERE t.user_id=a.user_id AND mapping->>'artifactId'=a.id::text) THEN 'Webhook input' END,
   CASE WHEN EXISTS (SELECT 1 FROM run_nodes n WHERE n.input_artifact_id=a.id AND n.user_id=a.user_id) THEN 'Run input' END,
   CASE WHEN EXISTS (SELECT 1 FROM instagram_accounts i WHERE i.profile_image_artifact_id=a.id AND i.user_id=a.user_id) THEN 'Account profile image' END,
-  CASE WHEN EXISTS (SELECT 1 FROM instagram_publications p WHERE p.artifact_id=a.id AND p.user_id=a.user_id) THEN 'Instagram publication' END,
+  CASE WHEN EXISTS (SELECT 1 FROM instagram_publications p WHERE p.user_id=a.user_id AND (p.artifact_id=a.id OR EXISTS (SELECT 1 FROM instagram_publication_media pm WHERE pm.publication_id=p.id AND pm.artifact_id=a.id))) THEN 'Instagram publication' END,
   CASE WHEN EXISTS (SELECT 1 FROM runs r WHERE r.id=a.run_id AND r.user_id=a.user_id AND r.status IN ('queued','running','awaiting_publish','cancel_requested')) THEN 'Run is active' END,
   CASE WHEN EXISTS (SELECT 1 FROM artifact_cleanup_items ci JOIN artifact_cleanup_jobs cj ON cj.id=ci.job_id WHERE ci.artifact_id=a.id AND cj.user_id=a.user_id AND cj.status IN ('queued','running') AND ci.status='queued') THEN 'Cleanup pending' END
 ], NULL)::text[]`;
@@ -53,7 +53,10 @@ router.get("/", async (req, res, next) => {
     const mediaType = ["image", "audio", "video"].includes(String(req.query.type)) ? String(req.query.type) : null;
     const saveState = ["saved", "not-saved"].includes(String(req.query.saveState)) ? String(req.query.saveState) : null;
     const base = `WITH artifact_context AS (
-      SELECT a.*, COALESCE(w.names,ARRAY[]::text[]) workflow_names, COALESCE(n.names,ARRAY[]::text[]) node_names, COALESCE(h.names,ARRAY[]::text[]) webhook_names, ${protectionSql} protected_by,
+      SELECT a.*, COALESCE(w.names,ARRAY[]::text[]) workflow_names, COALESCE(n.names,ARRAY[]::text[]) node_names, COALESCE(h.names,ARRAY[]::text[]) webhook_names,
+        (SELECT p.caption FROM instagram_publications p WHERE p.user_id=a.user_id AND p.status='published'
+          AND (p.artifact_id=a.id OR EXISTS (SELECT 1 FROM instagram_publication_media pm WHERE pm.publication_id=p.id AND pm.artifact_id=a.id))
+          ORDER BY p.published_at DESC NULLS LAST,p.created_at DESC LIMIT 1) publication_caption, ${protectionSql} protected_by,
         ${availabilityStateSql} availability_state, ${availabilityReasonSql} availability_reason, now() evaluated_at
       FROM artifacts a
       LEFT JOIN LATERAL (SELECT array_agg(DISTINCT x.name) FILTER (WHERE x.name IS NOT NULL) names FROM (
@@ -74,7 +77,7 @@ router.get("/", async (req, res, next) => {
     ), filtered AS (SELECT * FROM artifact_context c WHERE ($2::text IS NULL OR c.media_type LIKE $2 || '/%') AND ($3::text IS NULL OR ($3='saved' AND c.saved_to_library) OR ($3='not-saved' AND NOT c.saved_to_library)) AND ($4::text IS NULL OR strpos(lower(concat_ws(' ',c.display_name,c.media_type,c.data_type_id,array_to_string(c.workflow_names,' '),array_to_string(c.node_names,' '),array_to_string(c.webhook_names,' '))),lower($4))>0))`;
     const [countResult, pageResult] = await Promise.all([
       pool.query<{ total: string }>(`${base} SELECT count(*)::text total FROM filtered`, [owner, mediaType, saveState, search]),
-      pool.query(`${base} SELECT id,display_name AS "displayName",data_type_id AS "dataTypeId",media_type AS "mediaType",byte_size AS "byteSize",created_at AS "createdAt",run_id AS "runId",saved_to_library AS "savedToLibrary",workflow_names AS "workflowNames",node_names AS "nodeNames",webhook_names AS "webhookNames",protected_by AS "protectedBy",availability_state AS "availabilityState",availability_reason AS "availabilityReason",evaluated_at AS "evaluatedAt" FROM filtered ORDER BY created_at DESC,id LIMIT $5 OFFSET $6`, [owner, mediaType, saveState, search, pageSize, (page - 1) * pageSize]),
+      pool.query(`${base} SELECT id,display_name AS "displayName",data_type_id AS "dataTypeId",media_type AS "mediaType",byte_size AS "byteSize",created_at AS "createdAt",run_id AS "runId",saved_to_library AS "savedToLibrary",workflow_names AS "workflowNames",node_names AS "nodeNames",webhook_names AS "webhookNames",publication_caption AS "publicationCaption",protected_by AS "protectedBy",availability_state AS "availabilityState",availability_reason AS "availabilityReason",evaluated_at AS "evaluatedAt" FROM filtered ORDER BY created_at DESC,id LIMIT $5 OFFSET $6`, [owner, mediaType, saveState, search, pageSize, (page - 1) * pageSize]),
     ]);
     res.json({ items: pageResult.rows, total: Number(countResult.rows[0]?.total ?? 0), page, pageSize });
   } catch (error) { next(error); }
@@ -185,7 +188,8 @@ router.delete("/:id", async (req, res, next) => {
       const runUse = await tx.select({ count: sql<number>`count(*)` }).from(runNodes).where(eq(runNodes.inputArtifactId, file.id));
       const profileUse = await tx.select({ count: sql<number>`count(*)` }).from(instagramAccounts).where(eq(instagramAccounts.profileImageArtifactId, file.id));
       const publicationUse = await tx.select({ count: sql<number>`count(*)` }).from(instagramPublications).where(eq(instagramPublications.artifactId, file.id));
-      if (Number(workflowUse[0]?.count) || Number(runUse[0]?.count) || Number(profileUse[0]?.count) || Number(publicationUse[0]?.count)) return { status: 409 as const };
+      const publicationMediaUse = await tx.select({ count: sql<number>`count(*)` }).from(instagramPublicationMedia).where(eq(instagramPublicationMedia.artifactId, file.id));
+      if (Number(workflowUse[0]?.count) || Number(runUse[0]?.count) || Number(profileUse[0]?.count) || Number(publicationUse[0]?.count) || Number(publicationMediaUse[0]?.count)) return { status: 409 as const };
       if (file.runId) await tx.update(runNodes).set({ outputJson: null }).where(sql`${runNodes.outputJson}->>'artifactId' = ${file.id}`);
       await tx.delete(artifacts).where(eq(artifacts.id, file.id));
       return { status: 204 as const, storageKey: file.storageKey };
