@@ -8,8 +8,6 @@ This file tracks the proposed feature backlog and keeps implementation specifica
 | --- | --- |
 | Workflow and Custom Node revision history | Proposed |
 | Workflow test cases | Proposed |
-| Model cache and download manager | In progress |
-| Media storage overview and safe cleanup planner | In progress |
 | Portable workflow packages | Proposed |
 | Instagram publishing outbox and recovery | Proposed |
 | Multiple Instagram accounts and publishing calendar | Proposed |
@@ -218,150 +216,7 @@ Provide a fixed, safe assertion set instead of user-authored scripts:
 
 These proposals were chosen after checking the current Models, Media Library, artifact, and runner implementations. They target operational friction that is not covered by the first three proposals.
 
-## Feature 4 — Model cache and download manager
-
-### Goal
-
-Give users clear control over model downloads and Docker cache storage. The Models page already shows per-model status and progress; this feature adds a cache-focused storage overview, durable pause/resume and restart recovery, and safe one-model-at-a-time cleanup.
-
-### Accepted decisions (2026-10-20)
-
-- Downloads have no concurrency limit. Starting one never waits behind another, and there is no queue-pause control.
-- Each active model download can be paused and resumed. Paused and interrupted downloads preserve their partial cache and progress; downloads that were active resume automatically after runner restarts.
-- Cancel removes that model's incomplete transfer cache. Pause preserves it.
-- When free runner-filesystem space is below the estimated download size plus 10% headroom, Hive warns and lets the user continue.
-- Cache cleanup removes one downloaded model at a time after a review. The confirmation shows its approximate size and direct workflow/Custom Node references. Definitions remain and need a re-download before the model can run again.
-- Cache removal is blocked while downloads are active or the runner is using the model. Unknown and unattributed cache files remain untouched.
-- Storage and download controls belong to the local workspace's shared runner/cache.
-- Use the Media Library's two top-level tabs: Library and Storage. Keep active downloads at the top of Library, followed by the model inventory and type filters; put cache capacity and per-model cache review in Storage.
-
-### User stories
-
-- As a user, I can see available models, active or paused downloads, downloaded cache size, and runner filesystem capacity.
-- As a user, I can start concurrent downloads without a hidden limit, pause/resume one transfer, cancel it, and recover from runner or environment restarts.
-- As a user, I can see a low-space warning and choose to continue.
-- As a user, I can remove one model's cache after seeing its size and direct workflow and Custom Node references.
-- As a user, I can distinguish deleting downloaded weights from deleting a model definition or changing workflow data.
-
-### UX and interaction
-
-1. Use Library and Storage as the top-level tabs, matching Media Library. Library contains the model type filters and inventory; Storage contains runner capacity and downloaded cache entries.
-2. Show active downloads at the top of Library, with progress, downloaded/estimated bytes, state, and per-model Pause, Resume, and Cancel controls. No concurrency setting or queue-pause action appears.
-3. Pause stops only the selected transfer and preserves its partial cache. Resume continues it. Cancel removes only that model's incomplete files.
-4. Warn before a new transfer if current free space is below estimated size plus 10%. Let the user continue. Treat model size as an estimate; a transfer can still exhaust storage.
-5. Add Manage cache for downloaded models in Storage. Its confirmation shows approximate size, direct workflow and Custom Node counts, and explains those definitions remain but require a re-download before running.
-6. Disable removal while the download is active, inference uses that model, or the runner is busy; explain the reason.
-7. Report known model cache bytes and container-visible free/total filesystem capacity in Storage. Report unattributed cache usage only when safely identifiable. Never infer ownership from filenames or delete unknown files.
-8. Keep model-card and license links near model details. Cache management does not change model licensing.
-9. Keep per-download controls reachable on narrow layouts and show progress as text plus a bar.
-
-### Runner and API approach
-
-- Extend the private runner model endpoint with per-model cache bytes, attributable/unknown cache usage, and free/total bytes for the filesystem containing the cache. Never expose host paths.
-- Persist download state and byte progress in the mounted model cache volume. On runner start, automatically restart downloads that were active; leave explicitly paused transfers paused.
-- Preserve Hugging Face partial/cache files on pause and unexpected restarts. Resume using the existing cache; retain range-resume data for Kokoro's sidecar download. Explicit Cancel may remove the incomplete files for only that allow-listed model.
-- Add authenticated runner pause, resume, and cache-removal operations. Cache deletion uses only allow-listed repository paths beneath the configured cache roots and serializes against inference. Reject active downloads and model use with a retryable conflict.
-- Return direct owner-scoped workflow and Custom Node reference counts from the API. Removing weights never deletes definitions, run snapshots, or artifacts.
-- Report current storage from the runner; estimates remain advisory. Recheck current free bytes before starting and show the low-space warning rather than blocking.
-- Keep controls local-workspace scoped because the runner/cache is shared by the local deployment.
-
-### State transitions and edge cases
-
-- Downloading → paused → downloading; downloading → downloaded or failed; explicit cancellation removes incomplete files and returns the model to Available.
-- A runner restart resumes previously active downloads from persistent partial files and leaves paused downloads paused.
-- Insufficient disk shows a continue-or-cancel warning. If a transfer later runs out of space, mark it failed and preserve resumable partial cache.
-- Cache removal failure returns a clear error and does not claim success. If some files were removed, refresh actual cache state before reporting.
-- Cache removal is serialized against inference and rejected while the selected model is loaded or in use.
-- Unknown files remain untouched and are reported separately when attributable.
-
-### Acceptance criteria
-
-- Multiple model downloads start concurrently; no concurrency ceiling or queue-pause control is present.
-- Pausing and resuming preserves partial transfer data. Unexpected runner/environment restarts automatically recover transfers that were active.
-- Storage figures are explicitly estimates or container-visible measurements; host paths are never exposed.
-- Low disk space warns below estimated size plus 10% and allows the user to continue.
-- Cache deletion stays within allow-listed cache roots and is blocked during active download or model use.
-- Removing weights leaves workflow, Custom Node, run snapshot, and artifact data unchanged.
-- Cancel still removes incomplete data for the selected model only.
-
----
-
-## Feature 5 — Media storage overview and safe cleanup planner
-
-### Goal
-
-Make generated, uploaded, and library media storage understandable and controllable. Users should be able to see what consumes space, what is protected by a saved-library or active reference, and what a proposed cleanup will delete before confirming it.
-
-This complements existing run deletion and the Media Library's saved/non-saved filter. It does not change their existing retention rules by default.
-
-### Accepted v1 decisions
-
-V1 is a manual cleanup planner with no automatic retention or quarantine period. The library uses one free-text search across file name, media format, workflow, node, and webhook names, with separate Type and Save state filters. Cleanup includes unsaved terminal-run outputs older than 30 days and unreferenced workflow uploads of any age. Incomplete uploads are omitted because they are not persisted in the current upload lifecycle. Protected bytes are an overlapping indicator. Confirmation is permanent; the worker rechecks eligibility and keeps run history. See [Decision 0032](docs/decisions/0032-media-storage-cleanup-planner.md).
-
-### User stories
-
-- As a user, I can see how much space is used by saved library media, unsaved run outputs, workflow uploads, profile images, and pending publications.
-- As a user, I can inspect why an artifact is retained and which run, workflow, publication, or profile currently references it.
-- As a user, I can preview a cleanup selection and see affected items, total estimated bytes freed, and protected items.
-- As a user, I can safely remove eligible transient media without accidentally deleting saved library media or media required by an active publication.
-- As a user, I can choose a future retention policy for eligible unsaved run outputs, with the default being no automatic cleanup until I opt in.
-
-### UX and interaction
-
-1. Add a Storage section within Media Library rather than another top-level navigation link. Keep the existing media table and detail preview as the primary browsing experience.
-2. The summary shows total known artifact bytes divided into:
-   - Saved to Media Library;
-   - Run output not saved;
-   - Workflow-scoped upload/import;
-   - Protected by an active reference.
-3. Each asset detail view includes a compact “Used by” list: run, workflow, Instagram publication, profile image, or test fixture once that proposal exists.
-4. Add Cleanup planner with explicit scopes: old unsaved run outputs, orphaned workflow uploads, and failed/incomplete uploads that the server can verify are not referenced.
-5. Preview step lists every selected item with name, media type, size, age, owner context, and retain/protected reason. Show estimated freed bytes and distinguish known file sizes from unknown/unreadable files.
-6. Saved library media is excluded from all automated cleanup scopes unless the user separately selects that asset in the current deletion flow and confirms its name/count.
-7. Active/reviewable Instagram publications, connected account profile images, workflow inputs, and any future test fixtures are protected. Provide a link to the reference instead of a delete action.
-8. Offer an optional retention rule for unsaved run outputs, such as keep indefinitely, keep for 7 days, 30 days, or 90 days. The default is “Keep indefinitely.” Show exactly when the next cleanup will run and provide a dry-run preview before enabling the rule.
-9. Automatic cleanup must never delete run records; it removes eligible media only and records the cleanup result on the run/media detail.
-10. Use the existing Hive confirmation and flash-message patterns; destructive confirmation names the scope and item count. Make cleanup reversible only if a future trash/quarantine policy is approved; v1 deletion is explicit and irreversible.
-
-### Data and API approach
-
-- Build a usage query from existing artifact ownership and references: artifacts.runId/runNodeId/savedToLibrary/sourceWorkflowId, run_nodes.inputArtifactId, Instagram publication artifactId, and Instagram account profile references. Add joins for future reference types as those features are approved.
-- Add a storage summary API returning aggregate byte totals and counts for the signed-in owner. Avoid returning container paths or raw storage keys.
-- Add a cleanup preview endpoint that calculates a snapshot of eligible artifact IDs, reasons, bytes, and protected references. Confirmation submits the preview token or selected IDs; the server revalidates all rows in a transaction immediately before queuing cleanup.
-- Reuse the existing run-deletion cleanup worker/storage functions where the artifact is run-owned. For media-only cleanup, add a dedicated deletion queue or generalized artifact-cleanup task that records retries and errors without deleting the run.
-- For an automatic retention rule, add user/workspace policy fields and a scheduled cleanup worker. Require the policy to remain disabled by default. The worker must apply the same protection checks as manual cleanup.
-- Record per-item cleanup outcome and stable reason codes so users can see what succeeded, was skipped, or needs retry. Avoid persisting sensitive file paths in UI-facing errors.
-- If the storage provider cannot report actual disk allocation, present the sum of artifact byteSize values as “tracked media size,” not “free disk space.”
-
-### Safety and lifecycle behavior
-
-- Saved media is never included in unsaved-run cleanup.
-- Deleting a run continues to remove only run-owned unsaved media and keeps saved library items, consistent with current behavior.
-- Workflow-scoped uploads/imports cannot be removed while referenced by a workflow definition, queued/running run snapshot, or custom-node expansion.
-- Media attached to queued, running, awaiting-review, or publishing Instagram work is protected as appropriate to publication state.
-- A cleanup preview may become stale between preview and confirmation; the server recalculates eligibility and reports changed/protected items before any deletion.
-- Worker failure does not make the asset disappear from the UI; show “Cleanup pending/failed” with a retryable state.
-- Pagination and aggregate counts must account for items beyond the current table page.
-
-### Acceptance criteria
-
-- Every cleanup preview item has a specific eligibility or protection reason.
-- The server rechecks ownership, reference status, and current lifecycle before deleting each artifact.
-- An explicitly saved asset cannot be selected by an unsaved-output retention rule.
-- Cleanup outcomes and freed-byte estimates are reported accurately; estimated values are labeled.
-- Existing run deletion and media-save behavior is unchanged.
-- Retention is opt-in, disabled by default, and tested against races with run deletion, publication, and workflow edits.
-
-### Open questions for review
-
-1. Should the first version include a configurable automatic retention rule, or only a manual cleanup planner with no background deletion?
-2. Which default age filters are useful for unsaved run outputs: 7, 30, or 90 days? The proposal leaves the default as no cleanup.
-3. Should deleting a workflow automatically offer to delete unreferenced workflow uploads, or should media cleanup remain an explicit separate operation?
-4. Would a short-lived quarantine/trash period be worth the storage cost before permanent deletion?
-
----
-
-## Feature 6 — Portable workflow packages
+## Feature 4 — Portable workflow packages
 
 ### Goal
 
@@ -448,7 +303,7 @@ Allow users to export a workflow or Custom Node as a portable package and import
 
 ---
 
-## Feature 7 — Instagram publishing outbox and recovery
+## Feature 5 — Instagram publishing outbox and recovery
 
 ### Goal
 
@@ -557,15 +412,15 @@ Store the exact remote status code and a short sanitized explanation where avail
 ---
 ## Round 2 recommendation
 
-The **Model cache and download manager** is the most immediate operational improvement because Hive currently permits parallel downloads and model files live in a persistent Docker volume. The **Media storage overview** is the strongest safety and disk-usage improvement because it makes the existing save/protection/cleanup rules visible before deletion. **Publishing outbox and recovery** directly addresses ambiguous Instagram outcomes and duplicate-post risk. **Portable workflow packages** are the best sharing and migration feature, but require the strictest security and compatibility work.
+The model cache manager and media storage planner are implemented and removed from the active queue. The remaining additions from this round cover Instagram publishing recovery and workflow portability.
 
-Suggested order: model download queue/cache controls first, media inventory/cleanup preview second, publishing outbox/recovery third, portable package format fourth. The artifact cleanup policy should remain opt-in and non-destructive until retention behavior is reviewed.
+Suggested order: publishing outbox and recovery first, because it addresses ambiguous Instagram outcomes and duplicate-post risk; portable workflow packages next, because they require a careful compatibility and security design.
 
 ---
 
 # Additional proposals — Round 3
 
-## Feature 8 — Multiple Instagram accounts and a publishing calendar
+## Feature 6 — Multiple Instagram accounts and a publishing calendar
 
 ### Goal
 
