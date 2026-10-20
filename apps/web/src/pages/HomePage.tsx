@@ -7,7 +7,7 @@ const stages = [
   { icon: "accounts", number: "01", title: "Prepare", description: "Connect an Instagram account, organize images and audio, and choose downloadable AI models for your work." },
   { icon: "workflows", number: "02", title: "Create", description: "Connect inputs, AI models, image and video tools, and reusable Custom Nodes in a visual workflow." },
   { icon: "jobs", number: "03", title: "Automate", description: "Run a workflow when you need it, on a schedule, or from a signed webhook trigger." },
-  { icon: "runs", number: "04", title: "Review", description: "Follow each run, inspect the results, and publish Instagram posts or Reels after review or automatically." },
+  { icon: "runs", number: "04", title: "Review", description: "Follow runs, compare their inputs and outputs, and publish Instagram posts or Reels after review or automatically." },
 ] as const;
 
 export function HomePage({ onNavigate }: { onNavigate: (view: AppView) => void }) {
@@ -67,7 +67,7 @@ export function HomePage({ onNavigate }: { onNavigate: (view: AppView) => void }
           <ThemeIcon className="home-capability-icon" variant="light" color="hiveSky" size={38} radius="sm"><AppIcon name="workflows" size={19} /></ThemeIcon>
           <Stack gap={4}>
             <Text className="home-capability-title">Built for a clear workflow</Text>
-            <Text className="home-capability-description">Connect each step visually, reuse shared logic with Custom Nodes, and see the results in run history. Workflows can generate and process media, then publish Instagram posts or Reels manually or automatically.</Text>
+          <Text className="home-capability-description">Connect each step visually, reuse shared logic with Custom Nodes, and inspect or compare results in run history. Workflows can generate and process media, then publish Instagram posts or Reels manually or automatically.</Text>
           </Stack>
         </Group>
       </Paper>

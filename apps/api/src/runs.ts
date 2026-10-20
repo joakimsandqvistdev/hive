@@ -1,4 +1,4 @@
-import { and, count, desc, eq, inArray, or } from "drizzle-orm";
+import { and, count, desc, eq, ilike, inArray, or, sql } from "drizzle-orm";
 import { Router } from "express";
 import { db, pool } from "./db.js";
 import { artifacts, instagramPublications, runDeletions, runNodes, runs, workflowTriggers } from "./schema.js";
@@ -248,14 +248,28 @@ router.post("/:id/delete/retry", async (req, res, next) => {
 router.get("/", async (req, res, next) => {
   const ownerId = res.locals.userId as string;
   const { page, pageSize, offset } = parsePagination(req);
+  const workflowId = typeof req.query.workflowId === "string" ? req.query.workflowId : undefined;
+  const workflowName = typeof req.query.workflowName === "string" ? req.query.workflowName.trim().slice(0, 120) : undefined;
+  const search = typeof req.query.search === "string" ? req.query.search.trim().slice(0, 120) : "";
+  if (workflowId && !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(workflowId)) {
+    res.status(400).json({ error: "invalid_workflow_id" }); return;
+  }
+  const filters = [eq(runs.userId, ownerId)];
+  if (workflowId) filters.push(eq(runs.workflowId, workflowId));
+  else if (workflowName) filters.push(sql`${runs.workflowSnapshotJson}->>'name' = ${workflowName}`);
+  if (search) {
+    const pattern = `%${search.replace(/[\\%_]/g, "\\$&")}%`;
+    filters.push(or(ilike(sql`${runs.id}::text`, pattern), sql`${runs.workflowSnapshotJson}->>'name' ILIKE ${pattern} ESCAPE E'\\\\'`)!);
+  }
+  const where = and(...filters);
   try {
     const [rows, totals] = await Promise.all([
       db.select({ run: runs, deletion: runDeletions, triggerName: workflowTriggers.name }).from(runs)
         .leftJoin(runDeletions, eq(runDeletions.runId, runs.id))
         .leftJoin(workflowTriggers, eq(workflowTriggers.id, runs.triggerId))
-        .where(eq(runs.userId, ownerId))
+        .where(where)
         .orderBy(desc(runs.createdAt), desc(runs.id)).limit(pageSize).offset(offset),
-      db.select({ total: count() }).from(runs).where(eq(runs.userId, ownerId)),
+      db.select({ total: count() }).from(runs).where(where),
     ]);
     const total = totals[0]?.total ?? 0;
     const items = rows.map(({ run, deletion, triggerName }) => ({

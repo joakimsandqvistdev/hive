@@ -1,0 +1,29 @@
+.run-comparison-page { min-width: 0; }
+.run-comparison-run-summary { display: grid; gap: 5px; min-width: 0; }
+.run-comparison-summary { padding: 12px 0; border-top: 1px solid var(--mantine-color-gray-3); }
+.run-comparison-summary b { font-weight: 600; }
+.run-timing-details, .run-settings-details { color: var(--mantine-color-gray-7); font-size: var(--mantine-font-size-xs); }
+.run-timing-details summary, .run-settings-details summary { cursor: pointer; color: var(--mantine-color-hiveSky-7); }
+.run-comparison-controls { padding: 2px 0; }
+.run-comparison-layout { display: grid; grid-template-columns: minmax(210px, .72fr) minmax(0, 2fr); gap: var(--mantine-spacing-md); align-items: start; }
+.run-comparison-nodes, .run-comparison-detail { min-width: 0; }
+.run-comparison-node { width: 100%; display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 3px 8px; padding: 10px; border: 0; border-bottom: 1px solid var(--mantine-color-gray-2); border-radius: var(--mantine-radius-sm); background: transparent; color: var(--mantine-color-text); text-align: left; cursor: pointer; }
+.run-comparison-node:hover { background: var(--mantine-color-gray-0); }
+.run-comparison-node.is-selected { background: var(--mantine-color-hiveSky-0); }
+.run-comparison-node-name { overflow-wrap: anywhere; font-size: var(--mantine-font-size-sm); font-weight: 600; }
+.run-comparison-node-meta { min-width: 0; overflow-wrap: anywhere; color: var(--mantine-color-dimmed); font-size: var(--mantine-font-size-xs); }
+.run-comparison-node .mantine-Badge-root { align-self: center; grid-column: 2; grid-row: 1 / span 2; }
+.run-comparison-side { min-width: 0; padding: 10px; border: 1px solid var(--mantine-color-gray-3); border-radius: var(--mantine-radius-sm); }
+.run-comparison-preview { min-width: 0; }
+.run-text-diff-columns { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: var(--mantine-spacing-sm); margin-top: 7px; }
+.run-text-diff-pane, .run-json-diff { min-width: 0; max-height: 420px; overflow: auto; overflow-wrap: anywhere; white-space: pre-wrap; color: var(--mantine-color-text); background: var(--mantine-color-gray-0); border-radius: var(--mantine-radius-sm); padding: 10px; font: 12px/1.6 var(--mantine-font-family-monospace); }
+.run-text-diff-pane .diff-line.same { color: var(--mantine-color-gray-7); }
+.run-text-diff-pane .diff-line.added { background: var(--mantine-color-green-0); color: var(--mantine-color-green-9); }
+.run-text-diff-pane .diff-line.removed { background: var(--mantine-color-red-0); color: var(--mantine-color-red-9); }
+.run-json-diff { max-height: 260px; margin: 0; }
+.run-settings-details { padding-top: 4px; }
+.run-comparison-collapsed { margin-top: var(--mantine-spacing-sm); }
+@media (max-width: 48em) {
+  .run-comparison-layout { grid-template-columns: minmax(0, 1fr); }
+  .run-text-diff-columns { grid-template-columns: minmax(0, 1fr); }
+}

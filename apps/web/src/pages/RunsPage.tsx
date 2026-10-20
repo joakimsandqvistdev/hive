@@ -5,6 +5,7 @@ import { ConfirmActionModal } from "../components/ConfirmActionModal";
 import { PaginatedTableFooter } from "../components/PaginatedTableFooter";
 import { formatFileSize } from "../formatters";
 import { RunDetailsInspector } from "../components/RunDetailsInspector";
+import { RunComparisonPage } from "./RunComparisonPage";
 import { active, date, statusColor, timingLabel } from "../runFormatting";
 import type { Artifact, Detail, PageResult, Run, RunnerStatus } from "../runTypes";
 import { useFlashMessages } from "../components/FlashMessages";
@@ -19,6 +20,8 @@ const PAGE_SIZE = 10;
 function runIdFromHash() {
   return window.location.hash.match(/^#runs\/([0-9a-f-]+)$/i)?.[1] ?? null;
 }
+function isRunComparisonRoute() { return /^#runs\/compare(?:\?|$)/i.test(window.location.hash); }
+function comparisonBaselineFromHash() { return new URLSearchParams(window.location.hash.split("?")[1] ?? "").get("baseline") ?? ""; }
 
 export function RunsPage({ onNavigate }: { onNavigate: (view: AppView) => void }) {
   const { showFlash } = useFlashMessages();
@@ -47,6 +50,7 @@ export function RunsPage({ onNavigate }: { onNavigate: (view: AppView) => void }
   const [runnerStatus, setRunnerStatus] = useState<RunnerStatus>("active");
   const [runnerHasActiveRuns, setRunnerHasActiveRuns] = useState(false);
   const [runnerBusy, setRunnerBusy] = useState(false);
+  const [comparisonRoute, setComparisonRoute] = useState(isRunComparisonRoute);
 
   const loadRunnerControl = useCallback(async () => {
     try {
@@ -96,8 +100,10 @@ export function RunsPage({ onNavigate }: { onNavigate: (view: AppView) => void }
   useEffect(() => { setLoading(true); void loadRuns(page); }, [loadRuns, page]);
   useEffect(() => {
     const syncSelectedRun = () => setSelectedId(runIdFromHash());
+    const syncComparisonRoute = () => setComparisonRoute(isRunComparisonRoute());
     window.addEventListener("hashchange", syncSelectedRun);
-    return () => window.removeEventListener("hashchange", syncSelectedRun);
+    window.addEventListener("hashchange", syncComparisonRoute);
+    return () => { window.removeEventListener("hashchange", syncSelectedRun); window.removeEventListener("hashchange", syncComparisonRoute); };
   }, []);
   const needsRunPolling = runnerHasActiveRuns || Boolean(result?.items.some((run) => active(run.status) || run.deletion));
   useVisiblePolling(() => loadRuns(page), needsRunPolling ? 3000 : 15_000);
@@ -228,6 +234,8 @@ export function RunsPage({ onNavigate }: { onNavigate: (view: AppView) => void }
     } catch (cause) { setDetailError(cause instanceof Error ? cause.message : "Could not update publication."); }
   };
 
+  const openComparison = (baselineId: string) => { window.location.hash = `runs/compare?baseline=${encodeURIComponent(baselineId)}`; };
+
   useEffect(() => {
     setDetail(null);
     setInspectorSelection("publication");
@@ -254,6 +262,7 @@ export function RunsPage({ onNavigate }: { onNavigate: (view: AppView) => void }
     <Table.Td><Text size="sm" c="dimmed">{timingLabel(run.startedAt, run.finishedAt, now, run.status === "awaiting_publish")}</Text></Table.Td>
     <Table.Td><Text size="sm" c={run.errorSummary ? "hiveError.7" : "dimmed"} lineClamp={2}>{run.errorSummary ?? (active(run.status) ? "Waiting for worker…" : "—")}</Text></Table.Td>
     <Table.Td><Group gap={4} justify="flex-end" onClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()}>
+      <Button variant="subtle" size="compact-sm" aria-label={`Compare ${run.workflowSnapshotJson?.name ?? "run"} with another run`} disabled={Boolean(run.deletion)} onClick={() => openComparison(run.id)}>Compare</Button>
       {run.status === "running" && <Tooltip label="Stop"><ActionIcon color="hiveError" variant="subtle" aria-label="Stop" loading={cancellingId === run.id} onClick={() => void stopRun(run.id)}><StopIcon /></ActionIcon></Tooltip>}
       {run.deletion ? run.deletion.lastError
         ? <Tooltip label="Retry cleanup"><ActionIcon color="hiveError" variant="subtle" aria-label="Retry cleanup" loading={retryingDeletionId === run.id} onClick={() => void retryDeletion(run.id)}><RetryIcon /></ActionIcon></Tooltip>
@@ -261,6 +270,8 @@ export function RunsPage({ onNavigate }: { onNavigate: (view: AppView) => void }
         : <Tooltip label={run.status === "queued" ? "Cancel and delete queued run" : run.status === "awaiting_publish" ? "Delete run and discard its pending publication" : active(run.status) ? "Stop the run before deleting it" : "Delete run and generated media"}><ActionIcon color="hiveError" variant="subtle" aria-label="Delete" disabled={active(run.status) && run.status !== "queued"} loading={deletingId === run.id} onClick={() => setDeleteTarget(run)}><TrashIcon /></ActionIcon></Tooltip>}
     </Group></Table.Td>
   </Table.Tr>);
+
+  if (comparisonRoute) return <RunComparisonPage initialBaseline={comparisonBaselineFromHash()} onBack={() => { window.location.hash = "runs"; }} />;
 
   return <Stack className="workspace-page" gap="lg">
     <Group justify="space-between" className="page-header-actions"><Group gap="xs"><Badge color={runnerStatus === "active" ? "hiveSuccess" : runnerStatus === "pausing" ? "hiveWarning" : "gray"} variant="light">{runnerStatus === "active" ? "Runner active" : runnerStatus === "pausing" ? "Pausing after current run" : "Runner paused"}</Badge><Text size="xs" c="dimmed">Only affects your queued runs</Text></Group><Group><Button className="page-header-button" data-header-tone={runnerStatus === "active" ? "neutral" : "primary"} variant="default" loading={runnerBusy} onClick={() => void toggleRunner()}>{runnerStatus === "active" ? "Pause my runs" : "Resume my runs"}</Button><Popover opened={bulkSelectorOpen} onChange={setBulkSelectorOpen} position="bottom-end" withArrow shadow="md"><Popover.Target><Button className="page-header-button" data-header-tone="danger" variant="default" aria-expanded={bulkSelectorOpen} rightSection={<svg aria-hidden="true" viewBox="0 0 16 16" width="14" height="14" style={{ transition: "transform 150ms ease", transform: bulkSelectorOpen ? "rotate(180deg)" : undefined }}><path d="m3 6 5 5 5-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>} onClick={() => setBulkSelectorOpen((opened) => !opened)}>Delete runs</Button></Popover.Target><Popover.Dropdown w={520} style={{ maxWidth: "calc(100vw - 2rem)" }}><Stack gap="sm"><Group align="flex-end" wrap="nowrap"><MultiSelect classNames={{ pillsList: "run-status-pills-list" }} style={{ flex: 1, minWidth: 0 }} label="Run statuses" placeholder="Choose statuses" data={[{ value: "queued", label: "Queued" }, { value: "failed", label: "Failed" }, { value: "succeeded", label: "Succeeded" }, { value: "cancelled", label: "Cancelled" }, { value: "awaiting_publish", label: "Awaiting publish" }]} value={bulkStatuses} onChange={setBulkStatuses} searchable={false} clearable comboboxProps={{ withinPortal: false }} /><Button color="hiveError" variant="light" disabled={!bulkStatuses.length} onClick={() => { setBulkSelectorOpen(false); setBulkConfirmOpen(true); }}>Review deletion</Button></Group><Text size="xs" c="dimmed">Queued runs are cancelled before cleanup. Pending publications are discarded; runs currently publishing to Instagram are skipped. Running and profile-photo runs remain excluded.</Text></Stack></Popover.Dropdown></Popover><Button className="page-header-button" data-header-tone="neutral" variant="default" onClick={() => onNavigate("workflows")}>Browse workflows</Button></Group></Group>
@@ -291,6 +302,7 @@ export function RunsPage({ onNavigate }: { onNavigate: (view: AppView) => void }
         : detailError ? <Alert color="hiveError" title="Could not load run">{detailError}</Alert>
           : detail && <RunDetailsInspector
             detail={detail}
+            onCompare={openComparison}
             inspectorSelection={inspectorSelection}
             now={now}
             cancellingId={cancellingId}
