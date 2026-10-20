@@ -4,6 +4,7 @@ import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseEnv } from 'node:util';
 import { spawn } from 'node:child_process';
+import { startNgrok, stopNgrok } from './ngrok.mjs';
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -77,6 +78,8 @@ export async function runLocal(args, {
   root = repositoryRoot,
   environment = process.env,
   run = runProcess,
+  startTunnel = startNgrok,
+  stopTunnel = stopNgrok,
   log = console.log,
 } = {}) {
   const { action, device } = parseArguments(args);
@@ -93,28 +96,38 @@ export async function runLocal(args, {
   if (!env.RUNNER_API_TOKEN) env.RUNNER_API_TOKEN = randomBytes(32).toString('base64url');
   // A stop remains possible even if .env has been removed; this value is not used to connect.
   if (action === 'stop' && !env.POSTGRES_PASSWORD) env.POSTGRES_PASSWORD = 'unused-for-stop';
+  let gpu = device === 'gpu';
   if (action === 'start') {
+    if (device === 'auto') {
+      try { gpu = await run('nvidia-smi', ['-L'], { root, env, quiet: true }) === 0; }
+      catch { gpu = false; }
+    }
     env.HIVE_LOCAL_DATABASE_URL = localDatabaseUrl(env.POSTGRES_PASSWORD);
     await mkdir(resolve(root, '.data/artifacts'), { recursive: true });
-  }
-  let gpu = device === 'gpu';
-  if (action === 'start' && device === 'auto') {
-    try { gpu = await run('nvidia-smi', ['-L'], { root, env, quiet: true }) === 0; }
-    catch { gpu = false; }
-  }
-  log(action === 'start' ? `Starting Hive (${gpu ? 'NVIDIA GPU' : 'CPU'} image runner)…` : 'Stopping Hive services…');
-  if (await run('docker', composeArguments(action, gpu), { root, env }) !== 0) {
-    throw new Error(action === 'start'
-      ? 'Startup failed. Check the Docker output above. Free ports 3001, 5173, 5432 and 8188; use --cpu if GPU passthrough is unavailable. Partial services can be stopped with npm run local:stop.'
-      : 'Stop failed. Check Docker output above and retry npm run local:stop.');
-  }
-  if (action === 'start') {
-    log('Hive is ready at http://localhost:5173. Stop with npm run local:stop.');
+    const tunnel = await startTunnel(root);
+    env.WEBHOOK_PUBLIC_API_URL = tunnel.publicUrl;
+    env.INSTAGRAM_PUBLIC_API_URL = tunnel.publicUrl;
+    env.INSTAGRAM_REDIRECT_URI = `${tunnel.publicUrl}/api/instagram/oauth/callback`;
+    log(`${tunnel.reused ? 'Using' : 'Started'} ngrok API tunnel: ${tunnel.publicUrl}`);
+    log(`Register this Instagram callback in Meta: ${env.INSTAGRAM_REDIRECT_URI}`);
+    if (await run('docker', composeArguments(action, gpu), { root, env }) !== 0) {
+      if (tunnel.owned) await stopTunnel(root);
+      throw new Error('Startup failed. Check the Docker output above. Free ports 3001, 5173, 5432 and 8188; use --cpu if GPU passthrough is unavailable. Partial services can be stopped with npm run local:stop.');
+    }
+    log('Hive is ready at http://localhost:5173. Stop Hive and its ngrok tunnel with npm run local:stop.');
     if (!env.GOOGLE_CLIENT_ID || !env.GOOGLE_CLIENT_SECRET) {
       log('Google sign-in is not configured. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET in .env and rerun npm run local.');
     }
     log('Download models from the Models view before use; runner readiness does not guarantee enough memory for inference.');
-  } else log('Hive stopped. Database, generated pictures, and model cache were preserved.');
+    return;
+  }
+  log('Stopping Hive services…');
+  if (await run('docker', composeArguments(action, gpu), { root, env }) !== 0) {
+    throw new Error('Stop failed. Check Docker output above and retry npm run local:stop.');
+  }
+  const tunnel = await stopTunnel(root);
+  log(tunnel.stopped ? 'Hive and its ngrok tunnel stopped.' : 'Hive stopped. Any ngrok tunnel started outside npm run local was left running.');
+  log('Database, generated pictures, and model cache were preserved.');
 }
 
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

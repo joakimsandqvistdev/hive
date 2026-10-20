@@ -14,6 +14,7 @@ export function AccountsPage() {
   const [selectedAsset, setSelectedAsset] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [connecting, setConnecting] = useState(false);
   const [disconnecting, setDisconnecting] = useState(false);
   const [disconnectOpen, setDisconnectOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -30,10 +31,22 @@ export function AccountsPage() {
   }, []);
   useEffect(() => { void load(); }, [load]);
 
+  useEffect(() => {
+    const [route, query = ""] = window.location.hash.slice(1).split("?");
+    if (route !== "accounts") return;
+    const result = new URLSearchParams(query).get("instagram");
+    if (!result) return;
+    if (result === "connected") showFlash({ tone: "success", title: "Instagram authorization complete", message: "Hive has access to your Instagram account. Existing publication history is preserved." });
+    else if (result === "account_mismatch") showFlash({ tone: "error", title: "Different Instagram account selected", message: "Reconnect using the same Instagram account already connected to Hive. No account or publication history was changed." });
+    else showFlash({ tone: "error", title: "Instagram connection incomplete", message: "Hive could not authorize the Instagram account. Please try again." });
+    window.history.replaceState({}, "", `${window.location.pathname}${window.location.search}#accounts`);
+  }, [showFlash]);
+
   const connect = async () => {
+    setConnecting(true);
     setError(null);
     try { const response = await apiFetch("/api/instagram/connect"); const body = await response.json() as { url?: string }; if (response.status === 503) throw new Error("Instagram Login is not configured. Add INSTAGRAM_APP_ID, INSTAGRAM_APP_SECRET, and INSTAGRAM_TOKEN_ENCRYPTION_KEY to .env, then restart with npm run local."); if (!response.ok || !body.url) throw new Error("Could not start Instagram Login. Check the API logs and Meta app configuration."); window.location.assign(body.url); }
-    catch (cause) { showFlash({ tone: "error", title: "Could not connect Instagram", message: cause instanceof Error ? cause.message : "Could not connect Instagram." }); }
+    catch (cause) { showFlash({ tone: "error", title: account ? "Could not reconnect Instagram" : "Could not connect Instagram", message: cause instanceof Error ? cause.message : "Could not connect Instagram." }); setConnecting(false); }
   };
   const save = async () => {
     setSaving(true);
@@ -73,7 +86,7 @@ export function AccountsPage() {
     <Text c="dimmed">Connect a professional Instagram account for workflow publishing and prepare a profile picture from your Hive assets.</Text>
     {error && <Alert color="hiveError" title="Instagram settings unavailable">{error}</Alert>}
     {!account ? <Card withBorder><Stack><Text fw={600}>Instagram</Text><Text size="sm" c="dimmed">Connect one Business or Creator account to publish posts and Reels from workflows.</Text><Button w="fit-content" onClick={() => void connect()}>Connect Instagram</Button></Stack></Card> : <>
-      <Card withBorder><Group justify="space-between"><Group><Avatar radius="xl">@</Avatar><div><Text fw={600}>@{account.username}</Text><Text size="sm" c="dimmed">Connected professional account</Text></div></Group><Button color="hiveError" variant="light" onClick={() => setDisconnectOpen(true)}>Disconnect</Button></Group></Card>
+      <Card withBorder><Group justify="space-between"><Group><Avatar radius="xl">@</Avatar><div><Text fw={600}>@{account.username}</Text><Text size="sm" c="dimmed">Connected professional account</Text></div></Group><Group><Button variant="light" onClick={() => void connect()} loading={connecting}>Reconnect Instagram</Button><Button color="hiveError" variant="light" onClick={() => setDisconnectOpen(true)}>Disconnect</Button></Group></Group><Text size="xs" c="dimmed" mt="xs">Reconnect to refresh Hive’s access. Existing workflows and publication history stay linked to this account.</Text></Card>
       <Card withBorder><Stack><div><Text fw={600}>Profile picture</Text><Text size="sm" c="dimmed">Choose an image already in your Hive assets. Hive prepares a centered square crop for download; upload it to Instagram manually.</Text></div>
         {selectedAsset && <Image src={apiUrl(`/api/artifacts/${selectedAsset}/preview`)} alt="Profile picture crop preview" w={128} h={128} fit="cover" radius={100} />}
         <Select label="Image asset" placeholder="Choose a generated or uploaded image" searchable clearable data={assets.map((asset) => ({ value: asset.id, label: `${asset.displayName}${asset.runId ? " · generated" : " · uploaded"}` }))} value={selectedAsset} onChange={setSelectedAsset} />

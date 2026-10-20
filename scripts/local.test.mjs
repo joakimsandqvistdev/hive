@@ -19,6 +19,9 @@ async function fixture(t, env) {
   return root;
 }
 
+const fakeTunnel = async () => ({ publicUrl: 'https://hive.ngrok.app', owned: true, reused: false });
+const noopTunnelStop = async () => ({ stopped: true, owned: true });
+
 test('first launch creates matching random local credentials and preserves subsequent edits', async t => {
   const root = await fixture(t);
   const first = await ensureEnvironment(root, 'start');
@@ -38,7 +41,7 @@ test('first launch creates matching random local credentials and preserves subse
 test('startup waits for Compose health and migrations and chooses NVIDIA automatically', async t => {
   const root = await fixture(t, 'POSTGRES_PASSWORD=a:b@c/$\n');
   const calls = [], messages = [];
-  await runLocal(['start'], { root, environment: {}, log: message => messages.push(message), run: async (command, args, options) => {
+  await runLocal(['start'], { root, environment: {}, startTunnel: fakeTunnel, stopTunnel: noopTunnelStop, log: message => messages.push(message), run: async (command, args, options) => {
     calls.push({ command, args, options });
     return 0;
   } });
@@ -49,6 +52,9 @@ test('startup waits for Compose health and migrations and chooses NVIDIA automat
   assert.ok(final.args.includes('--wait'));
   assert.equal(final.options.env.HIVE_LOCAL_DATABASE_URL, 'postgres://hive:a%3Ab%40c%2F%24@db:5432/hive');
   assert.match(final.options.env.RUNNER_API_TOKEN, /^[A-Za-z0-9_-]{43}$/);
+  assert.equal(final.options.env.WEBHOOK_PUBLIC_API_URL, 'https://hive.ngrok.app');
+  assert.equal(final.options.env.INSTAGRAM_PUBLIC_API_URL, 'https://hive.ngrok.app');
+  assert.equal(final.options.env.INSTAGRAM_REDIRECT_URI, 'https://hive.ngrok.app/api/instagram/oauth/callback');
   assert.ok(messages.some(message => message.includes('Google sign-in is not configured')));
   assert.ok(messages.every(message => !message.includes('a:b@c/$')));
 });
@@ -57,7 +63,7 @@ test('missing NVIDIA tools fall back to CPU; explicit CPU skips detection', asyn
   const root = await fixture(t, 'POSTGRES_PASSWORD=local-password\n');
   for (const args of [['start'], ['start', '--cpu']]) {
     const calls = [];
-    await runLocal(args, { root, environment: {}, log: () => {}, run: async (command, commandArgs) => {
+    await runLocal(args, { root, environment: {}, startTunnel: fakeTunnel, stopTunnel: noopTunnelStop, log: () => {}, run: async (command, commandArgs) => {
       calls.push({ command, args: commandArgs });
       if (command === 'nvidia-smi') throw new Error('Unavailable');
       return 0;
@@ -70,7 +76,7 @@ test('missing NVIDIA tools fall back to CPU; explicit CPU skips detection', asyn
 test('explicit GPU does not probe host tools', async t => {
   const root = await fixture(t, 'POSTGRES_PASSWORD=local-password\n');
   const calls = [];
-  await runLocal(['start', '--gpu'], { root, environment: {}, log: () => {}, run: async (command, args) => {
+  await runLocal(['start', '--gpu'], { root, environment: {}, startTunnel: fakeTunnel, stopTunnel: noopTunnelStop, log: () => {}, run: async (command, args) => {
     calls.push({ command, args }); return 0;
   } });
   assert.ok(calls.at(-1).args.includes('compose.gpu.yaml'));
@@ -80,7 +86,7 @@ test('explicit GPU does not probe host tools', async t => {
 test('stop removes project services while preserving volumes and works without .env', async t => {
   const root = await fixture(t);
   const calls = [];
-  await runLocal(['stop'], { root, environment: {}, log: () => {}, run: async (command, args) => {
+  await runLocal(['stop'], { root, environment: {}, stopTunnel: noopTunnelStop, log: () => {}, run: async (command, args) => {
     calls.push({ command, args }); return 0;
   } });
   const args = calls.at(-1).args;
@@ -95,7 +101,7 @@ test('stop removes project services while preserving volumes and works without .
 test('Docker unavailability fails before writing config or starting services', async t => {
   const root = await fixture(t);
   let calls = 0;
-  await assert.rejects(runLocal(['start'], { root, environment: {}, log: () => {}, run: async () => ++calls === 1 ? 0 : 1 }), /Start Docker/);
+  await assert.rejects(runLocal(['start'], { root, environment: {}, startTunnel: fakeTunnel, stopTunnel: noopTunnelStop, log: () => {}, run: async () => ++calls === 1 ? 0 : 1 }), /Start Docker/);
   assert.equal(calls, 2);
   await assert.rejects(readFile(join(root, '.env')), { code: 'ENOENT' });
 });
@@ -104,7 +110,7 @@ test('startup failure reports cleanup command and does not report ready', async 
   const root = await fixture(t, 'POSTGRES_PASSWORD=local-password\n');
   const messages = [];
   let calls = 0;
-  await assert.rejects(runLocal(['start', '--cpu'], { root, environment: {}, log: message => messages.push(message), run: async () => ++calls < 3 ? 0 : 1 }), /local:stop/);
+  await assert.rejects(runLocal(['start', '--cpu'], { root, environment: {}, startTunnel: fakeTunnel, stopTunnel: noopTunnelStop, log: message => messages.push(message), run: async () => ++calls < 3 ? 0 : 1 }), /local:stop/);
   assert.equal(messages.some(message => message.includes('Hive is ready')), false);
 });
 

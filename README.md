@@ -42,9 +42,10 @@ npm run local:stop
 Stopping preserves the database volume, downloaded model cache, and generated pictures in `.data/artifacts`. Services launched separately with `npm run dev`, `worker:dev`, or `cleanup:dev` remain controlled by their original terminals; stop those before switching to this launcher to avoid port conflicts. Do not run `docker compose down -v` to stop normally: it deletes persistent volumes.
 
 - No host `npm install` is needed for these commands; dependencies are installed in Docker. The first image build needs internet access and can take several minutes. Rerun `npm run local` after code or `.env` changes to rebuild/recreate affected services. This runs the built app; use the development commands below for hot reload.
+- Install the ngrok agent and configure its authtoken once (`ngrok config add-authtoken ...`). `npm run local` starts or reuses an ngrok HTTP tunnel to port 3001; `npm run local:stop` stops a tunnel started by the launcher. Existing manually started ngrok sessions are reused and left running when Hive stops. The tunnel URL is passed to Hive for webhook URLs, Instagram media, and the Instagram OAuth callback. Register the displayed callback URL in Meta. Keep the ngrok process running while remote services need access.
 - Google credentials cannot be generated automatically. Add `GOOGLE_CLIENT_ID` and `GOOGLE_CLIENT_SECRET` to `.env` using the sign-in setup below, then rerun `npm run local`. Existing `.env` files are preserved. Until configured, the public app works but Google sign-in is unavailable.
 - NVIDIA acceleration is selected when `nvidia-smi` detects a GPU. Docker must also support NVIDIA passthrough. Force CPU with `npm run local -- --cpu`, or force GPU with `npm run local -- --gpu` (useful when host detection is unavailable).
-- Ports 3001, 5173, 5432, and 8188 must be free. Keep the local web origin, browser API URL, and OAuth callback in `.env` aligned with these ports.
+- Ports 3001, 5173, 5432, 8188, and ngrok's local inspector port 4040 must be free. Keep the local web origin and browser API URL in `.env` aligned with these ports.
 - Model weights must be downloaded explicitly from the Models view and require substantial disk/RAM. CPU inference can be very slow; service readiness does not verify model inference. See [the runner guide](services/runner/README.md).
 - A fresh computer has a fresh database, artifact folder, and model cache; Git does not transfer these. If reusing an existing database volume, keep its original database password.
 - The launcher applies migrations only to the Compose PostgreSQL service, even if `.env` contains a different `DATABASE_URL`. It does not migrate an external database. A failed startup may leave partial services running; use `npm run local:stop` before retrying if needed.
@@ -95,7 +96,7 @@ Instagram publishing requires a Meta developer app and one professional Instagra
 
 1. Create a Meta developer app at [Meta for Developers](https://developers.facebook.com/) and add the Instagram API product/use case with Instagram Login (also labeled Business Login for Instagram in some dashboards).
 2. Add your own Instagram account as an app-role user/tester while the app is in development mode.
-3. Start an HTTPS tunnel to the API on port `3001` (for example, with Cloudflare Tunnel). In **Instagram Business Login settings**, register the exact callback URL `<your-public-https-url>/api/instagram/oauth/callback`; set that same URL as `INSTAGRAM_REDIRECT_URI`. The OAuth callback must be publicly reachable over HTTPS and match Meta's registered URL exactly, including the path. The webhook callback setting is separate and is not used for this login flow.
+3. Run `npm run local`; it starts or reuses ngrok for API port `3001` and prints the callback URL. In **Instagram Business Login settings**, register that exact URL, including `/api/instagram/oauth/callback`. The webhook URL is separate and is not used for this login flow.
 4. Set `INSTAGRAM_APP_ID` and `INSTAGRAM_APP_SECRET` in `.env` from the Meta app dashboard. Keep both server-side; never use `VITE_` variables or commit these values.
 5. Generate a 32-byte base64 key for encrypted token storage:
 
@@ -104,8 +105,8 @@ Instagram publishing requires a Meta developer app and one professional Instagra
    ```
 
    Put the result in `INSTAGRAM_TOKEN_ENCRYPTION_KEY` and back it up securely. Existing saved tokens cannot be decrypted if this key changes.
-6. Set `INSTAGRAM_PUBLIC_API_URL` to the same public HTTPS base URL (without the callback path). Instagram must be able to fetch generated media from this address; a container-only address or `localhost` will not work. For local tests, the tunnel must route requests to the API and remain available while Instagram fetches media.
-7. Restart/rebuild Hive, open **Accounts**, and connect your professional account. Create an Instagram Post/Reel publishing node, select an account, and choose automatic publishing or manual review. With manual review, edit the caption in the run details before publishing, or discard the publication. Jobs continue scheduling after workflow generation finishes even if a publication is still pending.
+6. For local runs, `npm run local` supplies the ngrok HTTPS URL for `INSTAGRAM_PUBLIC_API_URL` and prints the exact callback URL to register in Meta. Instagram must be able to fetch generated media from this address; a container-only address or `localhost` will not work. Keep the ngrok tunnel running while Instagram fetches media.
+7. Rerun `npm run local` after adding these settings, then open **Accounts** and connect your professional account. Use **Reconnect Instagram** there to refresh Hive's access if Meta invalidates the saved token; this preserves publication history and only accepts the same Instagram account. Create an Instagram Post/Reel publishing node, select an account, and choose automatic publishing or manual review. With manual review, edit the caption in the run details before publishing, or discard the publication. Jobs continue scheduling after workflow generation finishes even if a publication is still pending.
 
 In development mode, only app-role users and eligible testers can authorize. Before allowing general users to connect, request Meta App Review/Advanced Access for the permissions and satisfy any current business verification requirements. Instagram API access and review requirements are managed by Meta and can change.
 
@@ -129,7 +130,7 @@ Open **Webhook Manager** in the sidebar to create and manage signed inbound trig
 
 Webhook triggers require two server-side settings in `.env`:
 
-- `WEBHOOK_PUBLIC_API_URL`: the public HTTPS API origin that reaches Hive, without a path such as `/api` (for example, your Cloudflare Tunnel origin). Remote senders cannot reach `localhost`.
+- `WEBHOOK_PUBLIC_API_URL`: the public HTTPS API origin that reaches Hive, without a path such as `/api`. The `npm run local` launcher supplies the active ngrok URL automatically; remote senders cannot reach `localhost`.
 - `WEBHOOK_SECRET_ENCRYPTION_KEY`: a separate 32-byte base64 key used to encrypt trigger secrets at rest. Generate it with `node -e "console.log(require('node:crypto').randomBytes(32).toString('base64'))"`. Keep it backed up and stable; changing it makes existing trigger secrets unreadable. Rotate the affected triggers after restoring a new key.
 
 After setting both values, restart/rebuild Hive. Copy the signing secret when a trigger is created or rotated; Hive displays it once. Send `Content-Type: application/json`, `X-Hive-Timestamp` (Unix seconds), `X-Hive-Event-Id` (a stable unique ID for one source event), and `X-Hive-Signature` (`v1=<lowercase hex>`). Compute the signature as HMAC-SHA256 over the UTF-8 text `v1\n<TIMESTAMP>\n<EVENT_ID>\n<SHA256_HEX_OF_EXACT_RAW_BODY>`. Do not reformat the JSON after computing its digest. Timestamps must be within five minutes. The same event ID and body return the original run; the same ID with a different body is rejected. Use a new event ID only to intentionally create another run.

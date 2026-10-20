@@ -8,7 +8,7 @@ Manual and failed automatic publications hold their run in `awaiting_publish` un
 
 Instagram account connections use Meta's Instagram Login OAuth flow. Server-side access tokens are encrypted with AES-256-GCM. Meta fetches output media through a time-limited signed HTTPS URL. Credentials, encryption keys, and public API URL are configured outside source control.
 
-The Accounts page supports one professional account per Hive user. It can retain a chosen Hive image asset for profile-picture preparation and download a centered square crop. This is a local convenience; Hive does not apply profile changes through Instagram's API.
+The Accounts page supports one professional account per Hive user. It can reauthorize the same connected Instagram identity to refresh saved credentials; a different identity is rejected so existing workflows and publication history remain attached to their account. Reauthorization does not remove publication records. The page can retain a chosen Hive image asset for profile-picture preparation and download a centered square crop. This is a local convenience; Hive does not apply profile changes through Instagram's API.
 
 ## Consequences
 

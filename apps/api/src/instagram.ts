@@ -67,6 +67,11 @@ router.get("/oauth/callback", async (req, res, next) => {
     const profileResponse = await fetch(`https://graph.instagram.com/${graphApiVersion()}/me?fields=id,username&access_token=${encodeURIComponent(longLived.access_token)}`);
     const profile = await profileResponse.json() as { id?: string; username?: string };
     if (!profileResponse.ok || !profile.id || !profile.username) throw new Error("Instagram profile lookup failed.");
+    const [existingAccount] = await db.select({ id: instagramAccounts.id, instagramUserId: instagramAccounts.instagramUserId }).from(instagramAccounts).where(eq(instagramAccounts.userId, saved.userId)).limit(1);
+    if (existingAccount && existingAccount.instagramUserId !== profile.id) {
+      res.redirect(`${process.env.WEB_ORIGIN ?? "http://localhost:5173"}/#accounts?instagram=account_mismatch`);
+      return;
+    }
     await db.insert(instagramAccounts).values({ userId: saved.userId, instagramUserId: profile.id, username: profile.username, encryptedAccessToken: encrypt(longLived.access_token), tokenExpiresAt: longLived.expires_in ? new Date(Date.now() + longLived.expires_in * 1000) : null })
       .onConflictDoUpdate({ target: instagramAccounts.userId, set: { instagramUserId: profile.id, username: profile.username, encryptedAccessToken: encrypt(longLived.access_token), tokenExpiresAt: longLived.expires_in ? new Date(Date.now() + longLived.expires_in * 1000) : null, updatedAt: new Date() } });
     res.redirect(`${process.env.WEB_ORIGIN ?? "http://localhost:5173"}/#accounts?instagram=connected`);
