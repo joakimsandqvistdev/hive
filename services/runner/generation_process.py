@@ -2,12 +2,56 @@ import asyncio
 import multiprocessing
 import os
 import time
+from contextlib import asynccontextmanager
 
 
 class GenerationProcessError(Exception):
     def __init__(self, code):
         self.code = code
         super().__init__(code)
+
+
+class ActiveGenerationRegistry:
+    """Connect an authenticated runner cancellation request to one in-flight generation."""
+
+    def __init__(self):
+        self._requests = {}
+        self._cancelled_before_start = {}
+        self._cancel_ttl_seconds = 120
+
+    def _expire_cancelled(self):
+        now = time.monotonic()
+        self._cancelled_before_start = {
+            request_id: expires_at
+            for request_id, expires_at in self._cancelled_before_start.items()
+            if expires_at > now
+        }
+
+    @asynccontextmanager
+    async def track(self, request_id):
+        task = asyncio.current_task()
+        if request_id:
+            self._expire_cancelled()
+            if request_id in self._cancelled_before_start:
+                del self._cancelled_before_start[request_id]
+                raise asyncio.CancelledError()
+            if request_id in self._requests:
+                raise ValueError("Generation request ID is already active")
+            self._requests[request_id] = task
+        try:
+            yield
+        finally:
+            if request_id and self._requests.get(request_id) is task:
+                del self._requests[request_id]
+
+    def cancel(self, request_id):
+        self._expire_cancelled()
+        task = self._requests.get(request_id)
+        if task is None or task.done():
+            self._cancelled_before_start[request_id] = time.monotonic() + self._cancel_ttl_seconds
+            return True
+        task.cancel()
+        return True
 
 
 class _PersistentSender:

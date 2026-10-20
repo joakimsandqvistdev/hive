@@ -7,6 +7,7 @@ import logging
 import os
 import traceback
 from contextlib import asynccontextmanager
+from functools import wraps
 from typing import Literal
 
 import torch
@@ -24,7 +25,7 @@ from fastapi.responses import StreamingResponse
 from fastapi.responses import PlainTextResponse
 from PIL import Image
 from audio_generation import generation_worker as run_audio_generation_worker
-from generation_process import GenerationProcessError, PersistentGenerationProcess, run_generation_process
+from generation_process import ActiveGenerationRegistry, GenerationProcessError, PersistentGenerationProcess, run_generation_process
 from image_generation import generate_image as run_image_generation
 from image_generation import generation_worker as run_image_generation_worker
 from image_generation import load_pipeline as load_image_pipeline
@@ -44,6 +45,7 @@ GPU_MEMORY_GIB = (
     else 0
 )
 LOGGER = logging.getLogger("uvicorn.error")
+ACTIVE_GENERATIONS = ActiveGenerationRegistry()
 try:
     MALLOC_TRIM = getattr(ctypes.CDLL(None), "malloc_trim", None)
 except OSError:
@@ -185,6 +187,19 @@ async def require_runner_token(request: Request, call_next):
         return PlainTextResponse("unauthorized", status_code=401)
     return await call_next(request)
 
+
+def track_generation_request(endpoint):
+    @wraps(endpoint)
+    async def tracked(*args, **kwargs):
+        request = kwargs.get("request")
+        request_id = request.headers.get("x-hive-generation-id") if request is not None else None
+        try:
+            async with ACTIVE_GENERATIONS.track(request_id):
+                return await endpoint(*args, **kwargs)
+        except ValueError:
+            raise HTTPException(status_code=409, detail={"code": "duplicate_generation_id"}) from None
+    return tracked
+
 @app.get("/health")
 async def health() -> dict[str, str | bool | float]:
     return {
@@ -200,7 +215,13 @@ async def health() -> dict[str, str | bool | float]:
     }
 
 
+@app.post("/cancel-generation/{request_id}")
+async def cancel_generation(request_id: str) -> dict[str, bool]:
+    return {"cancelled": ACTIVE_GENERATIONS.cancel(request_id)}
+
+
 @app.post("/generate")
+@track_generation_request
 async def generate(
     request: Request,
     prompt: str = Form(min_length=1, max_length=8000),
@@ -275,6 +296,7 @@ async def generate(
 
 
 @app.post("/generate-video")
+@track_generation_request
 async def generate_video(
     request: Request,
     prompt: str = Form(min_length=1, max_length=8000),
@@ -316,6 +338,7 @@ async def generate_video(
 
 
 @app.post("/generate-audio")
+@track_generation_request
 async def generate_audio(
     request: Request,
     prompt: str = Form(min_length=1, max_length=8000),
@@ -347,6 +370,7 @@ async def generate_audio(
 
 
 @app.post("/generate-text")
+@track_generation_request
 async def generate_text(
     request: Request,
     prompt: str = Form(min_length=1, max_length=8000),

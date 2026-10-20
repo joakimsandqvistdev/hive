@@ -3,7 +3,7 @@ import multiprocessing
 import os
 import time
 import unittest
-from generation_process import GenerationProcessError, PersistentGenerationProcess, run_generation_process
+from generation_process import ActiveGenerationRegistry, GenerationProcessError, PersistentGenerationProcess, run_generation_process
 
 PERSISTENT_REQUESTS = 0
 
@@ -51,6 +51,13 @@ async def disconnected():
 
 
 class ProcessCleanupTests(unittest.IsolatedAsyncioTestCase):
+    async def test_cancellation_before_registration_is_not_lost(self):
+        registry = ActiveGenerationRegistry()
+        self.assertTrue(registry.cancel("generation-before-start"))
+        with self.assertRaises(asyncio.CancelledError):
+            async with registry.track("generation-before-start"):
+                self.fail("cancelled request must not enter generation")
+
     async def test_crashed_child_is_reaped_without_hanging(self):
         with self.assertRaises(GenerationProcessError) as caught:
             await run_generation_process(crashed_worker, (), connected, 10)
@@ -84,6 +91,37 @@ class ProcessCleanupTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(asyncio.CancelledError):
             await task
         self.assertEqual(multiprocessing.active_children(), [])
+
+    async def test_explicit_request_cancellation_terminates_active_child(self):
+        registry = ActiveGenerationRegistry()
+
+        async def request():
+            async with registry.track("generation-1"):
+                return await run_generation_process(stalled_worker, (), connected, 10)
+
+        task = asyncio.create_task(request())
+        await asyncio.sleep(0.2)
+        self.assertTrue(registry.cancel("generation-1"))
+        with self.assertRaises(asyncio.CancelledError):
+            await task
+        self.assertTrue(registry.cancel("generation-1"))
+        self.assertEqual(multiprocessing.active_children(), [])
+
+    async def test_explicit_cancellation_releases_request_waiting_for_generation_slot(self):
+        registry = ActiveGenerationRegistry()
+        lock = asyncio.Semaphore(0)
+
+        async def request():
+            async with registry.track("generation-waiter"):
+                async with lock:
+                    return "started"
+
+        task = asyncio.create_task(request())
+        await asyncio.sleep(0)
+        self.assertTrue(registry.cancel("generation-waiter"))
+        with self.assertRaises(asyncio.CancelledError):
+            await task
+        self.assertTrue(registry.cancel("generation-waiter"))
 
 
 class PersistentProcessTests(unittest.IsolatedAsyncioTestCase):

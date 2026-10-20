@@ -1,3 +1,4 @@
+import asyncio
 import unittest
 from unittest.mock import AsyncMock, Mock, patch
 from starlette.requests import Request
@@ -8,6 +9,28 @@ from generation_process import GenerationProcessError
 
 
 class RunnerTests(unittest.IsolatedAsyncioTestCase):
+    async def test_cancel_generation_cancels_only_the_matching_request(self):
+        started = asyncio.Event()
+
+        async def tracked_request():
+            async with app.ACTIVE_GENERATIONS.track("generation-123"):
+                started.set()
+                await asyncio.Event().wait()
+
+        task = asyncio.create_task(tracked_request())
+        await started.wait()
+        self.assertEqual(await app.cancel_generation("unknown"), {"cancelled": True})
+        self.assertEqual(await app.cancel_generation("generation-123"), {"cancelled": True})
+        with self.assertRaises(asyncio.CancelledError):
+            await task
+
+    async def test_cancel_before_request_registration_prevents_generation(self):
+        request_id = "cancel-before-start"
+        self.assertEqual(await app.cancel_generation(request_id), {"cancelled": True})
+        with self.assertRaises(asyncio.CancelledError):
+            async with app.ACTIVE_GENERATIONS.track(request_id):
+                self.fail("cancelled request must not enter generation")
+
     async def test_runner_routes_require_shared_bearer_token(self):
         request = Request({"type": "http", "method": "GET", "path": "/health", "headers": []})
         call_next = AsyncMock(return_value=Mock(status_code=200))
@@ -60,10 +83,11 @@ class RunnerTests(unittest.IsolatedAsyncioTestCase):
             execute = AsyncMock(return_value=b"encoded PNG", side_effect=GenerationProcessError(code) if code else None)
             with self.subTest(code=code), patch.object(app, "load_reference_images", AsyncMock(return_value=[reference])), \
                 patch.object(app, "model_is_downloaded", return_value=True), \
-                patch.object(app, "run_generation_process", execute), patch.object(app, "release_pipeline") as cleanup:
-                args = dict(request=Mock(is_disconnected=AsyncMock(return_value=False)), prompt="edit",
+                patch.object(app, "IMAGE_GENERATION_PROCESS", Mock(run=execute)), \
+                patch.object(app, "stop_image_generation_process", new_callable=AsyncMock) as cleanup:
+                args = dict(request=Mock(is_disconnected=AsyncMock(return_value=False), headers={}), prompt="edit",
                             model_id="qwen-image-edit-2511", width=256, height=256, seed=42,
-                            num_inference_steps=4, true_cfg_scale=4, images=[Mock()])
+                            num_inference_steps=4, true_cfg_scale=4, keep_model_cached=False, images=[Mock()])
                 if code:
                     with self.assertRaises(HTTPException) as caught:
                         await app.generate(**args)
@@ -73,7 +97,10 @@ class RunnerTests(unittest.IsolatedAsyncioTestCase):
                     response = await app.generate(**args)
                     self.assertEqual(b"".join([part async for part in response.body_iterator]), b"encoded PNG")
                 reference.close.assert_called_once()
-                cleanup.assert_called_once()
+                if code is None:
+                    cleanup.assert_awaited_once_with(terminate=True)
+                else:
+                    cleanup.assert_not_awaited()
                 self.assertFalse(app.GENERATION_LOCK.locked())
 
     async def test_invalid_dimensions_do_not_start_inference(self):
