@@ -1,5 +1,6 @@
 import unittest
 from unittest.mock import AsyncMock, Mock, patch
+from starlette.requests import Request
 import torch
 from fastapi import HTTPException
 import app
@@ -7,6 +8,19 @@ from generation_process import GenerationProcessError
 
 
 class RunnerTests(unittest.IsolatedAsyncioTestCase):
+    async def test_runner_routes_require_shared_bearer_token(self):
+        request = Request({"type": "http", "method": "GET", "path": "/health", "headers": []})
+        call_next = AsyncMock(return_value=Mock(status_code=200))
+        with patch.dict("os.environ", {"RUNNER_API_TOKEN": "expected-secret"}):
+            denied = await app.require_runner_token(request, call_next)
+            self.assertEqual(denied.status_code, 401)
+            request = Request({"type": "http", "method": "GET", "path": "/health", "headers": [(b"authorization", b"Bearer wrong")]})
+            denied = await app.require_runner_token(request, call_next)
+            self.assertEqual(denied.status_code, 401)
+            request = Request({"type": "http", "method": "GET", "path": "/health", "headers": [(b"authorization", b"Bearer expected-secret")]})
+            self.assertEqual((await app.require_runner_token(request, call_next)).status_code, 200)
+        self.assertEqual(call_next.await_count, 1)
+
     def test_cogvideox_t5_tokenizer_backend_is_installed(self):
         from transformers import T5Tokenizer
         self.assertTrue(callable(T5Tokenizer.from_pretrained))

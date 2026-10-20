@@ -1,6 +1,7 @@
 import asyncio
 import ctypes
 import gc
+import hmac
 import io
 import logging
 import os
@@ -151,6 +152,15 @@ async def lifespan(_: FastAPI):
 
 app = FastAPI(title="Hive Model Runner", version="0.1.0", lifespan=lifespan)
 app.include_router(model_downloads_router)
+
+
+@app.middleware("http")
+async def require_runner_token(request: Request, call_next):
+    expected = os.getenv("RUNNER_API_TOKEN", "")
+    supplied = request.headers.get("authorization", "")
+    if not expected or not hmac.compare_digest(supplied, f"Bearer {expected}"):
+        return PlainTextResponse("unauthorized", status_code=401)
+    return await call_next(request)
 
 @app.get("/health")
 async def health() -> dict[str, str | bool | float]:

@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { readFile, writeFile, mkdir } from 'node:fs/promises';
+import { appendFile, readFile, writeFile, mkdir } from 'node:fs/promises';
 import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { parseEnv } from 'node:util';
@@ -19,14 +19,24 @@ export function parseArguments(args) {
 export async function ensureEnvironment(root, action) {
   const path = resolve(root, '.env');
   try {
-    return { values: parseEnv(await readFile(path, 'utf8')), created: false };
+    let content = await readFile(path, 'utf8');
+    let values = parseEnv(content);
+    if (action === 'start' && !values.RUNNER_API_TOKEN) {
+      const token = randomBytes(32).toString('base64url');
+      const tokenLine = `RUNNER_API_TOKEN=${token}\n`;
+      await appendFile(path, `${content.endsWith('\n') || !content ? '' : '\n'}${tokenLine}`, { mode: 0o600 });
+      values = { ...values, RUNNER_API_TOKEN: token };
+    }
+    return { values, created: false };
   } catch (error) {
     if (error.code !== 'ENOENT') throw error;
     if (action === 'stop') return { values: {}, created: false };
     const password = randomBytes(24).toString('hex');
     const template = await readFile(resolve(root, '.env.example'), 'utf8');
-    const content = template.replace(/^POSTGRES_PASSWORD=.*$/m, `POSTGRES_PASSWORD=${password}`)
-      .replace(/^DATABASE_URL=.*$/m, `DATABASE_URL=postgres://hive:${password}@localhost:5432/hive`);
+    let content = template.replace(/^POSTGRES_PASSWORD=.*$/m, `POSTGRES_PASSWORD=${password}`)
+      .replace(/^DATABASE_URL=.*$/m, `DATABASE_URL=postgres://hive:${password}@localhost:5432/hive`)
+      .replace(/^RUNNER_API_TOKEN=.*$/m, `RUNNER_API_TOKEN=${randomBytes(32).toString('base64url')}`);
+    if (!/^RUNNER_API_TOKEN=/m.test(content)) content += `${content.endsWith('\n') ? '' : '\n'}RUNNER_API_TOKEN=${randomBytes(32).toString('base64url')}\n`;
     // Exclusive creation preserves an existing file, including another launcher's config.
     try {
       await writeFile(path, content, { flag: 'wx', mode: 0o600 });
@@ -78,8 +88,9 @@ export async function runLocal(args, {
     throw new Error('Start Docker Desktop (Linux containers) or Docker Engine, then retry.');
   }
   const { values, created } = await ensureEnvironment(root, action);
-  if (created) log('Created .env with a random local database password. Add your Google OAuth credentials for sign-in.');
+  if (created) log('Created .env with random local credentials. Add your Google OAuth credentials for sign-in.');
   const env = { ...values, ...environment };
+  if (!env.RUNNER_API_TOKEN) env.RUNNER_API_TOKEN = randomBytes(32).toString('base64url');
   // A stop remains possible even if .env has been removed; this value is not used to connect.
   if (action === 'stop' && !env.POSTGRES_PASSWORD) env.POSTGRES_PASSWORD = 'unused-for-stop';
   if (action === 'start') {

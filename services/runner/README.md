@@ -2,6 +2,8 @@
 
 This standalone service loads one allow-listed local model at a time for the Hive worker. It supports text-to-text, text-to-image, image editing, text-to-audio, and text-to-video generation. It is separate from the Hive API and database. Keep the development endpoint local; do not expose it directly to the public internet.
 
+Every runner route requires `Authorization: Bearer <RUNNER_API_TOKEN>`. The local launcher supplies a fresh random token to the API, worker, and runner at startup. When starting Compose manually, set the same non-empty `RUNNER_API_TOKEN` for all three services.
+
 The runner is divided by responsibility: `model_catalog.py` owns the model allow-list; `model_downloads.py` manages persistent model caches and download routes; and the image, audio, and video generation modules own modality-specific inference. `app.py` assembles the HTTP interface and shared runtime cleanup. The API worker's `runInputResolver.ts` turns typed workflow connections and node settings into runner requests, while `modelRunnerClient.ts` owns modality-neutral HTTP transport.
 
 ## Requirements

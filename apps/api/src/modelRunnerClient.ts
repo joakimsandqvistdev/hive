@@ -12,11 +12,14 @@ const endpoints: Record<RunnerModality, string> = {
 export function createModelRunnerClient(runnerUrl: string, timeoutMs = MODEL_RUNNER_TIMEOUT_MS) {
   const dispatcher = new Agent({ headersTimeout: timeoutMs, bodyTimeout: timeoutMs });
   const baseUrl = runnerUrl.replace(/\/$/, "");
+  const token = process.env.RUNNER_API_TOKEN;
+  if (!token) throw new Error("Model runner authentication is not configured");
   return {
     async generate(modality: RunnerModality, form: FormData, signal: AbortSignal) {
       try {
         return await fetch(`${baseUrl}${endpoints[modality]}`, {
           method: "POST",
+          headers: { authorization: `Bearer ${token}` },
           body: form,
           dispatcher,
           signal: AbortSignal.any([signal, AbortSignal.timeout(timeoutMs)]),

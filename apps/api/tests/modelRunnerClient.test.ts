@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+process.env.RUNNER_API_TOKEN ??= "test-runner-token";
 import { createServer } from "node:http";
 import { test } from "node:test";
 import { FormData } from "undici";

@@ -27,6 +27,7 @@ services:
       DATABASE_URL: ${HIVE_LOCAL_DATABASE_URL:?Use npm run local to configure the local database URL}
       API_PORT: "3001"
       MODEL_RUNNER_URL: http://runner:8000
+      RUNNER_API_TOKEN: ${RUNNER_API_TOKEN:?Set RUNNER_API_TOKEN in .env}
       ARTIFACT_ROOT: /app/.data/artifacts
       GOOGLE_FONTS_CACHE_DIR: /app/.data/google-fonts
       WEB_ORIGIN: ${WEB_ORIGIN:-http://localhost:5173}
@@ -81,6 +82,7 @@ services:
     environment:
       DATABASE_URL: ${HIVE_LOCAL_DATABASE_URL:?Use npm run local to configure the local database URL}
       MODEL_RUNNER_URL: http://runner:8000
+      RUNNER_API_TOKEN: ${RUNNER_API_TOKEN:?Set RUNNER_API_TOKEN in .env}
       ARTIFACT_ROOT: /app/.data/artifacts
       GOOGLE_FONTS_CACHE_DIR: /app/.data/google-fonts
       INSTAGRAM_APP_ID: ${INSTAGRAM_APP_ID:-}

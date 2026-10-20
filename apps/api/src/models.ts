@@ -13,7 +13,9 @@ async function isEnabledModel(modelId: string) {
 }
 
 export async function forwardRunnerRequest(path: string, method = "GET", timeoutMs = 15_000) {
-  const response = await fetch(`${modelRunnerUrl}${path}`, { method, signal: AbortSignal.timeout(timeoutMs) });
+  const token = process.env.RUNNER_API_TOKEN;
+  if (!token) throw new Error("Model runner authentication is not configured");
+  const response = await fetch(`${modelRunnerUrl}${path}`, { method, headers: { authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(timeoutMs) });
   const body = await response.json().catch(() => ({}));
   return { response, body };
 }

@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { mkdtemp, writeFile, readFile, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { resolve, join, basename } from 'node:path';
+import { parseEnv } from 'node:util';
 import { ensureEnvironment, parseArguments, composeArguments, localDatabaseUrl, runLocal } from './local.mjs';
 
 async function fixture(t, env) {
@@ -23,12 +24,15 @@ test('first launch creates matching random local credentials and preserves subse
   const first = await ensureEnvironment(root, 'start');
   assert.equal(first.created, true);
   assert.match(first.values.POSTGRES_PASSWORD, /^[a-f0-9]{48}$/);
+  assert.match(first.values.RUNNER_API_TOKEN, /^[A-Za-z0-9_-]{43}$/);
   assert.equal(first.values.DATABASE_URL, `postgres://hive:${first.values.POSTGRES_PASSWORD}@localhost:5432/hive`);
   const custom = 'POSTGRES_PASSWORD="a:b@c/$"\nGOOGLE_CLIENT_SECRET=private-value\n';
   await writeFile(join(root, '.env'), custom);
   const second = await ensureEnvironment(root, 'start');
   assert.equal(second.created, false);
-  assert.equal(await readFile(join(root, '.env'), 'utf8'), custom);
+  const preserved = await readFile(join(root, '.env'), 'utf8');
+  assert.ok(preserved.startsWith(custom));
+  assert.match(parseEnv(preserved).RUNNER_API_TOKEN, /^[A-Za-z0-9_-]{43}$/);
 });
 
 test('startup waits for Compose health and migrations and chooses NVIDIA automatically', async t => {
@@ -44,6 +48,7 @@ test('startup waits for Compose health and migrations and chooses NVIDIA automat
   assert.ok(final.args.includes('compose.gpu.yaml'));
   assert.ok(final.args.includes('--wait'));
   assert.equal(final.options.env.HIVE_LOCAL_DATABASE_URL, 'postgres://hive:a%3Ab%40c%2F%24@db:5432/hive');
+  assert.match(final.options.env.RUNNER_API_TOKEN, /^[A-Za-z0-9_-]{43}$/);
   assert.ok(messages.some(message => message.includes('Google sign-in is not configured')));
   assert.ok(messages.every(message => !message.includes('a:b@c/$')));
 });

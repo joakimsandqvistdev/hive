@@ -9,6 +9,7 @@ import { Agent, fetch as undiciFetch } from "undici";
 import { artifactPath, readArtifact, removeArtifact, saveUpload } from "./artifactStore.js";
 import { parseArtifactByteRange } from "./artifactRange.js";
 import { db, pool } from "./db.js";
+import { isPublicAddress } from "./publicAddress.js";
 import { artifacts, instagramAccounts, instagramPublications, runDeletions, runNodes, workflowNodes, workflows, runs } from "./schema.js";
 
 const router = Router();
@@ -43,15 +44,6 @@ const availabilityReasonSql = `CASE
   WHEN ${eligibleRunOutputSql} OR ${eligibleWorkflowUploadSql} THEN 'Meets the current cleanup rules'
   ELSE 'Outside the current cleanup scopes'
 END`;
-function isPublicAddress(address: string) {
-  if (isIP(address) === 4) {
-    const octets = address.split(".").map(Number);
-    const [a, b] = octets;
-    return !(a === 0 || a === 10 || a === 127 || a >= 224 || (a === 169 && b === 254) || (a === 172 && b! >= 16 && b! <= 31) || (a === 192 && b === 168) || (a === 100 && b! >= 64 && b! <= 127));
-  }
-  const normalized = address.toLowerCase();
-  return isIP(normalized) === 6 && normalized !== "::1" && !normalized.startsWith("fe8") && !normalized.startsWith("fe9") && !normalized.startsWith("fea") && !normalized.startsWith("feb") && !normalized.startsWith("fc") && !normalized.startsWith("fd") && !normalized.startsWith("::ffff:127.");
-}
 router.get("/", async (req, res, next) => {
   try {
     const owner = res.locals.userId as string;
