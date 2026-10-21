@@ -15,6 +15,7 @@
 
 ## Engineering and safety
 
+- For security-sensitive design and code changes, follow the repository security policy in [`SECURITY.md`](SECURITY.md).
 - Preserve architecture, API contracts, authentication, authorization, tenant boundaries, and data integrity unless a change is explicitly intended.
 - Prefer small focused changes; reuse components, services, utilities, and dependency APIs. Avoid new dependencies without a clear need. When a reusable dependency improvement is appropriate, describe its upstream benefit.
 - Do not expose secrets, bypass security controls, or perform destructive database or production operations without explicit approval.
