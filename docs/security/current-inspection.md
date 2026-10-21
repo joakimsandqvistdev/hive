@@ -1,31 +1,38 @@
 # Current ASVS 5.0.0 inspection
 
 Assessment date: 2026-10-21
-Commit assessed: `601f4c4`
-Scope: Whole repository, repository evidence only. Ignored `.env`, `.data`, dependencies and build output were excluded. No runtime, cloud, identity-provider console, or production checks were performed.
-Verification update: 2026-10-21, local checkout at `78d5219` plus unstaged artifact-quota changes. Only `v5.0.0-V5.2.4` was updated; other rows retain the original assessment outcomes.
+Commit assessed: `ee574d0`
+Scope: Whole repository. Ignored `.env`, `.data`, dependencies, and build output were excluded. Repository source, tests, documentation, and configuration were assessed; runtime evidence is limited to the linked local verification reports. No production, cloud, identity-provider console, or operator checks were available.
+Reassessment: Reconciled all 345 requirement IDs and both exclusion registers against the pinned inventory and reviewed changes since `601f4c4`. The artifact quota and upload admission changes provide partial evidence for `v5.0.0-V2.4.1` and `v5.0.0-V15.2.2`; both remain verification-pending due broader control and deployment gaps. `v5.0.0-V5.2.4` retains its local verification pass. The remaining implementation statuses and exclusions are unchanged because the reviewed changes did not affect their evidence or Hive's product boundary.
 
 ## Summary
 
 - Pinned inventory: **345** requirements (L1 70, L2 183, L3 92).
-- Status counts: covered 50; partially covered 47; not covered 63; needs information 100; not applicable 85; not assessed 0.
+- Status counts: covered 50; partially covered 49; not covered 61; needs information 100; not applicable 85; not assessed 0.
 - Catalog evidence coverage: **14.5% (50/345)**.
 - Hive applicability coverage, all levels: **19.2% (50/260)**; denominator excludes 85 evidence-backed not-applicable requirements.
 - Applicable L1+L2 progress toward Hive’s 70% tracking target: **25.0% (47/188)**; target not met.
-- L1+L2 status counts: covered 47; partially covered 37; not covered 36; needs information 68; not applicable 65.
-- L1+L2 ASVS conformance: **not demonstrated**. The only verification pass is for L3 requirement `v5.0.0-V5.2.4`; no applicable L1+L2 requirement has outcome `pass`.
+- L1+L2 status counts: covered 47; partially covered 39; not covered 34; needs information 68; not applicable 65.
+- Applicable L1+L2 requirements: 47 covered, 39 partially covered, 34 not covered, and 68 needing information; the matrix lists every requirement ID and its evidence.
+- L1+L2 ASVS conformance: **not demonstrated**. The verification pass is for L3 requirement `v5.0.0-V5.2.4`; `v5.0.0-V2.4.1` and `v5.0.0-V15.2.2` have pending verification, and no applicable L1+L2 requirement has outcome `pass`.
 
 ## Method and limits
 
-The pinned inventory was validated before assessment. I reviewed the source and configuration areas relevant to the inventory, repository documentation, accepted architecture decisions, Compose configuration, the model runner, and CI configuration. Existing tests were considered as repository evidence, but no tests were run for the initial inspection. Status is based on repository evidence. `covered` means code or configuration evidence supports the requirement; it does not mean the control passed operational testing. Deployment and identity-provider settings remain unknown. One later local database/API verification was performed for `v5.0.0-V5.2.4`; other rows retain their original verification outcomes. Follow-up is listed for partial, missing, and unknown controls. N/A entries are limited to feature areas with scope evidence. This inspection is not a vulnerability audit or penetration test.
+The pinned inventory was validated and all 345 matrix rows were reconciled against it. I reviewed repository source and configuration changes since the previous assessed commit, the relevant documentation and accepted decisions, and the current needs-information and not-applicable registers. The recent security changes add database-serialized artifact quotas and an in-process upload admission bound; evidence for those controls is reflected in the V2, V5, and V15 rows. A focused local HTTP pipeline check and local database/API quota verification are cited in dated verification reports. Status remains distinct from verification: `covered` means evidence supports the full requirement, while `partially covered` records controls that address only part of it. Production deployment, cloud, identity-provider, and operator settings remain unknown. Follow-up is listed for partial, missing, and unknown controls. No feature-scope change supported adding or closing a not-applicable entry. This inspection is not a vulnerability audit or penetration test.
+
+## Related security reports
+
+- Latest audit: [`audits/2026-10-21-1457-utc.md`](audits/2026-10-21-1457-utc.md); preceding audit: [`audits/2026-10-21.md`](audits/2026-10-21.md).
+- Quota verification (`HIVE-SEC-2026-001`, `v5.0.0-V5.2.4`): [`verifications/2026-10-21.md`](verifications/2026-10-21.md).
+- Upload admission verification (`HIVE-SEC-2026-002`, `v5.0.0-V2.4.1`, `v5.0.0-V15.2.2`): [`verifications/2026-10-21-1504-utc.md`](verifications/2026-10-21-1504-utc.md).
 
 ## Evidence index
 
 - **V1**: apps/api/src/workflowDefinition.ts:28; apps/api/src/artifacts.ts:222,236,240; apps/api/src/artifactStore.ts:48 (`code`).
-- **V2**: apps/api/src/workflowDefinition.ts:28,88; apps/api/src/workflows.ts:41; docs/ARCHITECTURE.md:3 (`code, documentation`).
+- **V2**: apps/api/src/workflowDefinition.ts:28,88; apps/api/src/workflows.ts:41; apps/api/src/artifactQuota.ts:13,27,35-51; apps/api/src/artifactUploadAdmission.ts:3-42; docs/ARCHITECTURE.md:3; docs/security/verifications/2026-10-21.md; docs/security/verifications/2026-10-21-1504-utc.md (`code, documentation, test, runtime`).
 - **V3**: apps/api/src/index.ts:20,23-35,46-52; apps/api/src/auth.ts:73-78 (`code, configuration`).
 - **V4**: apps/api/src/index.ts:20-52; apps/api/src/webhookTriggers.ts:198-201 (`code`).
-- **V5**: apps/api/src/artifacts.ts:201-240; apps/api/src/artifactStore.ts:6-73; docs/decisions/0032-media-storage-cleanup-planner.md:16 (`code, documentation`).
+- **V5**: apps/api/src/artifacts.ts:201-240; apps/api/src/artifactStore.ts:6-73; apps/api/src/artifactQuota.ts:13-51; docs/decisions/0032-media-storage-cleanup-planner.md:16; docs/security/verifications/2026-10-21.md (`code, documentation, runtime`).
 - **V6**: apps/api/src/auth.ts:124-155,164-210,231-258; docs/ARCHITECTURE.md:1 (`code, documentation`).
 - **V7**: apps/api/src/auth.ts:40-58,73-108,251-293; apps/api/src/schema.ts:1 (`code`).
 - **V8**: apps/api/src/index.ts:24-35; apps/api/src/workflows.ts:16-45,124-140; docs/DATA_MODEL.md:3-12 (`code, documentation`).
@@ -35,7 +42,7 @@ The pinned inventory was validated before assessment. I reviewed the source and 
 - **V12**: compose.yaml: runner network and loopback binding; compose.local.yaml: API/worker service network; .env.example: integration URLs (`configuration; deployment evidence unavailable`).
 - **V13**: .env.example; compose.yaml; compose.local.yaml; .github/workflows/ci.yml:1-25; docs/ARCHITECTURE.md:1 (`configuration, documentation`).
 - **V14**: apps/api/src/artifacts.ts:292,308,356; apps/api/src/artifactStore.ts:16,73; docs/ARCHITECTURE.md:1 (`code, documentation`).
-- **V15**: apps/api/src/workflowDefinition.ts:28,88; apps/api/src/artifacts.ts:240; package-lock.json; .github/workflows/ci.yml:1-25 (`code, configuration`).
+- **V15**: apps/api/src/artifactUploadAdmission.ts:3-42; apps/api/src/artifactQuota.ts:13-51; apps/api/src/artifacts.ts:203-206; package-lock.json; .github/workflows/ci.yml:1-25; SECURITY.md; docs/security/verifications/2026-10-21-1504-utc.md (`code, configuration, documentation, test`).
 - **V16**: apps/api/src/index.ts:46-52; services/runner/app.py:75-82 (`code; log platform unavailable`).
 - **V17**: docs/ARCHITECTURE.md:1 (browser updates use page polling); no WebRTC/TURN/signaling/media-server feature found in reviewed application source (`code, documentation`).
 
@@ -84,7 +91,7 @@ The pinned inventory was validated before assessment. I reviewed the source and 
 | `v5.0.0-V2.3.3` | 2 | applicable | covered | not attempted | [apps/api/src/workflowDefinition.ts:28,88; apps/api/src/workflows.ts:41; docs/ARCHITECTURE.md:3] (code, documentation) | medium | Repository implementation evidence supports the control; runtime behavior was not verified. |
 | `v5.0.0-V2.3.4` | 2 | applicable | partially covered | not attempted | [apps/api/src/workflowDefinition.ts:28,88; apps/api/src/workflows.ts:41; docs/ARCHITECTURE.md:3] (code, documentation) | medium | Document business validation and limits, then verify all state transitions and concurrent operations. |
 | `v5.0.0-V2.3.5` | 3 | applicable | not covered | not attempted | [docs/ARCHITECTURE.md:1; docs/decisions/0043-review-workflow-publications-before-composing.md:1] (documentation) | medium | Workflow publication has a single owner review step; the repository does not implement multi-user approval. Define whether high-impact publication requires independent approval and add it if required. |
-| `v5.0.0-V2.4.1` | 2 | applicable | not covered | pending | [apps/api/src/artifactUploadAdmission.ts; apps/api/src/artifacts.ts:203-206; docs/security/verifications/2026-10-21-1504-utc.md] (code, test) | medium | Upload concurrency admission passed a focused local pipeline check; broader anti-automation controls and deployed edge limits remain unverified. |
+| `v5.0.0-V2.4.1` | 2 | applicable | partially covered | pending | [apps/api/src/artifactQuota.ts:13,27,35-51; apps/api/src/artifactUploadAdmission.ts:3-42; apps/api/src/artifacts.ts:203-206; docs/security/verifications/2026-10-21.md; docs/security/verifications/2026-10-21-1504-utc.md] (code, test, runtime) | medium | Upload quota and concurrency controls cover part of the abuse surface; controls for excessive calls to other functions and deployed edge limits remain unverified. |
 | `v5.0.0-V2.4.2` | 3 | applicable | not covered | not attempted | [apps/api/src/workflowDefinition.ts:28,88; apps/api/src/workflows.ts:41; docs/ARCHITECTURE.md:3] (code, documentation) | medium | Document business validation and limits, then verify all state transitions and concurrent operations. |
 | `v5.0.0-V3.1.1` | 3 | applicable | not covered | not attempted | [apps/api/src/index.ts:20,23-35,46-52; apps/api/src/auth.ts:73-78] (code, configuration) | high | Confirm delivered response headers, framing controls, HTTPS behavior, and browser policy in the deployed web/API edge. |
 | `v5.0.0-V3.2.1` | 1 | applicable | not covered | not attempted | [apps/api/src/index.ts:20,23-35,46-52; apps/api/src/auth.ts:73-78] (code, configuration) | high | Confirm delivered response headers, framing controls, HTTPS behavior, and browser policy in the deployed web/API edge. |
@@ -344,7 +351,7 @@ The pinned inventory was validated before assessment. I reviewed the source and 
 | `v5.0.0-V15.1.4` | 3 | applicable | not covered | not attempted | [apps/api/src/workflowDefinition.ts:28,88; apps/api/src/artifacts.ts:240; package-lock.json; .github/workflows/ci.yml:1-25] (code, configuration) | medium | Add dependency remediation policy and SBOM; review lockfile/dependency health, production build contents, and concurrency controls. |
 | `v5.0.0-V15.1.5` | 3 | applicable | not covered | not attempted | [apps/api/src/workflowDefinition.ts:28,88; apps/api/src/artifacts.ts:240; package-lock.json; .github/workflows/ci.yml:1-25] (code, configuration) | medium | Add dependency remediation policy and SBOM; review lockfile/dependency health, production build contents, and concurrency controls. |
 | `v5.0.0-V15.2.1` | 1 | applicable | not covered | not attempted | [apps/api/src/workflowDefinition.ts:28,88; apps/api/src/artifacts.ts:240; package-lock.json; .github/workflows/ci.yml:1-25] (code, configuration) | medium | Add dependency remediation policy and SBOM; review lockfile/dependency health, production build contents, and concurrency controls. |
-| `v5.0.0-V15.2.2` | 2 | applicable | not covered | pending | [apps/api/src/artifactUploadAdmission.ts; apps/api/src/artifacts.ts:203-206; docs/security/verifications/2026-10-21-1504-utc.md] (code, test) | medium | Upload body buffering is bounded per process and passed a focused local pipeline check; deployment-wide memory bounds remain unverified. |
+| `v5.0.0-V15.2.2` | 2 | applicable | partially covered | pending | [apps/api/src/artifactUploadAdmission.ts:3-42; apps/api/src/artifactQuota.ts:13-51; apps/api/src/artifacts.ts:203-206; docs/security/verifications/2026-10-21-1504-utc.md] (code, test) | medium | Upload body admission and artifact storage are bounded in the repository; resource-demanding functionality still lacks an organization-wide strategy and deployed multi-process memory/edge limits remain unverified. |
 | `v5.0.0-V15.2.3` | 2 | applicable | not covered | not attempted | [apps/api/src/workflowDefinition.ts:28,88; apps/api/src/artifacts.ts:240; package-lock.json; .github/workflows/ci.yml:1-25] (code, configuration) | medium | Add dependency remediation policy and SBOM; review lockfile/dependency health, production build contents, and concurrency controls. |
 | `v5.0.0-V15.2.4` | 3 | applicable | not covered | not attempted | [apps/api/src/workflowDefinition.ts:28,88; apps/api/src/artifacts.ts:240; package-lock.json; .github/workflows/ci.yml:1-25] (code, configuration) | medium | Add dependency remediation policy and SBOM; review lockfile/dependency health, production build contents, and concurrency controls. |
 | `v5.0.0-V15.2.5` | 3 | applicable | not covered | not attempted | [apps/api/src/workflowDefinition.ts:28,88; apps/api/src/artifacts.ts:240; package-lock.json; .github/workflows/ci.yml:1-25] (code, configuration) | medium | Add dependency remediation policy and SBOM; review lockfile/dependency health, production build contents, and concurrency controls. |
