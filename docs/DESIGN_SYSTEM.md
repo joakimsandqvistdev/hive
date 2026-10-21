@@ -50,6 +50,8 @@
 - For paged lists, place the displayed item range and total (for example, `11-20 of 42 workflows`) at the bottom left of the table card and the pagination controls at the bottom right. Use `PaginatedTableFooter` rather than custom pagination markup.
 - Detail or activity tables should reuse the same compact headers, row separators, and text hierarchy as their parent inventory table.
 - Use icon-only buttons by default for actions in list rows to keep columns compact. Use visible text or an icon-plus-text combination only when the user specifically requests it. Reuse `WorkspaceTableActions` and `WorkspaceTableAction` with the shared action icons; each icon-only action must have a concise tooltip and an accessible `aria-label`, and destructive actions must retain the semantic error color. Keep text buttons for primary page-level actions, not repeated row actions.
+- Every paginated list reserves the height of a full page, including a short final page. Use `PaginatedTableBody` for table rows and `PaginatedListSlots` for cards or other list items; set the actual page size and a minimum slot height that fits the item. The helpers fill unused slots with hidden, inert placeholders.
+- Render artifact image thumbnails with the shared `ArtifactThumbnail` component so failed or missing media displays the standard media icon; keep modality-specific icons for audio, video, and text.
 ## Selection details drawers
 
 - Keep inventory lists full width when a selected item needs a detail view. Open its details in a right-side Mantine Drawer so list rows retain useful column width.

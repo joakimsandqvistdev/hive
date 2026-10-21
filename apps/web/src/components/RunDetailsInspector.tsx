@@ -2,6 +2,7 @@ import { useEffect, useState, type Dispatch, type MutableRefObject, type SetStat
 import { Alert, Badge, Button, Group, Image, Loader, Paper, Stack, Table, Text, Textarea } from "@mantine/core";
 import { apiFetch, apiUrl } from "../apiClient";
 import { WorkspaceTableAction, WorkspaceTableActions } from "./WorkspaceTableActions";
+import { ArtifactThumbnail } from "./ArtifactThumbnail";
 import { formatFileSize } from "../formatters";
 import { active, date, nodeTypeLabel, statusColor, timingLabel } from "../runFormatting";
 import type { Artifact, Detail } from "../runTypes";
@@ -63,11 +64,9 @@ type RunDetailsInspectorProps = {
 };
 
 function RunOutputVisual({ artifact }: { artifact: Artifact }) {
-  const [imageFailed, setImageFailed] = useState(false);
-  useEffect(() => setImageFailed(false), [artifact.id]);
   const kind = artifact.mediaType.split("/")[0];
-  if (kind === "image" && !imageFailed) {
-    return <Image className="media-row-thumbnail run-output-thumbnail" src={apiUrl(`/api/artifacts/${artifact.id}/thumbnail`)} alt="" fit="cover" w={42} h={42} onError={() => setImageFailed(true)} />;
+  if (kind === "image") {
+    return <ArtifactThumbnail className="run-output-thumbnail" artifactId={artifact.id} size={42} />;
   }
   return <span className={`media-row-thumbnail media-row-thumbnail-${kind} run-output-thumbnail`} aria-hidden="true">
     {kind === "audio" ? <AudioFileGlyph /> : kind === "video" ? <VideoFileGlyph /> : kind === "text" ? <TextFileGlyph /> : <MediaFileGlyph />}

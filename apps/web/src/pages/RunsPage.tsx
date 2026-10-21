@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ActionIcon, Alert, Badge, Button, Group, Image, Loader, Modal, MultiSelect, Paper, Popover, Stack, Table, Text, Title, Tooltip } from "@mantine/core";
+import { ActionIcon, Alert, Badge, Button, Group, Loader, Modal, MultiSelect, Paper, Popover, Stack, Table, Text, Title, Tooltip } from "@mantine/core";
 import { apiFetch, apiUrl } from "../apiClient";
 import { ConfirmActionModal } from "../components/ConfirmActionModal";
+import { ArtifactThumbnail } from "../components/ArtifactThumbnail";
 import { PaginatedTableFooter } from "../components/PaginatedTableFooter";
+import { PaginatedTableBody } from "../components/PaginatedPageSlots";
 import { formatFileSize } from "../formatters";
 import { RunDetailsInspector } from "../components/RunDetailsInspector";
 import { RunComparisonPage } from "./RunComparisonPage";
@@ -30,10 +32,8 @@ function TextFileGlyph() {
 }
 
 function RunThumbnail({ preview }: { preview: NonNullable<Run["preview"]> }) {
-  const [imageFailed, setImageFailed] = useState(false);
-  useEffect(() => setImageFailed(false), [preview.artifactId]);
-  if (preview.artifactId && preview.dataTypeId === "image" && !imageFailed) {
-    return <Image className="media-row-thumbnail run-row-thumbnail" src={apiUrl(`/api/artifacts/${preview.artifactId}/thumbnail`)} alt="" fit="cover" w={50} h={50} onError={() => setImageFailed(true)} />;
+  if (preview.artifactId && preview.dataTypeId === "image") {
+    return <ArtifactThumbnail className="run-row-thumbnail" artifactId={preview.artifactId} size={50} />;
   }
   const type = ["audio", "video", "text"].includes(preview.dataTypeId) ? preview.dataTypeId : "media";
   return <span className={`media-row-thumbnail media-row-thumbnail-${type} run-row-thumbnail`} aria-hidden="true">
@@ -304,7 +304,7 @@ export function RunsPage({ onNavigate }: { onNavigate: (view: AppView) => void }
     <Paper className="inventory-list workspace-table-panel" withBorder radius="md">
       {loading ? <Group justify="center" p="xl"><Loader size="sm" /><Text size="sm" c="dimmed">Loading runs…</Text></Group>
         : result?.total === 0 ? <Stack className="workspace-empty" align="center" gap="sm"><Badge color="hiveSky" variant="light">Run history</Badge><Title order={2} size="h3">No runs yet</Title><Text c="dimmed" ta="center" maw={480}>Open a saved workflow and choose Run workflow to queue its current definition for execution.</Text><Button variant="light" onClick={() => onNavigate("workflows")}>Browse workflows</Button></Stack>
-          : <><Table.ScrollContainer minWidth={960}><Table className="inventory-table run-inventory-table" highlightOnHover withRowBorders><Table.Thead><Table.Tr><Table.Th>Preview</Table.Th><Table.Th>Workflow</Table.Th><Table.Th>Status</Table.Th><Table.Th>Duration</Table.Th><Table.Th>Result</Table.Th><Table.Th>Actions</Table.Th></Table.Tr></Table.Thead><Table.Tbody>{rows}</Table.Tbody></Table></Table.ScrollContainer><PaginatedTableFooter total={result?.total ?? 0} itemName="run" page={page} totalPages={result?.totalPages ?? 0} onPageChange={setPage} /></>}
+          : <><Table.ScrollContainer minWidth={960}><Table className="inventory-table run-inventory-table" highlightOnHover withRowBorders><Table.Thead><Table.Tr><Table.Th>Preview</Table.Th><Table.Th>Workflow</Table.Th><Table.Th>Status</Table.Th><Table.Th>Duration</Table.Th><Table.Th>Result</Table.Th><Table.Th>Actions</Table.Th></Table.Tr></Table.Thead><PaginatedTableBody pageSize={PAGE_SIZE} columnCount={6}>{rows}</PaginatedTableBody></Table></Table.ScrollContainer><PaginatedTableFooter total={result?.total ?? 0} itemName="run" page={page} totalPages={result?.totalPages ?? 0} onPageChange={setPage} /></>}
     </Paper>
     <ConfirmActionModal opened={deleteTarget !== null} onClose={() => { if (!deletingId) setDeleteTarget(null); }} title="Delete run?" confirmLabel="Delete run" loading={deletingId !== null} onConfirm={() => void deleteRun()}>
       <Text>{deleteTarget?.status === "queued" ? <>Cancel and delete the queued run for <strong>{deleteTarget.workflowSnapshotJson?.name ?? "Workflow"}</strong>?</> : <>Delete the run for <strong>{deleteTarget?.workflowSnapshotJson?.name ?? "Workflow"}</strong>?</>}{deleteTarget?.status === "awaiting_publish" && <> Any pending Instagram publication will be discarded.</>} Its run history and generated media that has not been saved to the Media Library will be removed. Media saved to the library is kept. Uploaded input files are removed only when no workflow or other run still uses them.</Text>

@@ -2,8 +2,10 @@ import { useCallback, useEffect, useState } from "react";
 import { Alert, Badge, Button, Drawer, Group, Paper, Progress, ScrollArea, SimpleGrid, Stack, Table, Tabs, Text, Title } from "@mantine/core";
 import { apiFetch } from "../apiClient";
 import { PaginatedTableFooter } from "../components/PaginatedTableFooter";
+import { PaginatedTableBody } from "../components/PaginatedPageSlots";
 import { ConfirmActionModal } from "../components/ConfirmActionModal";
 import { useFlashMessages } from "../components/FlashMessages";
+import { PauseIcon, PlayIcon, TrashIcon, WorkspaceTableAction, WorkspaceTableActions } from "../components/WorkspaceTableActions";
 import { formatModelSize, modelDetails, type ModelId } from "../modelCatalog";
 import { useVisiblePolling } from "../hooks/useVisiblePolling";
 
@@ -11,6 +13,10 @@ type ModelStatus = "not_downloaded" | "downloading" | "pausing" | "paused" | "ca
 type ModelState = { id: ModelId; status: ModelStatus; downloadedBytes?: number; totalBytes?: number; cacheBytes?: number; error?: string; usage?: { workflowCount: number; customNodeCount: number } };
 type StorageState = { knownModelBytes: number; unknownCacheBytes: number; freeBytes: number; totalBytes: number };
 const PAGE_SIZE = 10;
+
+function DownloadIcon() {
+  return <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3v12m0 0 4-4m-4 4-4-4M4 17v3h16v-3" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>;
+}
 
 const statusLabels: Record<ModelStatus, string> = {
   not_downloaded: "Available", downloading: "Downloading", pausing: "Pausing", paused: "Paused", cancelling: "Cancelling",
@@ -169,6 +175,7 @@ export function ModelsPage() {
     return !isTrackedDownload && (category === "all" || modelCategory(detail.groupId) === category);
   });
   const totalPages = Math.max(1, Math.ceil(filteredDetails.length / PAGE_SIZE));
+  const modelPageItems = filteredDetails.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
   useEffect(() => { if (page > totalPages) setPage(totalPages); }, [page, totalPages]);
   const selectedDetail = modelDetails.find((detail) => detail.id === selectedId);
   const selectedState = selectedDetail ? models.find((model) => model.id === selectedDetail.id) : undefined;
@@ -201,11 +208,11 @@ export function ModelsPage() {
               return <Group key={model.id} className="model-download-row" justify="space-between" align="center" wrap="wrap" py="sm" style={{ borderBottom: "1px solid var(--mantine-color-gray-2)" }}>
                 <Stack gap={2} miw={190} style={{ flex: "1 1 190px" }}><Text size="sm" fw={600}>{detail?.name ?? model.id}</Text><Text size="xs" c="dimmed">{model.status === "downloading" ? "Downloading" : statusLabels[model.status]} · {formatModelSize(model.downloadedBytes ?? 0)}{model.totalBytes ? ` / ${formatModelSize(model.totalBytes)}` : " downloaded"}</Text></Stack>
                 <Progress value={modelProgress} size="sm" aria-label={`${detail?.name ?? model.id} download progress`} style={{ flex: "1 1 140px" }} />
-                <Group gap="xs" wrap="nowrap">
-                  {model.status === "downloading" && <Button size="xs" variant="light" loading={pausing === model.id} onClick={() => void pauseDownload(model.id)}>Pause</Button>}
-                  {model.status === "paused" && <Button size="xs" loading={resuming === model.id} onClick={() => void resumeDownload(model.id)}>Resume</Button>}
-                  {model.status === "pausing" && <Button size="xs" variant="light" disabled>Pausing…</Button>}
-                  {model.status !== "pausing" && model.status !== "cancelling" && <Button size="xs" variant="light" color="hiveError" loading={cancelling === model.id} onClick={() => void cancelDownload(model.id)}>Cancel</Button>}
+                <Group gap="xs" wrap="nowrap" ml="auto" justify="flex-end">
+                  {model.status === "downloading" && <WorkspaceTableAction label="Pause download" loading={pausing === model.id} onClick={() => void pauseDownload(model.id)}><PauseIcon /></WorkspaceTableAction>}
+                  {model.status === "paused" && <WorkspaceTableAction label="Resume download" loading={resuming === model.id} onClick={() => void resumeDownload(model.id)}><PlayIcon /></WorkspaceTableAction>}
+                  {model.status === "pausing" && <WorkspaceTableAction label="Pausing download" loading disabled onClick={() => {}}><PauseIcon /></WorkspaceTableAction>}
+                  {model.status !== "pausing" && model.status !== "cancelling" && <WorkspaceTableAction label="Cancel download" color="hiveError" loading={cancelling === model.id} onClick={() => void cancelDownload(model.id)}><TrashIcon /></WorkspaceTableAction>}
                 </Group>
               </Group>;
             })}
@@ -224,16 +231,24 @@ export function ModelsPage() {
             <Group className="inventory-toolbar" justify="space-between"><Text size="xs" c="dimmed">{filteredDetails.length} models</Text><Text size="xs" c="dimmed">Select a model to review requirements and cache details</Text></Group>
             <ScrollArea type="auto"><Table className="inventory-table model-inventory-table" highlightOnHover withRowBorders>
               <Table.Thead><Table.Tr><Table.Th>Model</Table.Th><Table.Th>Size / cache</Table.Th><Table.Th>Status</Table.Th><Table.Th><span className="sr-only">Action</span></Table.Th></Table.Tr></Table.Thead>
-              <Table.Tbody>{filteredDetails.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE).map((detail) => {
+              <PaginatedTableBody pageSize={PAGE_SIZE} columnCount={4}>{modelPageItems.map((detail) => {
                 const state = models.find((model) => model.id === detail.id);
                 const status = state?.status ?? "unavailable";
                 return <Table.Tr key={detail.id} className={selectedId === detail.id ? "inventory-row-selected" : undefined} tabIndex={0} aria-selected={selectedId === detail.id} onClick={() => { setSelectedId(detail.id); setDetailOpen(true); }} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setSelectedId(detail.id); setDetailOpen(true); } }}>
                   <Table.Td><Text className="inventory-row-title" fw={600} size="sm">{detail.name}</Text><Text size="xs" c="dimmed" lineClamp={1}>{detail.summary}</Text></Table.Td>
                   <Table.Td className="inventory-nowrap">{status === "downloaded" ? (state?.cacheBytes ? formatModelSize(state.cacheBytes) : "<1 MB") : `${formatModelSize(detail.sizeBytes)} est.`}</Table.Td>
                   <Table.Td><Badge color={statusColor(status)} variant="light" size="sm">{loading ? "Checking…" : statusLabels[status]}</Badge></Table.Td>
-                  <Table.Td><Button size="xs" variant={status === "downloaded" ? "light" : "filled"} disabled={loading || status === "unavailable" || runnerStatus === "unavailable"} onClick={(event) => { event.stopPropagation(); setSelectedId(detail.id); if (status === "downloaded") setCacheReviewOpen(true); else if (status !== "downloading") void startDownload(detail.id); else void pauseDownload(detail.id); }}>{status === "downloaded" ? "Manage cache" : status === "downloading" ? "Pause" : status === "failed" ? "Retry" : "Download"}</Button></Table.Td>
+                  <Table.Td className="model-actions-cell" onClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()}><WorkspaceTableActions>
+                    {status === "downloaded"
+                      ? <WorkspaceTableAction label="Manage model cache" tooltip="Manage cache" color="hiveError" disabled={loading || runnerStatus !== "ready" || removingCache} loading={removingCache && selectedId === detail.id} onClick={() => { setSelectedId(detail.id); setCacheReviewOpen(true); }}><TrashIcon /></WorkspaceTableAction>
+                      : status === "downloading"
+                        ? <WorkspaceTableAction label="Pause download" disabled={loading || runnerStatus === "unavailable"} loading={pausing === detail.id} onClick={() => { setSelectedId(detail.id); void pauseDownload(detail.id); }}><PauseIcon /></WorkspaceTableAction>
+                        : status === "removing"
+                          ? <WorkspaceTableAction label="Removing model cache" loading disabled onClick={() => {}}><TrashIcon /></WorkspaceTableAction>
+                        : <WorkspaceTableAction label={status === "failed" ? "Retry model download" : "Download model"} tooltip={status === "failed" ? "Retry download" : "Download"} disabled={loading || status === "unavailable" || runnerStatus === "unavailable"} loading={requesting === detail.id} onClick={() => { setSelectedId(detail.id); void startDownload(detail.id); }}><DownloadIcon /></WorkspaceTableAction>}
+                  </WorkspaceTableActions></Table.Td>
                 </Table.Tr>;
-              })}</Table.Tbody>
+              })}</PaginatedTableBody>
             </Table></ScrollArea>
             <PaginatedTableFooter total={filteredDetails.length} itemName="model" page={page} pageSize={PAGE_SIZE} totalPages={totalPages} onPageChange={(nextPage) => { setPage(nextPage); setSelectedId(null); setDetailOpen(false); }} />
           </Paper>
@@ -252,7 +267,7 @@ export function ModelsPage() {
               const state = models.find((model) => model.id === detail.id);
               return <Group key={detail.id} justify="space-between" py="sm" style={{ borderBottom: "1px solid var(--mantine-color-gray-2)" }}>
                 <div><Text size="sm" fw={600}>{detail.name}</Text><Text size="xs" c="dimmed">{state?.usage?.workflowCount ?? 0} workflows · {state?.usage?.customNodeCount ?? 0} Custom Nodes</Text></div>
-                <Group gap="sm"><Text size="sm">{formatModelSize(state?.cacheBytes ?? 0)}</Text><Button size="xs" variant="light" color="hiveError" disabled={runnerStatus !== "ready" || removingCache} onClick={() => { setSelectedId(detail.id); setCacheReviewOpen(true); }}>Review</Button></Group>
+                <Group gap="sm" wrap="nowrap"><Text size="sm">{formatModelSize(state?.cacheBytes ?? 0)}</Text><WorkspaceTableAction label="Delete model cache" tooltip="Delete model cache" color="hiveError" disabled={runnerStatus !== "ready" || removingCache} loading={removingCache && selectedId === detail.id} onClick={() => { setSelectedId(detail.id); setCacheReviewOpen(true); }}><TrashIcon /></WorkspaceTableAction></Group>
               </Group>;
             })}
           </Stack>}
@@ -270,11 +285,13 @@ export function ModelsPage() {
         {downloadInProgress && <Stack gap={4}><Group justify="space-between"><Text size="xs">Download progress</Text><Text size="xs" c="dimmed">{formatModelSize(downloadedBytes)}{selectedState?.totalBytes ? ` / ${formatModelSize(selectedState.totalBytes)}` : " downloaded"}</Text></Group><Progress value={progress} size="sm" /></Stack>}
         {selectedState?.error && <Alert color="hiveError" title="Download did not finish">{selectedState.error}</Alert>}
         <Group justify="space-between" className="inventory-preview-actions"><Button component="a" href={selectedDetail.source} target="_blank" rel="noreferrer" variant="subtle" px={0}>View model card</Button>
-          {selectedState?.status === "downloaded" ? <Button variant="light" color="hiveError" disabled={!canRemoveSelected} loading={removingCache} onClick={() => setCacheReviewOpen(true)}>Manage cache</Button>
-            : selectedState?.status === "downloading" ? <Button variant="light" color="hiveWarning" loading={pausing === selectedDetail.id} onClick={() => void pauseDownload(selectedDetail.id)}>Pause download</Button>
-              : selectedState?.status === "paused" ? <Group gap="xs"><Button variant="light" color="hiveError" loading={cancelling === selectedDetail.id} onClick={() => void cancelDownload(selectedDetail.id)}>Cancel</Button><Button loading={resuming === selectedDetail.id} onClick={() => void resumeDownload(selectedDetail.id)}>Resume</Button></Group>
-                : selectedState?.status === "pausing" || selectedState?.status === "cancelling" || selectedState?.status === "removing" ? <Button disabled>{statusLabels[selectedState.status]}…</Button>
-                  : <Button disabled={loading || !selectedState || selectedStatus === "unavailable" || runnerStatus === "unavailable"} loading={requesting === selectedDetail.id} onClick={() => void startDownload(selectedDetail.id)}>{selectedStatus === "failed" ? "Retry download" : "Download model"}</Button>}
+          <Group gap="xs" wrap="nowrap" justify="flex-end">
+            {selectedState?.status === "downloaded" ? <WorkspaceTableAction label="Manage model cache" tooltip="Manage cache" color="hiveError" disabled={!canRemoveSelected} loading={removingCache} onClick={() => setCacheReviewOpen(true)}><TrashIcon /></WorkspaceTableAction>
+              : selectedState?.status === "downloading" ? <WorkspaceTableAction label="Pause download" color="hiveWarning" loading={pausing === selectedDetail.id} onClick={() => void pauseDownload(selectedDetail.id)}><PauseIcon /></WorkspaceTableAction>
+                : selectedState?.status === "paused" ? <><WorkspaceTableAction label="Cancel download" color="hiveError" loading={cancelling === selectedDetail.id} onClick={() => void cancelDownload(selectedDetail.id)}><TrashIcon /></WorkspaceTableAction><WorkspaceTableAction label="Resume download" loading={resuming === selectedDetail.id} onClick={() => void resumeDownload(selectedDetail.id)}><PlayIcon /></WorkspaceTableAction></>
+                  : selectedState?.status === "pausing" || selectedState?.status === "cancelling" || selectedState?.status === "removing" ? <WorkspaceTableAction label={`${statusLabels[selectedState.status]}…`} loading disabled onClick={() => {}}><DownloadIcon /></WorkspaceTableAction>
+                    : <WorkspaceTableAction label={selectedStatus === "failed" ? "Retry model download" : "Download model"} tooltip={selectedStatus === "failed" ? "Retry download" : "Download"} disabled={loading || !selectedState || selectedStatus === "unavailable" || runnerStatus === "unavailable"} loading={requesting === selectedDetail.id} onClick={() => void startDownload(selectedDetail.id)}><DownloadIcon /></WorkspaceTableAction>}
+          </Group>
         </Group>
       </Stack>}
     </Drawer>

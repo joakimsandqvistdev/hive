@@ -6,6 +6,7 @@ import { useFlashMessages } from "../components/FlashMessages";
 import { useVisiblePolling } from "../hooks/useVisiblePolling";
 import { notifyNavigationSummaryChanged } from "../navigation/navigationSummary";
 import { PaginatedTableFooter } from "../components/PaginatedTableFooter";
+import { PaginatedTableBody } from "../components/PaginatedPageSlots";
 
 type WorkflowChoice = { id: string; name: string };
 const PAGE_SIZE = 10;
@@ -177,7 +178,7 @@ export function JobsPage({ onNavigate }: { onNavigate: (view: AppView) => void }
     <Paper className="inventory-list workspace-table-panel" withBorder radius="md">
       {loading ? <Group justify="center" p="xl"><Loader size="sm" /><Text size="sm" c="dimmed">Loading jobs…</Text></Group>
         : jobs.length === 0 ? <Stack className="workspace-empty" align="center" gap="sm"><Badge color="hiveSky" variant="light">Workflow automation</Badge><Title order={2} size="h3">No jobs yet</Title><Text c="dimmed" ta="center" maw={520}>Create a job to run a saved workflow once or repeat it on an interval. Repeats are queued only after the previous run finishes, so each job has at most one queued or active run.</Text>{workflows.length ? <Button variant="light" onClick={() => { setForm(initialForm()); setFormOpen(true); }}>Create your first job</Button> : <Button variant="light" onClick={() => onNavigate("workflows")}>Create a workflow first</Button>}</Stack>
-          : <><Text size="xs" c="dimmed" px="sm" pt="sm">A repeating job waits its configured interval after the previous run finishes before queueing another run.</Text><Table.ScrollContainer minWidth={900}><Table className="inventory-table" highlightOnHover withRowBorders><Table.Thead><Table.Tr><Table.Th>Job</Table.Th><Table.Th>Status</Table.Th><Table.Th>Repeat</Table.Th><Table.Th>Next run</Table.Th><Table.Th>Actions</Table.Th></Table.Tr></Table.Thead><Table.Tbody>{rows}</Table.Tbody></Table></Table.ScrollContainer><PaginatedTableFooter total={jobs.length} itemName="job" page={page} pageSize={PAGE_SIZE} totalPages={totalPages} onPageChange={setPage} /></>}
+          : <><Text size="xs" c="dimmed" px="sm" pt="sm">A repeating job waits its configured interval after the previous run finishes before queueing another run.</Text><Table.ScrollContainer minWidth={900}><Table className="inventory-table" highlightOnHover withRowBorders><Table.Thead><Table.Tr><Table.Th>Job</Table.Th><Table.Th>Status</Table.Th><Table.Th>Repeat</Table.Th><Table.Th>Next run</Table.Th><Table.Th>Actions</Table.Th></Table.Tr></Table.Thead><PaginatedTableBody pageSize={PAGE_SIZE} columnCount={5}>{rows}</PaginatedTableBody></Table></Table.ScrollContainer><PaginatedTableFooter total={jobs.length} itemName="job" page={page} pageSize={PAGE_SIZE} totalPages={totalPages} onPageChange={setPage} /></>}
     </Paper>
     <Modal opened={formOpen} onClose={() => { if (!saving) setFormOpen(false); }} title="Create job" centered>
       <form onSubmit={(event) => void createJob(event)}><Stack gap="md">

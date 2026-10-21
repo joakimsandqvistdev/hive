@@ -1,5 +1,6 @@
 import { Badge, CopyButton, Group, Paper, Select, Table, Text, TextInput } from "@mantine/core";
 import { PaginatedTableFooter } from "../components/PaginatedTableFooter";
+import { PaginatedTableBody } from "../components/PaginatedPageSlots";
 import { ActivityIcon, CopyIcon, PauseIcon, PlayIcon, TrashIcon, WorkspaceTableAction, WorkspaceTableActions } from "../components/WorkspaceTableActions";
 import type { WebhookDelivery, WebhookTrigger } from "./webhookManagerTypes";
 
@@ -50,7 +51,7 @@ export function WebhookManagerList({ triggers, filteredCount, search, onSearchCh
     {filteredCount === 0 ? <Text p="md" size="sm" c="dimmed">No webhooks match the current filters.</Text>
       : <><Table.ScrollContainer minWidth={700}><Table className="inventory-table webhook-manager-list" highlightOnHover withRowBorders>
         <Table.Thead><Table.Tr><Table.Th>Webhook</Table.Th><Table.Th>Workflow</Table.Th><Table.Th>Status</Table.Th><Table.Th>Last delivery</Table.Th><Table.Th aria-label="Actions" /></Table.Tr></Table.Thead>
-        <Table.Tbody>{triggers.map((trigger) => {
+        <PaginatedTableBody pageSize={pageSize} columnCount={5}>{triggers.map((trigger) => {
           const openEdit = () => onOpenEdit(trigger);
           const openActivity = () => onOpenActivity(trigger);
           return <Table.Tr key={trigger.id} className={selectedId === trigger.id ? "inventory-row-selected webhook-manager-row" : "webhook-manager-row"} tabIndex={0} aria-label={`Edit webhook ${trigger.name}`} onClick={openEdit} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); openEdit(); } }}>
@@ -67,7 +68,7 @@ export function WebhookManagerList({ triggers, filteredCount, search, onSearchCh
               </WorkspaceTableActions>
             </Table.Td>
           </Table.Tr>;
-        })}</Table.Tbody>
+        })}</PaginatedTableBody>
       </Table></Table.ScrollContainer>
       <PaginatedTableFooter total={filteredCount} itemName="webhook" page={page} pageSize={pageSize} totalPages={totalPages} onPageChange={onPageChange} /></>}
   </Paper>;

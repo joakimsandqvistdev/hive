@@ -1,9 +1,13 @@
 import { useCallback, useEffect, useState } from "react";
 import { ActionIcon, Alert, Badge, Box, Button, Card, Group, Image, Loader, Pagination, Paper, SegmentedControl, SimpleGrid, Stack, Tabs, Text, Textarea, TextInput, Title } from "@mantine/core";
+import { closestCenter, DndContext, KeyboardSensor, PointerSensor, useSensor, useSensors, type DragEndEvent } from "@dnd-kit/core";
+import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
 import { apiFetch, apiUrl } from "../apiClient";
-import { AppIcon } from "../components/AppIcon";
+import { ArtifactThumbnail } from "../components/ArtifactThumbnail";
 import { ConfirmActionModal } from "../components/ConfirmActionModal";
 import { useFlashMessages } from "../components/FlashMessages";
+import { PaginatedListSlots } from "../components/PaginatedPageSlots";
 import { formatFileSize } from "../formatters";
 import { useVisiblePolling } from "../hooks/useVisiblePolling";
 import type { AppView } from "../navigation/navigationState";
@@ -20,11 +24,30 @@ type PublishPageProps = { onNavigate: (view: AppView) => void };
 const pageSize = 10;
 const reviewPageSize = 10;
 
-function ActivityThumbnail({ artifactId, alt }: { artifactId: string; alt: string }) {
-  const [unavailable, setUnavailable] = useState(false);
-  return <Box w={42} h={42} style={{ flex: "0 0 auto", overflow: "hidden", borderRadius: 6 }}>
-    {unavailable ? <Box role="img" aria-label={`${alt || "Media"} unavailable`} w={42} h={42} bg="gray.1" c="gray.6" style={{ display: "grid", placeItems: "center" }}><AppIcon name="media" size={21} /></Box> : <Image src={apiUrl(`/api/artifacts/${artifactId}/thumbnail`)} alt={alt} w={42} h={42} fit="cover" onError={() => setUnavailable(true)} />}
-  </Box>;
+function ActivityThumbnail({ artifactId, alt, size = 42 }: { artifactId: string; alt: string; size?: number }) {
+  return <ArtifactThumbnail artifactId={artifactId} alt={alt} size={size} />;
+}
+
+function SortablePublicationMedia({ item, index, altText, onAltTextChange, onRemove }: {
+  item: SelectedMedia;
+  index: number;
+  altText: string;
+  onAltTextChange: (artifactId: string, value: string) => void;
+  onRemove: (item: SelectedMedia) => void;
+}) {
+  const { attributes, listeners, setNodeRef, setActivatorNodeRef, transform, transition, isDragging } = useSortable({ id: item.artifactId });
+  return <Paper ref={setNodeRef} withBorder p={8} radius="sm" style={{ transform: CSS.Transform.toString(transform), transition, opacity: isDragging ? 0.55 : 1 }}>
+    <Group wrap="nowrap" gap="xs">
+      <ActionIcon ref={setActivatorNodeRef} {...attributes} {...listeners} variant="subtle" color="gray" size="sm" aria-label={`Drag to reorder slide ${index + 1}`} style={{ cursor: "grab", touchAction: "none" }}>
+        <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M9 5h.01M9 12h.01M9 19h.01M15 5h.01M15 12h.01M15 19h.01" stroke="currentColor" strokeWidth="3" strokeLinecap="round" /></svg>
+      </ActionIcon>
+      <Text size="xs" c="dimmed" w={18} ta="center">{index + 1}</Text>
+      <ArtifactThumbnail artifactId={item.artifactId} size={42} />
+      <Text size="xs" fw={500} lineClamp={1} style={{ flex: 1 }}>{item.displayName}</Text>
+      <ActionIcon variant="subtle" color="hiveError" size="sm" aria-label={`Remove ${item.displayName}`} onClick={() => onRemove(item)}>×</ActionIcon>
+    </Group>
+    <Textarea mt="xs" label={`Alt text for slide ${index + 1}`} placeholder="Describe this image for screen reader users" value={altText} onChange={(event) => onAltTextChange(item.artifactId, event.currentTarget.value)} maxLength={1000} autosize minRows={2} maxRows={4} description={`${altText.length} / 1,000 characters`} />
+  </Paper>;
 }
 
 export function PublishPage({ onNavigate }: PublishPageProps) {
@@ -41,6 +64,7 @@ export function PublishPage({ onNavigate }: PublishPageProps) {
   const [reviewSaving, setReviewSaving] = useState(false);
   const [mediaSource, setMediaSource] = useState("library");
   const [search, setSearch] = useState("");
+  const [awaitingSearch, setAwaitingSearch] = useState("");
   const [page, setPage] = useState(1);
   const [awaitingPage, setAwaitingPage] = useState(1);
   const [draftsPage, setDraftsPage] = useState(1);
@@ -58,7 +82,6 @@ export function PublishPage({ onNavigate }: PublishPageProps) {
   const [confirmAction, setConfirmAction] = useState<"publish" | "retry" | "delete-draft" | null>(null);
   const [deleteDraftTarget, setDeleteDraftTarget] = useState<Draft | null>(null);
   const [retryTarget, setRetryTarget] = useState<PostActivity | null>(null);
-  const [draggedIndex, setDraggedIndex] = useState<number | null>(null);
 
   const refreshDrafts = useCallback(async () => {
     const response = await apiFetch("/api/instagram/drafts");
@@ -150,9 +173,13 @@ export function PublishPage({ onNavigate }: PublishPageProps) {
   const reviewPageCount = Math.max(1, Math.ceil(reviewQueue.length / reviewPageSize));
   const currentReviewPage = Math.min(reviewPage, reviewPageCount);
   const visibleReviewItems = reviewQueue.slice((currentReviewPage - 1) * reviewPageSize, currentReviewPage * reviewPageSize);
-  const awaitingPageCount = Math.max(1, Math.ceil(awaitingImages.length / pageSize));
+  const filteredAwaitingImages = awaitingImages.filter((item) => {
+    const query = awaitingSearch.trim().toLowerCase();
+    return !query || `${item.displayName} ${item.workflowName} ${item.runId}`.toLowerCase().includes(query);
+  });
+  const awaitingPageCount = Math.max(1, Math.ceil(filteredAwaitingImages.length / pageSize));
   const currentAwaitingPage = Math.min(awaitingPage, awaitingPageCount);
-  const visibleAwaitingImages = awaitingImages.slice((currentAwaitingPage - 1) * pageSize, currentAwaitingPage * pageSize);
+  const visibleAwaitingImages = filteredAwaitingImages.slice((currentAwaitingPage - 1) * pageSize, currentAwaitingPage * pageSize);
   const draftsPageCount = Math.max(1, Math.ceil(drafts.length / pageSize));
   const currentDraftsPage = Math.min(draftsPage, draftsPageCount);
   const visibleDrafts = drafts.slice((currentDraftsPage - 1) * pageSize, currentDraftsPage * pageSize);
@@ -310,15 +337,6 @@ export function PublishPage({ onNavigate }: PublishPageProps) {
     void refreshAwaiting(draft.id).catch((error) => showFlash({ tone: "error", title: "Awaiting publish", message: error instanceof Error ? error.message : "Could not load runs awaiting publish." }));
   };
 
-  const moveSelected = (index: number, direction: -1 | 1) => {
-    setSelectedIds((current) => {
-      const nextIndex = index + direction;
-      if (nextIndex < 0 || nextIndex >= current.length) return current;
-      const next = [...current];
-      [next[index], next[nextIndex]] = [next[nextIndex]!, next[index]!];
-      return next;
-    });
-  };
   const reorderSelected = (from: number, to: number) => {
     if (from === to || from < 0 || to < 0 || from >= selectedIds.length || to >= selectedIds.length) return;
     setSelectedIds((current) => {
@@ -328,6 +346,19 @@ export function PublishPage({ onNavigate }: PublishPageProps) {
       return next;
     });
     setPreviewIndex((current) => current === from ? to : current > from && current <= to ? current - 1 : current < from && current >= to ? current + 1 : current);
+  };
+
+  const dndSensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(KeyboardSensor),
+  );
+  const handleCarouselDragEnd = (event: DragEndEvent) => {
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+    const from = selectedIds.indexOf(String(active.id));
+    const to = selectedIds.indexOf(String(over.id));
+    if (from < 0 || to < 0) return;
+    reorderSelected(from, to);
   };
 
   const instagramPreview = <Paper withBorder p="md" radius="md">
@@ -350,14 +381,14 @@ export function PublishPage({ onNavigate }: PublishPageProps) {
         {reviewItems.length ? <SimpleGrid cols={{ base: 1, lg: 2 }} spacing="md" verticalSpacing="md" style={{ alignItems: "start" }}>
           <Paper withBorder p="md" radius="md">
             <Group justify="space-between" mb="sm"><div><Text fw={600}>Awaiting review</Text><Text size="xs" c="dimmed">{reviewQueue.length} left in this pass</Text></div><Button variant="default" size="xs" onClick={refreshReviewPass}>Refresh</Button></Group>
-            <Stack gap="xs">{visibleReviewItems.map((item) => {
+            <PaginatedListSlots pageSize={reviewPageSize} minItemHeight={80} gap={8}>{visibleReviewItems.map((item) => {
               const isCurrent = activeReview?.sourcePublicationId === item.sourcePublicationId;
               return <Paper key={item.sourcePublicationId} withBorder p="xs" radius="sm" role="button" tabIndex={0} aria-pressed={isCurrent} onClick={() => setActiveReviewId(item.sourcePublicationId)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setActiveReviewId(item.sourcePublicationId); } }} style={{ cursor: "pointer", borderColor: isCurrent ? "var(--mantine-color-hiveSky-6)" : undefined, background: isCurrent ? "var(--mantine-color-hiveSky-0)" : undefined }}>
-              <Group wrap="nowrap" gap="sm" align="center"><Image src={apiUrl(`/api/artifacts/${item.artifactId}/thumbnail`)} alt="" w={54} h={54} fit="cover" radius="sm" /><div style={{ minWidth: 0, flex: 1 }}><Text size="sm" fw={500} lineClamp={1}>{item.workflowName}</Text><Text size="xs" c="dimmed">Run {item.runId.slice(0, 8)}</Text><Text size="xs" c="dimmed" lineClamp={1}>{item.displayName}</Text></div>{isCurrent ? <Group gap={4} wrap="nowrap"><Button size="xs" variant="default" disabled={reviewSaving} onClick={() => { void skipReviewItem().catch((error) => showFlash({ tone: "error", title: "Review", message: error instanceof Error ? error.message : "Could not mark this run’s notifications as read." })); }}>Skip</Button><Button size="xs" color="hiveError" variant="light" loading={reviewSaving} onClick={() => { void completeReviewItem(item, "discard").catch((error) => showFlash({ tone: "error", title: "Review", message: error instanceof Error ? error.message : "Could not discard this run." })); }}>Discard</Button><Button size="xs" loading={reviewSaving} onClick={() => { void completeReviewItem(item, "approve").catch((error) => showFlash({ tone: "error", title: "Review", message: error instanceof Error ? error.message : "Could not approve this run." })); }}>Approve</Button></Group> : <Badge color="hiveWarning" variant="light">Next</Badge>}</Group>
+              <Group wrap="nowrap" gap="sm" align="center"><ArtifactThumbnail artifactId={item.artifactId} alt={item.displayName} size={54} /><div style={{ minWidth: 0, flex: 1 }}><Text size="sm" fw={500} lineClamp={1}>{item.workflowName}</Text><Text size="xs" c="dimmed">Run {item.runId.slice(0, 8)}</Text><Text size="xs" c="dimmed" lineClamp={1}>{item.displayName}</Text></div>{isCurrent ? <Group gap={4} wrap="nowrap"><Button size="xs" variant="default" disabled={reviewSaving} onClick={() => { void skipReviewItem().catch((error) => showFlash({ tone: "error", title: "Review", message: error instanceof Error ? error.message : "Could not mark this run’s notifications as read." })); }}>Skip</Button><Button size="xs" color="hiveError" variant="light" loading={reviewSaving} onClick={() => { void completeReviewItem(item, "discard").catch((error) => showFlash({ tone: "error", title: "Review", message: error instanceof Error ? error.message : "Could not discard this run." })); }}>Discard</Button><Button size="xs" loading={reviewSaving} onClick={() => { void completeReviewItem(item, "approve").catch((error) => showFlash({ tone: "error", title: "Review", message: error instanceof Error ? error.message : "Could not approve this run." })); }}>Approve</Button></Group> : <Badge color="hiveWarning" variant="light">Next</Badge>}</Group>
             </Paper>; })}
             {reviewQueue.length === 0 && <Text size="sm" c="dimmed" ta="center" py="md">All runs in this pass were skipped. Refresh to show them again.</Text>}
+            </PaginatedListSlots>
             {reviewQueue.length > reviewPageSize && <Group justify="space-between" mt="sm"><Text size="xs" c="dimmed">{(currentReviewPage - 1) * reviewPageSize + 1}–{Math.min(currentReviewPage * reviewPageSize, reviewQueue.length)} of {reviewQueue.length}</Text><Pagination size="sm" total={reviewPageCount} value={currentReviewPage} onChange={setReviewPage} /></Group>}
-            </Stack>
           </Paper>
           <Paper withBorder p="md" radius="md">
             {activeReview ? <Stack gap="md">
@@ -373,27 +404,28 @@ export function PublishPage({ onNavigate }: PublishPageProps) {
           <Paper withBorder p="md" radius="md">
             <Group justify="space-between" mb="sm"><div><Text fw={600}>Choose media</Text><Text size="xs" c="dimmed">Select 1–10 images. Multiple images publish as a carousel.</Text></div><Badge variant="light" color="hiveSky">{selectedIds.length} selected</Badge></Group>
             <SegmentedControl fullWidth mb="sm" value={mediaSource} onChange={(value) => { setMediaSource(value); if (value === "awaiting") setAwaitingPage(1); }} data={[{ label: "Media Library", value: "library" }, { label: `Awaiting publish (${awaitingImages.length})`, value: "awaiting" }]} />
-            {mediaSource === "library" ? <>
-            <TextInput label="Search saved images" placeholder="Search by file name" value={search} onChange={(event) => { setSearch(event.currentTarget.value); setPage(1); }} mb="sm" />
-            {items.length ? <Stack gap="xs">
+            {mediaSource === "library" ? <Stack gap="xs">
+            <TextInput label="Search saved images" placeholder="Search by file name" value={search} onChange={(event) => { setSearch(event.currentTarget.value); setPage(1); }} />
+            {items.length ? <PaginatedListSlots pageSize={pageSize} minItemHeight={70} gap={8}>
               {visibleLibraryItems.map((item) => {
                 const isSelected = selectedIds.includes(item.id);
                 const order = selectedIds.indexOf(item.id);
-                return <Card key={item.id} className={`publish-media-card${isSelected ? " is-selected" : ""}`} withBorder p={5} radius="sm" onClick={() => chooseLibraryImage(item)} role="checkbox" aria-checked={isSelected} tabIndex={0} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); chooseLibraryImage(item); } }}>
-                  <Group wrap="nowrap" gap="sm"><ActivityThumbnail artifactId={item.id} alt={item.displayName} /><div style={{ flex: 1, minWidth: 0 }}><Text size="sm" fw={500} lineClamp={1}>{item.displayName}</Text><Text size="xs" c="dimmed">{item.byteSize ? formatFileSize(item.byteSize) : "Saved image"}</Text></div>{isSelected && <Badge variant="light" color="hiveSky" aria-label={`Selected as slide ${order + 1}`}>{order + 1}</Badge>}</Group>
+                return <Card key={item.id} className={`publish-media-card${isSelected ? " is-selected" : ""}`} withBorder p={0} radius="sm" onClick={() => chooseLibraryImage(item)} role="checkbox" aria-checked={isSelected} tabIndex={0} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); chooseLibraryImage(item); } }}>
+                  <Group className="publish-media-card-row" wrap="nowrap" gap="sm" align="center"><ActivityThumbnail artifactId={item.id} alt={item.displayName} size={60} /><div className="publish-media-card-copy"><Text size="sm" fw={500} lineClamp={1}>{item.displayName}</Text><Text size="xs" c="dimmed">{item.byteSize ? formatFileSize(item.byteSize) : "Saved image"}</Text></div>{isSelected && <Badge variant="light" color="hiveSky" aria-label={`Selected as slide ${order + 1}`}>{order + 1}</Badge>}</Group>
                 </Card>;
               })}
-            </Stack> : <Text size="sm" c="dimmed" py="xl" ta="center">No saved images match. Save an image in Media Library to use it here.</Text>}
-            <Group justify="space-between" mt="md"><Text size="xs" c="dimmed">{total} saved images</Text><Pagination size="sm" total={Math.max(1, Math.ceil(total / pageSize))} value={page} onChange={setPage} disabled={total <= pageSize} /></Group>
-            </> : <Stack gap="xs">
-              {awaitingImages.length ? visibleAwaitingImages.map((item) => {
+            </PaginatedListSlots> : <Text size="sm" c="dimmed" py="xl" ta="center">No saved images match. Save an image in Media Library to use it here.</Text>}
+            <Group justify="space-between"><Text size="xs" c="dimmed">{total} saved images</Text><Pagination size="sm" total={Math.max(1, Math.ceil(total / pageSize))} value={page} onChange={setPage} disabled={total <= pageSize} /></Group>
+            </Stack> : <Stack gap="xs">
+              <TextInput label="Search awaiting publish" placeholder="Search file, workflow, or run ID" value={awaitingSearch} onChange={(event) => { setAwaitingSearch(event.currentTarget.value); setAwaitingPage(1); }} />
+              <PaginatedListSlots pageSize={pageSize} minItemHeight={70} gap={8}>{filteredAwaitingImages.length ? visibleAwaitingImages.map((item) => {
                 const isSelected = selectedIds.includes(item.artifactId);
                 const order = selectedIds.indexOf(item.artifactId);
-                return <Card key={item.sourcePublicationId} className={`publish-media-card${isSelected ? " is-selected" : ""}`} withBorder p="xs" radius="sm" onClick={() => chooseAwaitingImage(item)} role="checkbox" aria-checked={isSelected} tabIndex={0} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); chooseAwaitingImage(item); } }}>
-                  <Group wrap="nowrap" gap="sm"><ActivityThumbnail artifactId={item.artifactId} alt={item.displayName} /><div style={{ flex: 1, minWidth: 0 }}><Text size="sm" fw={500} lineClamp={1}>{item.displayName}</Text><Text size="xs" c="dimmed" lineClamp={1}>{item.workflowName} · Run {item.runId.slice(0, 8)}</Text><Badge size="xs" color={item.sourcePublicationId && item.sourcePublicationId === activeDraft?.media.find((mediaItem) => mediaItem.artifactId === item.artifactId)?.sourcePublicationId ? "hiveSky" : "hiveWarning"} variant="light" mt={4}>{item.sourcePublicationId && activeDraft?.media.some((mediaItem) => mediaItem.sourcePublicationId === item.sourcePublicationId) ? "In this draft" : "Awaiting publish"}</Badge></div>{isSelected && <Badge variant="light" color="hiveSky" aria-label={`Selected as slide ${order + 1}`}>{order + 1}</Badge>}</Group>
+                return <Card key={item.sourcePublicationId} className={`publish-media-card${isSelected ? " is-selected" : ""}`} withBorder p={0} radius="sm" onClick={() => chooseAwaitingImage(item)} role="checkbox" aria-checked={isSelected} tabIndex={0} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); chooseAwaitingImage(item); } }}>
+                  <Group className="publish-media-card-row" wrap="nowrap" gap="sm" align="center"><ActivityThumbnail artifactId={item.artifactId} alt={item.displayName} size={60} /><div className="publish-media-card-copy"><Text size="sm" fw={500} lineClamp={1}>{item.displayName}</Text><Text size="xs" c="dimmed" lineClamp={1}>{item.workflowName} · Run {item.runId.slice(0, 8)}</Text></div><Group className="publish-media-row-badges" gap={6} wrap="nowrap"><Badge size="xs" color={item.sourcePublicationId && item.sourcePublicationId === activeDraft?.media.find((mediaItem) => mediaItem.artifactId === item.artifactId)?.sourcePublicationId ? "hiveSky" : "hiveWarning"} variant="light">{item.sourcePublicationId && activeDraft?.media.some((mediaItem) => mediaItem.sourcePublicationId === item.sourcePublicationId) ? "In this draft" : "Awaiting publish"}</Badge>{isSelected && <Badge variant="light" color="hiveSky" aria-label={`Selected as slide ${order + 1}`}>{order + 1}</Badge>}</Group></Group>
                 </Card>;
-              }) : <Text size="sm" c="dimmed" py="xl" ta="center">No image runs are awaiting publish.</Text>}
-              {awaitingImages.length > 0 && <Group justify="space-between" mt="sm"><Text size="xs" c="dimmed">{(currentAwaitingPage - 1) * pageSize + 1}–{Math.min(currentAwaitingPage * pageSize, awaitingImages.length)} of {awaitingImages.length} runs</Text><Pagination size="sm" total={awaitingPageCount} value={currentAwaitingPage} onChange={setAwaitingPage} disabled={awaitingImages.length <= pageSize} /></Group>}
+              }) : <Text size="sm" c="dimmed" py="xl" ta="center">{awaitingImages.length ? "No awaiting publish runs match this search." : "No image runs are awaiting publish."}</Text>}</PaginatedListSlots>
+              {filteredAwaitingImages.length > 0 && <Group justify="space-between" mt="sm"><Text size="xs" c="dimmed">{(currentAwaitingPage - 1) * pageSize + 1}–{Math.min(currentAwaitingPage * pageSize, filteredAwaitingImages.length)} of {filteredAwaitingImages.length} runs</Text><Pagination size="sm" total={awaitingPageCount} value={currentAwaitingPage} onChange={setAwaitingPage} disabled={filteredAwaitingImages.length <= pageSize} /></Group>}
               <Text size="xs" c="dimmed">Selected runs stay Awaiting publish until Instagram confirms success.</Text>
             </Stack>}
           </Paper>
@@ -403,13 +435,7 @@ export function PublishPage({ onNavigate }: PublishPageProps) {
               <Group justify="space-between" mb="sm"><Text fw={600}>Post details</Text>{activeDraftId && <Badge color="gray" variant="light">Draft</Badge>}</Group>
               <Stack gap="sm">
                 <Group align="flex-end" wrap="nowrap"><TextInput label="Instagram account" value={account ? `@${account.username}` : "Not connected"} readOnly style={{ flex: 1 }} /><Button variant="default" onClick={() => onNavigate("accounts")}>Accounts</Button></Group>
-                <div><Text size="sm" fw={500} mb={6}>Carousel order</Text>{selected.length ? <Stack gap={6}>{selected.map((item, index) => <Paper key={item.artifactId} withBorder p={8} radius="sm" onDragOver={(event) => event.preventDefault()} onDrop={(event) => { event.preventDefault(); if (draggedIndex !== null) reorderSelected(draggedIndex, index); setDraggedIndex(null); }} style={{ opacity: draggedIndex === index ? 0.55 : 1 }}>
-                  <Group wrap="nowrap" gap="xs">
-                    <Text size="sm" c="dimmed" aria-label={`Drag slide ${index + 1}`} draggable onDragStart={(event) => { setDraggedIndex(index); event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData("text/plain", item.artifactId); }} onDragEnd={() => setDraggedIndex(null)} style={{ cursor: "grab", userSelect: "none" }}>⠿</Text><Text size="xs" c="dimmed" w={18} ta="center">{index + 1}</Text><Image src={apiUrl(`/api/artifacts/${item.artifactId}/thumbnail`)} alt="" w={42} h={42} fit="cover" radius="sm" /><Text size="xs" fw={500} lineClamp={1} style={{ flex: 1 }}>{item.displayName}</Text>
-                    <ActionIcon variant="subtle" color="gray" size="sm" aria-label={`Move ${item.displayName} up`} disabled={index === 0} onClick={() => moveSelected(index, -1)}>↑</ActionIcon><ActionIcon variant="subtle" color="gray" size="sm" aria-label={`Move ${item.displayName} down`} disabled={index === selected.length - 1} onClick={() => moveSelected(index, 1)}>↓</ActionIcon><ActionIcon variant="subtle" color="hiveError" size="sm" aria-label={`Remove ${item.displayName}`} onClick={() => chooseImage(item)}>×</ActionIcon>
-                  </Group>
-                  <Textarea mt="xs" label={`Alt text for slide ${index + 1}`} placeholder="Describe this image for screen reader users" value={altTextById[item.artifactId] ?? ""} onChange={(event) => { const value = event.currentTarget.value; setAltTextById((current) => ({ ...current, [item.artifactId]: value })); }} maxLength={1000} autosize minRows={2} maxRows={4} description={`${(altTextById[item.artifactId] ?? "").length} / 1,000 characters`} />
-                </Paper>)}</Stack> : <Text size="xs" c="dimmed">Select images from Media Library or Awaiting publish.</Text>}</div>
+                <div><Text size="sm" fw={500} mb={6}>Carousel order</Text>{selected.length ? <DndContext sensors={dndSensors} collisionDetection={closestCenter} onDragEnd={handleCarouselDragEnd}><SortableContext items={selected.map((item) => item.artifactId)} strategy={verticalListSortingStrategy}><Stack gap={6}>{selected.map((item, index) => <SortablePublicationMedia key={item.artifactId} item={item} index={index} altText={altTextById[item.artifactId] ?? ""} onAltTextChange={(artifactId, value) => setAltTextById((current) => ({ ...current, [artifactId]: value }))} onRemove={chooseImage} />)}</Stack></SortableContext></DndContext> : <Text size="xs" c="dimmed">Select images from Media Library or Awaiting publish.</Text>}</div>
                 <Textarea label="Caption" value={caption ?? ""} onChange={updateCaption} maxLength={2200} autosize minRows={4} maxRows={8} description={`${(caption ?? "").length} / 2,200 characters · One caption for the whole post`} />
                 <Group justify="space-between"><Button variant="default" loading={saving} disabled={!selectedIds.length || !account} onClick={() => { setSaving(true); void saveDraft().then(() => showFlash({ tone: "success", title: "Draft saved", message: "Your Instagram post draft is saved." })).catch((error) => showFlash({ tone: "error", title: "Draft", message: error instanceof Error ? error.message : "Could not save the draft." })).finally(() => setSaving(false)); }}>Save draft</Button><Button loading={saving} disabled={!selectedIds.length || !account} onClick={() => setConfirmAction("publish")}>Review and publish</Button></Group>
               </Stack>
@@ -420,14 +446,14 @@ export function PublishPage({ onNavigate }: PublishPageProps) {
       <Tabs.Panel value="drafts" pt="md">
         <Paper withBorder p="md" radius="md">
           <Group justify="space-between" mb="md"><div><Text fw={600}>Saved drafts</Text><Text size="xs" c="dimmed">Continue editing a draft or remove it.</Text></div><Button onClick={() => { setActiveDraftId(null); setSelectedIds([]); setAltTextById({}); setCaption(""); setActiveTab("compose"); void refreshAwaiting().catch(() => {}); }}>New post</Button></Group>
-          {loading ? <Loader size="sm" /> : drafts.length ? <Stack gap="xs">{visibleDrafts.map((draft) => <Paper withBorder p="sm" radius="sm" key={draft.id}><Group justify="space-between" wrap="nowrap"><Group wrap="nowrap" gap="sm"><Group gap={4}>{draft.media.slice(0, 3).map((item) => <Image key={item.artifactId} src={apiUrl(`/api/artifacts/${item.artifactId}/thumbnail`)} alt="" w={44} h={44} fit="cover" radius="sm" />)}</Group><div><Text size="sm" fw={500}>{draft.media.length} image{draft.media.length === 1 ? "" : "s"} · @{account?.username ?? "Instagram"}</Text><Text size="xs" c="dimmed" lineClamp={1}>{draft.caption || "No caption"}</Text><Text size="xs" c="dimmed">Updated {new Date(draft.updatedAt).toLocaleString()}</Text></div></Group><Group gap="xs" wrap="nowrap"><Button variant="default" size="xs" onClick={() => openDraft(draft)}>Open</Button><ActionIcon variant="subtle" color="hiveError" aria-label="Delete draft" onClick={() => { setDeleteDraftTarget(draft); setConfirmAction("delete-draft"); }}>×</ActionIcon></Group></Group></Paper>)}</Stack> : <Text size="sm" c="dimmed" ta="center" py="xl">No saved drafts yet.</Text>}
+          {loading ? <Loader size="sm" /> : <PaginatedListSlots pageSize={pageSize} minItemHeight={76} gap={8}>{drafts.length ? visibleDrafts.map((draft) => <Paper withBorder p="sm" radius="sm" key={draft.id}><Group justify="space-between" wrap="nowrap"><Group wrap="nowrap" gap="sm"><Group gap={4}>{draft.media.slice(0, 3).map((item) => <ArtifactThumbnail key={item.artifactId} artifactId={item.artifactId} size={44} />)}</Group><div><Text size="sm" fw={500}>{draft.media.length} image{draft.media.length === 1 ? "" : "s"} · @{account?.username ?? "Instagram"}</Text><Text size="xs" c="dimmed" lineClamp={1}>{draft.caption || "No caption"}</Text><Text size="xs" c="dimmed">Updated {new Date(draft.updatedAt).toLocaleString()}</Text></div></Group><Group gap="xs" wrap="nowrap"><Button variant="default" size="xs" onClick={() => openDraft(draft)}>Open</Button><ActionIcon variant="subtle" color="hiveError" aria-label="Delete draft" onClick={() => { setDeleteDraftTarget(draft); setConfirmAction("delete-draft"); }}>×</ActionIcon></Group></Group></Paper>) : <Text size="sm" c="dimmed" ta="center" py="xl">No saved drafts yet.</Text>}</PaginatedListSlots>}
           {drafts.length > 0 && <Group justify="space-between" mt="md"><Text size="xs" c="dimmed">{(currentDraftsPage - 1) * pageSize + 1}–{Math.min(currentDraftsPage * pageSize, drafts.length)} of {drafts.length} drafts</Text><Pagination size="sm" total={draftsPageCount} value={currentDraftsPage} onChange={setDraftsPage} disabled={drafts.length <= pageSize} /></Group>}
         </Paper>
       </Tabs.Panel>
       <Tabs.Panel value="activity" pt="md">
         <Paper withBorder p="md" radius="md">
           <Group justify="space-between" mb="md"><div><Text fw={600}>Publishing activity</Text><Text size="xs" c="dimmed">Instagram posts composed from library images and runs awaiting publish.</Text></div><Button variant="default" onClick={() => void refreshActivity()}>Refresh</Button></Group>
-          {activity.length ? <Stack gap="xs">{visibleActivity.map((post) => <Paper withBorder p="sm" radius="sm" key={post.id}><Group justify="space-between" wrap="nowrap"><Group wrap="nowrap" gap="sm"><Group gap={4}>{post.media.slice(0, 3).map((item) => <ActivityThumbnail key={item.artifactId} artifactId={item.artifactId} alt={item.displayName} />)}</Group><div><Group gap="xs"><Text size="sm" fw={500}>{post.media.length} image{post.media.length === 1 ? "" : "s"}</Text><Badge color={post.status === "published" ? "hiveSuccess" : post.status === "awaiting_review" ? "hiveWarning" : "hiveSky"} variant="light">{post.status.replaceAll("_", " ")}</Badge></Group><Text size="xs" c="dimmed" lineClamp={1}>{post.caption || "No caption"}</Text>{post.errorSummary && <Text size="xs" c="hiveError">{post.errorSummary}</Text>}{post.status === "awaiting_review" && <Text size="xs" c="dimmed">If Instagram’s result is uncertain, check the account before retrying.</Text>}</div></Group>{post.status === "awaiting_review" && <Button size="xs" variant="default" onClick={() => { setRetryTarget(post); setConfirmAction("retry"); }}>Review and retry</Button>}</Group></Paper>)}</Stack> : <Text size="sm" c="dimmed" ta="center" py="xl">No standalone posts yet.</Text>}
+          <PaginatedListSlots pageSize={pageSize} minItemHeight={92} gap={8}>{activity.length ? visibleActivity.map((post) => <Paper withBorder p="sm" radius="sm" key={post.id}><Group justify="space-between" align="start" wrap="nowrap"><Group align="start" wrap="nowrap" gap="sm" style={{ minWidth: 0, flex: 1 }}><Group wrap="nowrap" gap={4} style={{ flex: "0 0 auto" }}>{post.media.slice(0, 3).map((item) => <ActivityThumbnail key={item.artifactId} artifactId={item.artifactId} alt={item.displayName} />)}</Group><Box style={{ flex: 1, minWidth: 0 }}><Group gap="xs"><Text size="sm" fw={500}>{post.media.length} image{post.media.length === 1 ? "" : "s"}</Text><Badge color={post.status === "published" ? "hiveSuccess" : post.status === "awaiting_review" ? "hiveWarning" : "hiveSky"} variant="light">{post.status.replaceAll("_", " ")}</Badge></Group><Text size="xs" c="dimmed" style={{ whiteSpace: "normal", overflowWrap: "anywhere" }}>{post.caption || "No caption"}</Text>{post.errorSummary && <Text size="xs" c="hiveError">{post.errorSummary}</Text>}{post.status === "awaiting_review" && <Text size="xs" c="dimmed">If Instagram’s result is uncertain, check the account before retrying.</Text>}</Box></Group>{post.status === "awaiting_review" && <Button size="xs" variant="default" onClick={() => { setRetryTarget(post); setConfirmAction("retry"); }}>Review and retry</Button>}</Group></Paper>) : <Text size="sm" c="dimmed" ta="center" py="xl">No standalone posts yet.</Text>}</PaginatedListSlots>
           {activity.length > 0 && <Group justify="space-between" mt="md"><Text size="xs" c="dimmed">{(currentActivityPage - 1) * pageSize + 1}–{Math.min(currentActivityPage * pageSize, activity.length)} of {activity.length} posts</Text><Pagination size="sm" total={activityPageCount} value={currentActivityPage} onChange={setActivityPage} disabled={activity.length <= pageSize} /></Group>}
         </Paper>
       </Tabs.Panel>

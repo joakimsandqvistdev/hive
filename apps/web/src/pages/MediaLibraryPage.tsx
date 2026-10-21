@@ -4,7 +4,9 @@ import { apiFetch, apiUrl } from "../apiClient";
 import { formatFileSize } from "../formatters";
 import { useFlashMessages } from "../components/FlashMessages";
 import { ConfirmActionModal } from "../components/ConfirmActionModal";
+import { ArtifactThumbnail } from "../components/ArtifactThumbnail";
 import { PaginatedTableFooter } from "../components/PaginatedTableFooter";
+import { PaginatedTableBody } from "../components/PaginatedPageSlots";
 import { EditIcon, TrashIcon, WorkspaceTableAction, WorkspaceTableActions, WorkspaceTableInfo } from "../components/WorkspaceTableActions";
 import { useVisiblePolling } from "../hooks/useVisiblePolling";
 
@@ -32,7 +34,7 @@ function VideoFileGlyph() {
 }
 
 function SaveMediaIcon() {
-  return <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3v11m0 0 4-4m-4 4-4-4M4 15v5h16v-5" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" /></svg>;
+  return <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" /></svg>;
 }
 
 function MediaReferencesIcon() {
@@ -70,7 +72,7 @@ function MediaReferenceTooltip({ item }: { item: Media }) {
 }
 
 function MediaRowVisual({ item }: { item: Media }) {
-  if (item.mediaType.startsWith("image/")) return <Image className="media-row-thumbnail" src={apiUrl(`/api/artifacts/${item.id}/thumbnail`)} alt="" fit="cover" w={50} h={50} />;
+  if (item.mediaType.startsWith("image/")) return <ArtifactThumbnail artifactId={item.id} size={60} />;
   return <span className={`media-row-thumbnail media-row-thumbnail-${item.dataTypeId}`} aria-hidden="true">{item.dataTypeId === "audio" ? <AudioFileGlyph /> : <VideoFileGlyph />}</span>;
 }
 
@@ -331,7 +333,7 @@ export function MediaLibraryPage() {
               <div className="media-table-wrap">
                 <Table className="inventory-table media-inventory-table" highlightOnHover withRowBorders>
                   <Table.Thead><Table.Tr><Table.Th>File</Table.Th><Table.Th>Size</Table.Th><Table.Th>Added</Table.Th><Table.Th className="media-actions-heading">Actions</Table.Th></Table.Tr></Table.Thead>
-                  <Table.Tbody>
+                  <PaginatedTableBody pageSize={PAGE_SIZE} columnCount={4}>
                     {pageItems.map((item) => <Table.Tr
                       key={item.id}
                       className={selectedItem?.id === item.id ? "inventory-row-selected" : undefined}
@@ -340,7 +342,7 @@ export function MediaLibraryPage() {
                       onClick={() => setSelectedId(item.id)}
                       onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setSelectedId(item.id); } }}
                     >
-                      <Table.Td><div className="media-row-file"><MediaRowVisual item={item} /><div className="media-row-file-copy"><Text className="inventory-row-title" fw={600} size="sm" lineClamp={1}>{item.displayName}</Text><Group className="media-row-status" gap={6} mt={3} wrap="wrap"><Badge color={item.savedToLibrary ? "hiveSuccess" : "gray"} variant="light" size="xs">{item.savedToLibrary ? "Saved" : "Not saved"}</Badge><Text size="xs" c="dimmed">{item.runId ? "Run output" : "Workflow input"} · {availabilityLabel(item.availabilityState)}</Text></Group></div></div></Table.Td>
+                      <Table.Td><div className="media-row-file"><MediaRowVisual item={item} /><div className="media-row-file-copy"><Text className="inventory-row-title" fw={600} size="sm" lineClamp={1}>{item.displayName}</Text><Text size="xs" c="dimmed">{item.runId ? "Run output" : "Workflow input"} · {availabilityLabel(item.availabilityState)}</Text></div><Badge className="media-row-saved-badge" color={item.savedToLibrary ? "hiveSuccess" : "gray"} variant="light" size="xs">{item.savedToLibrary ? "Saved" : "Not saved"}</Badge></div></Table.Td>
                       <Table.Td className="inventory-nowrap">{formatFileSize(item.byteSize)}</Table.Td>
                       <Table.Td className="media-date-cell">{formatDate(item.createdAt)}</Table.Td>
                       <Table.Td className="media-actions-cell" onClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()}>
@@ -377,8 +379,7 @@ export function MediaLibraryPage() {
                         </WorkspaceTableActions>
                       </Table.Td>
                     </Table.Tr>)}
-                    {Array.from({ length: Math.max(0, PAGE_SIZE - pageItems.length) }, (_, index) => <Table.Tr className="media-table-placeholder-row" aria-hidden="true" key={`media-placeholder-${index}`}><Table.Td colSpan={4} /></Table.Tr>)}
-                  </Table.Tbody>
+                  </PaginatedTableBody>
                 </Table>
                 <PaginatedTableFooter total={total} itemName="item" page={page} pageSize={PAGE_SIZE} totalPages={totalPages} onPageChange={(nextPage) => { setPage(nextPage); setSelectedId(null); }} />
               </div>
@@ -435,7 +436,7 @@ export function MediaLibraryPage() {
           <Paper className="media-storage-card media-protected-list" withBorder radius="md" p="md">
             <Group justify="space-between" mb="sm"><Title order={2} size="h6">Protected media</Title><Badge variant="light" color="gray">{protectedTotal} files</Badge></Group>
             {protectedItems.length === 0 ? <Text size="sm" c="dimmed">No media is currently protected by an active reference.</Text> : <>
-              <Table className="inventory-table" withRowBorders><Table.Thead><Table.Tr><Table.Th>File</Table.Th><Table.Th>Protected by</Table.Th><Table.Th>Size</Table.Th><Table.Th>Age</Table.Th></Table.Tr></Table.Thead><Table.Tbody>{protectedItems.map((item) => <Table.Tr key={item.id}><Table.Td><Text fw={600} size="sm">{item.displayName}</Text><Text size="xs" c="dimmed">{item.savedToLibrary ? "Saved to library" : item.runId ? "Run output" : "Workflow input"}</Text></Table.Td><Table.Td>{item.protectedBy?.join(" · ") || "Active reference"}</Table.Td><Table.Td>{formatFileSize(item.byteSize)}</Table.Td><Table.Td>{mediaAge(item.createdAt)}</Table.Td></Table.Tr>)}{Array.from({ length: Math.max(0, 10 - protectedItems.length) }, (_, index) => <Table.Tr className="media-table-placeholder-row" aria-hidden="true" key={`protected-placeholder-${index}`}><Table.Td colSpan={4} /></Table.Tr>)}</Table.Tbody></Table>
+              <Table className="inventory-table" withRowBorders><Table.Thead><Table.Tr><Table.Th>File</Table.Th><Table.Th>Protected by</Table.Th><Table.Th>Size</Table.Th><Table.Th>Age</Table.Th></Table.Tr></Table.Thead><PaginatedTableBody pageSize={10} columnCount={4}>{protectedItems.map((item) => <Table.Tr key={item.id}><Table.Td><Text fw={600} size="sm">{item.displayName}</Text><Text size="xs" c="dimmed">{item.savedToLibrary ? "Saved to library" : item.runId ? "Run output" : "Workflow input"}</Text></Table.Td><Table.Td>{item.protectedBy?.join(" · ") || "Active reference"}</Table.Td><Table.Td>{formatFileSize(item.byteSize)}</Table.Td><Table.Td>{mediaAge(item.createdAt)}</Table.Td></Table.Tr>)}</PaginatedTableBody></Table>
               <PaginatedTableFooter total={protectedTotal} itemName="protected file" page={protectedPage} pageSize={10} totalPages={Math.max(1, Math.ceil(protectedTotal / 10))} onPageChange={setProtectedPage} />
             </>}
           </Paper>

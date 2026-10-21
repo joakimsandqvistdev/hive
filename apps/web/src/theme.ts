@@ -1,4 +1,4 @@
-import { createTheme } from "@mantine/core";
+import { createTheme, type BadgeProps, type MantineTheme } from "@mantine/core";
 
 const fontFamily = "Inter, 'Segoe UI', sans-serif";
 const fontFamilyMonospace = "'Cascadia Code', 'SFMono-Regular', Consolas, monospace";
@@ -34,11 +34,27 @@ export const theme = createTheme({
     Button: { defaultProps: { size: "sm", radius: "sm" }, styles: { root: { fontWeight: 600, transition: "background-color 140ms ease, border-color 140ms ease, color 140ms ease" } } },
     ActionIcon: { defaultProps: { radius: "sm" } },
     Avatar: { defaultProps: { radius: "sm" } },
-    Badge: { defaultProps: { radius: "sm" } },
+    Badge: {
+      defaultProps: { size: "sm", radius: "xs", variant: "light" },
+      styles: (theme: MantineTheme, props: BadgeProps) => {
+        if (props.variant !== "light") return {};
+        const colorName = String(props.color ?? theme.primaryColor).split(".")[0];
+        const shades = theme.colors[colorName] ?? theme.colors.hiveSky;
+        const backgroundShade = colorName === "gray" ? 2 : 1;
+        const borderShade = colorName === "gray" ? 4 : 2;
+        return {
+          root: {
+            backgroundColor: shades[backgroundShade],
+            color: shades[8],
+            border: `1px solid ${shades[borderShade]}`,
+          },
+        };
+      },
+    },
     Input: { defaultProps: { size: "sm", radius: "sm" } },
     Modal: { defaultProps: { radius: "md" } },
     Menu: { defaultProps: { radius: "sm" } },
-    NavLink: { styles: { root: { borderRadius: "0.5625rem", transition: "background-color 140ms ease, color 140ms ease" } } },
+    NavLink: { styles: { root: { borderRadius: "0.5rem", transition: "background-color 140ms ease, color 140ms ease" } } },
     Paper: { defaultProps: { radius: "md" } },
   },
 });
