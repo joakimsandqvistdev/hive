@@ -8,6 +8,7 @@ import sharp from "sharp";
 import { Agent, fetch as undiciFetch } from "undici";
 import { artifactPath, detectUpload, readArtifact, removeArtifact, saveUpload } from "./artifactStore.js";
 import { ArtifactQuotaError, withArtifactQuota } from "./artifactQuota.js";
+import { admitArtifactUpload } from "./artifactUploadAdmission.js";
 import { parseArtifactByteRange } from "./artifactRange.js";
 import { db, pool } from "./db.js";
 import { isPublicAddress } from "./publicAddress.js";
@@ -202,7 +203,7 @@ router.delete("/:id", async (req, res, next) => {
 router.post("/upload", (req, res, next) => {
   if (req.get("origin") !== (process.env.WEB_ORIGIN ?? "http://localhost:5173")) { res.status(403).json({ error: "invalid_origin" }); return; }
   next();
-}, raw({ type: "application/octet-stream", limit: "50mb" }), async (req, res, next) => {
+}, admitArtifactUpload, raw({ type: "application/octet-stream", limit: "50mb" }), async (req, res, next) => {
   const dataTypeId = String(req.query.dataTypeId ?? "");
   const sourceWorkflowId = typeof req.query.workflowId === "string" ? req.query.workflowId : null;
   const savedToLibrary = req.query.scope === "library";
