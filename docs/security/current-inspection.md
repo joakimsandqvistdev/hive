@@ -1,20 +1,22 @@
 # Current ASVS 5.0.0 inspection
 
 Assessment date: 2026-10-21
-Commit assessed: `3315468` plus the uncommitted working-tree changes listed in the security fix, audit, and verification records.
+Commit assessed: `d635186` plus this inspection's metric and documentation updates.
 Scope: Whole repository. Ignored `.env`, `.data`, dependencies, and build output were excluded. Repository source, tests, documentation, and configuration were assessed; runtime evidence is limited to the linked local verification reports. No production, cloud, identity-provider console, or operator checks were available.
-Reassessment: Reconciled all 345 requirement IDs and both exclusion registers against the pinned inventory. Since the previous assessment, the working tree adds shared PostgreSQL advisory-lock upload admission, a regression test, CI execution of the API unit suite, and security workflow/audit documentation. The upload change and its local PostgreSQL-backed HTTP check add evidence to `v5.0.0-V2.4.1` and `v5.0.0-V15.2.2`; both remain partially covered because deployment proxy buffering, replica count, memory limits, and broader anti-automation/resource controls are unknown. See [fix](fixes/2026-10-21-1616-utc.md) and [verification](verifications/2026-10-21-1622-utc.md). The new Hive remediation targets provide partial documentation evidence for `v5.0.0-V15.1.1`, but do not define third-party component-specific remediation times or a library update cadence. `v5.0.0-V5.2.4` retains its local verification pass. The inspected changes do not justify changing other implementation statuses or evidence-backed exclusions.
+Reassessment: Reconciled all 345 requirement IDs and both exclusion registers against the pinned inventory. The current assessment includes commit `d635186`: shared PostgreSQL advisory-lock upload admission, a regression test, CI execution of the API unit suite, and security workflow/audit documentation. The upload change and its local PostgreSQL-backed HTTP check add evidence to `v5.0.0-V2.4.1` and `v5.0.0-V15.2.2`; both remain partially covered because deployment proxy buffering, replica count, memory limits, and broader anti-automation/resource controls are unknown. See [fix](fixes/2026-10-21-1616-utc.md) and [verification](verifications/2026-10-21-1622-utc.md). The new Hive remediation targets provide partial documentation evidence for `v5.0.0-V15.1.1`, but do not define third-party component-specific remediation times or a library update cadence. `v5.0.0-V5.2.4` retains its local verification pass. Hive's L1+L2 implementation-coverage target is 100% of applicable requirements; verification passes are reported separately. The inspected changes do not justify changing other implementation statuses or evidence-backed exclusions.
 
 ## Summary
 
 - Pinned inventory: **345** requirements (L1 70, L2 183, L3 92).
+- L1+L2 scope: **253/345 (73.3%)** of the catalog; 65 justified not-applicable requirements are excluded, leaving **188 applicable requirements**. OWASP's approximate 70% refers to this catalog composition, not a completion threshold.
 - Status counts: covered 50; partially covered 50; not covered 60; needs information 100; not applicable 85; not assessed 0.
 - Catalog evidence coverage: **14.5% (50/345)**.
 - Hive applicability coverage, all levels: **19.2% (50/260)**; denominator excludes 85 evidence-backed not-applicable requirements.
-- Applicable L1+L2 progress toward Hive’s 70% tracking target: **25.0% (47/188)**; target not met.
+- Applicable L1+L2 implementation coverage toward Hive’s **100% target**: **25.0% (47/188)**; 141 requirements remain not fully covered.
+- Applicable L1+L2 verification-pass coverage: **0.0% (0/188)**; conformance requires 100%, and coverage status alone is not verification.
 - L1+L2 status counts: covered 47; partially covered 40; not covered 33; needs information 68; not applicable 65.
 - Applicable L1+L2 requirements: 47 covered, 40 partially covered, 33 not covered, and 68 needing information; the matrix lists every requirement ID and its evidence.
-- L1+L2 ASVS conformance: **not demonstrated**. The verification pass is for L3 requirement `v5.0.0-V5.2.4`; `v5.0.0-V2.4.1` and `v5.0.0-V15.2.2` have pending verification, and no applicable L1+L2 requirement has outcome `pass`.
+- L1+L2 ASVS conformance: **not demonstrated**. The verification pass is for L3 requirement `v5.0.0-V5.2.4`; `v5.0.0-V2.4.1` and `v5.0.0-V15.2.2` have pending verification, and no applicable L1+L2 requirement has outcome `pass`. The 100% implementation-coverage target and the all-requirements verification condition for conformance are separate measures.
 
 ## Method and limits
 

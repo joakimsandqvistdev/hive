@@ -35,9 +35,11 @@ Let `N=345`, `T=253` (L1+L2), and `C` be requirements marked `covered` with cite
 
 - Catalog evidence coverage = `C / N`.
 - Hive applicability coverage (all levels) = `C / A`.
-- L1+L2 progress = covered applicable L1/L2 requirements divided by applicable L1/L2 requirements. The 70% goal is a Hive progress target only.
+- Let `A12` be all L1+L2 requirements except justified not-applicable IDs. Applicable L1+L2 coverage = covered applicable L1+L2 requirements divided by `A12`. Hive's target is **100%**; justified not-applicable requirements are excluded from `A12` and are never counted as covered.
+- Applicable L1+L2 verification-pass coverage = requirements in `A12` with verification outcome `pass` divided by `A12`. Report this separately from implementation coverage; a `covered` implementation status alone is not a verification pass. The verification-pass threshold for demonstrating ASVS L2 conformance is 100% of `A12`.
+- OWASP's statement that L1+L2 make up around 70% of ASVS requirements describes their approximate share of the full catalog, not a permitted completion threshold. ASVS Level 2 requires all applicable L1+L2 requirements in the selected, traceable application scope; tailoring may exclude justified irrelevant requirements but does not turn them into passes. See the pinned [ASVS 5.0.0 level and tailoring guidance](https://github.com/OWASP/ASVS/blob/v5.0.0/5.0/en/0x03-What-is-the-ASVS.md).
 - Report partial, not-covered, needs-information, not-assessed, and not-applicable counts separately. Display numerator and denominator beside every percentage; if a denominator is zero, report `N/A`.
-- Do not call a 70% score “ASVS L2 pass” or “compliant.” State L1+L2 conformance as `demonstrated` only if every applicable L1/L2 requirement has verification outcome `pass` and none is pending, failed, partial, not covered, needs information, or not assessed. Otherwise say `not demonstrated` and list what remains.
+- State L1+L2 conformance as `demonstrated` only if every applicable L1/L2 requirement has verification outcome `pass` and none is pending, failed, partial, not covered, needs information, or not assessed. Otherwise say `not demonstrated` and list what remains. Do not describe a coverage percentage by itself as conformance.
 
 ## Security audit evidence and severity
 
