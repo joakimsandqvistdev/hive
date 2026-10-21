@@ -22,6 +22,7 @@ The pinned inventory was validated and all 345 matrix rows were reconciled again
 
 ## Related security reports
 
+- Applicable L1+L2 follow-up queue: [`uncovered-requirements.md`](uncovered-requirements.md). It excludes L3 and evidence-backed not-applicable requirements; needs-information items are shown separately.
 - Latest audit: [`audits/2026-10-21-1457-utc.md`](audits/2026-10-21-1457-utc.md); preceding audit: [`audits/2026-10-21.md`](audits/2026-10-21.md).
 - Quota verification (`HIVE-SEC-2026-001`, `v5.0.0-V5.2.4`): [`verifications/2026-10-21.md`](verifications/2026-10-21.md).
 - Upload admission verification (`HIVE-SEC-2026-002`, `v5.0.0-V2.4.1`, `v5.0.0-V15.2.2`): [`verifications/2026-10-21-1504-utc.md`](verifications/2026-10-21-1504-utc.md).

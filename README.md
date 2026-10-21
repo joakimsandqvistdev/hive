@@ -4,6 +4,10 @@ Hive is a self-hosted application for building and running workflows with typed 
 
 Built with React, TypeScript, Node.js, Express, PostgreSQL, Drizzle ORM, and Docker Compose.
 
+## Security workflow
+
+Security assessment uses the repo-local [`hive-security` skill](.agents/skills/hive-security/SKILL.md) and the pinned OWASP ASVS 5.0.0 Level 2 baseline. Run `security-inspect` to refresh requirement coverage, `security-audit` to review every applicable Level 1 and Level 2 requirement by default, `security-fix` to remediate findings, and `security-verify` to check pending changes. See [the security workflow guide](docs/security/README.md) for targeted audits and reports.
+
 ## Clone the repository
 
 ```bash

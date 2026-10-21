@@ -20,17 +20,25 @@
 ### {FINDING-ID} — {short title}
 
 - Severity and rationale: {level and impact/precondition basis}
+- CVSS: {omit unless confirmed; if scored, include version, score, and full vector}
 - Confidence: {high/medium/low}
 - Status: {open/change made, verification pending/verified/still open}
 - Location: `{path}:{line}` or named runtime/configuration surface
 - Evidence: {concise, redacted evidence}
 - Impact and preconditions: {description}
 - Remediation: {direction}
+- Resolution target: {Hive target and due date, when the gap is confirmed}
 - ASVS: [`v5.0.0-{requirement-id}`]({official chapter URL}) — {short requirement text}
 
 ## ASVS coverage snapshot
 
 Report numerator/denominator and percentage for catalog evidence coverage, all-level Hive applicability coverage, and applicable L1+L2 progress. Show status counts and the separate L1+L2 conformance result. Link the current needs-information and not-applicable registers.
+
+For a full audit, include a disposition row for every applicable L1+L2 requirement (expected baseline: 188; recalculate from current inventory and N/A register). For a targeted audit, include every requested requirement. Use only `no issue identified`, `finding(s)`, `blocked: needs information`, or `not assessed` as audit dispositions, with a short evidence pointer or reason. State the exact counts in each disposition and reconcile them to the audit scope. An audit disposition is not an implementation status or verification result.
+
+| ASVS requirement | Audit disposition | Evidence / finding IDs |
+|---|---|---|
+| `v5.0.0-{id}` | {disposition} | {file/lines, report section, or reason} |
 
 ## Checks performed
 

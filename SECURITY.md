@@ -15,3 +15,5 @@ Codex should use the OWASP Application Security Verification Standard (ASVS) 5.0
 ## Security workflow
 
 Use the repo-local [`hive-security` skill](.agents/skills/hive-security/SKILL.md) for the `security-inspect`, `security-audit`, `security-fix`, and `security-verify` workflows. The current inspection matrix and exclusion registers are under `docs/security/`.
+
+The default `security-audit` reviews every applicable ASVS 5.0.0 Level 1 and Level 2 requirement. It excludes only requirements with concrete evidence in `docs/security/not-applicable.md`; requirements needing information remain in scope and are reported as blocked when necessary. See [`docs/security/README.md`](docs/security/README.md) for targeted audits, the uncovered-requirements queue, and Hive's proposed resolution targets.
