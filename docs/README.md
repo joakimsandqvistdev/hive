@@ -22,6 +22,7 @@ When two authoritative sources conflict and no superseding decision is clear, st
 | Tables, ownership, retention | `DATA_MODEL.md`, then relevant migrations and decisions |
 | UI or interaction changes | `DESIGN_SYSTEM.md`, then matching pages/components |
 | Workflow orchestration | `ARCHITECTURE.md`, `DATA_MODEL.md`, and relevant workflow decisions |
+| Security assessment | [`security/README.md`](security/README.md), then the pinned ASVS inventory and assessment records |
 | Feature prioritization | `../FEATURE_QUEUE.md` (proposal only) |
 
 ## Decisions
