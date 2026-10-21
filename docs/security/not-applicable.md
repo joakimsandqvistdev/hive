@@ -2,7 +2,7 @@
 
 Current register derived from the whole-repository inspection. Reassess these exclusions when product scope changes.
 
-Last assessed: 2026-10-21; commit `ee574d0`. Rechecked all listed exclusions; reviewed security changes did not alter Hive's product boundary or justify adding or closing an exclusion.
+Last assessed: 2026-10-21; commit `8d33c98`. Rechecked all listed exclusions; security policy/workflow documentation did not alter Hive's product boundary or justify adding or closing an exclusion.
 
 | ASVS requirement | Evidence-backed reason it does not apply | Evidence reviewed | Scope condition to revisit | Status / resolution note |
 |---|---|---|---|---|

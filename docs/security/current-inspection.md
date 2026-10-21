@@ -1,24 +1,24 @@
 # Current ASVS 5.0.0 inspection
 
 Assessment date: 2026-10-21
-Commit assessed: `ee574d0`
+Commit assessed: `8d33c98`
 Scope: Whole repository. Ignored `.env`, `.data`, dependencies, and build output were excluded. Repository source, tests, documentation, and configuration were assessed; runtime evidence is limited to the linked local verification reports. No production, cloud, identity-provider console, or operator checks were available.
-Reassessment: Reconciled all 345 requirement IDs and both exclusion registers against the pinned inventory and reviewed changes since `601f4c4`. The artifact quota and upload admission changes provide partial evidence for `v5.0.0-V2.4.1` and `v5.0.0-V15.2.2`; both remain verification-pending due broader control and deployment gaps. `v5.0.0-V5.2.4` retains its local verification pass. The remaining implementation statuses and exclusions are unchanged because the reviewed changes did not affect their evidence or Hive's product boundary.
+Reassessment: Reconciled all 345 requirement IDs and both exclusion registers against the pinned inventory. Changes since the prior assessment are security-policy and workflow documentation; no application source or deployment configuration changed. The new Hive remediation targets provide partial documentation evidence for `v5.0.0-V15.1.1`, but do not define third-party component-specific remediation times or a library update cadence. The artifact quota and upload admission changes remain partial evidence for `v5.0.0-V2.4.1` and `v5.0.0-V15.2.2`; both still need broader control and deployment verification. `v5.0.0-V5.2.4` retains its local verification pass. Other implementation statuses and evidence-backed exclusions remain unchanged.
 
 ## Summary
 
 - Pinned inventory: **345** requirements (L1 70, L2 183, L3 92).
-- Status counts: covered 50; partially covered 49; not covered 61; needs information 100; not applicable 85; not assessed 0.
+- Status counts: covered 50; partially covered 50; not covered 60; needs information 100; not applicable 85; not assessed 0.
 - Catalog evidence coverage: **14.5% (50/345)**.
 - Hive applicability coverage, all levels: **19.2% (50/260)**; denominator excludes 85 evidence-backed not-applicable requirements.
 - Applicable L1+L2 progress toward Hive’s 70% tracking target: **25.0% (47/188)**; target not met.
-- L1+L2 status counts: covered 47; partially covered 39; not covered 34; needs information 68; not applicable 65.
-- Applicable L1+L2 requirements: 47 covered, 39 partially covered, 34 not covered, and 68 needing information; the matrix lists every requirement ID and its evidence.
+- L1+L2 status counts: covered 47; partially covered 40; not covered 33; needs information 68; not applicable 65.
+- Applicable L1+L2 requirements: 47 covered, 40 partially covered, 33 not covered, and 68 needing information; the matrix lists every requirement ID and its evidence.
 - L1+L2 ASVS conformance: **not demonstrated**. The verification pass is for L3 requirement `v5.0.0-V5.2.4`; `v5.0.0-V2.4.1` and `v5.0.0-V15.2.2` have pending verification, and no applicable L1+L2 requirement has outcome `pass`.
 
 ## Method and limits
 
-The pinned inventory was validated and all 345 matrix rows were reconciled against it. I reviewed repository source and configuration changes since the previous assessed commit, the relevant documentation and accepted decisions, and the current needs-information and not-applicable registers. The recent security changes add database-serialized artifact quotas and an in-process upload admission bound; evidence for those controls is reflected in the V2, V5, and V15 rows. A focused local HTTP pipeline check and local database/API quota verification are cited in dated verification reports. Status remains distinct from verification: `covered` means evidence supports the full requirement, while `partially covered` records controls that address only part of it. Production deployment, cloud, identity-provider, and operator settings remain unknown. Follow-up is listed for partial, missing, and unknown controls. No feature-scope change supported adding or closing a not-applicable entry. This inspection is not a vulnerability audit or penetration test.
+The pinned inventory was validated and all 345 matrix rows were reconciled against it. Since the prior assessed commit, changes were limited to security policy/workflow documentation; application source and deployment configuration did not change, so their prior review evidence carries forward. I checked the new security documentation against documentation-related ASVS requirements and updated `v5.0.0-V15.1.1` to partially covered. The current needs-information and not-applicable registers were reconciled to the matrix. Prior focused local HTTP and database/API checks remain recorded in the dated verification reports; they do not establish deployment-wide behavior. Status remains distinct from verification: `covered` means evidence supports the full requirement, while `partially covered` records controls that address only part of it. Production deployment, cloud, identity-provider, and operator settings remain unknown. This inspection is not a vulnerability audit or penetration test.
 
 ## Related security reports
 
@@ -43,7 +43,7 @@ The pinned inventory was validated and all 345 matrix rows were reconciled again
 - **V12**: compose.yaml: runner network and loopback binding; compose.local.yaml: API/worker service network; .env.example: integration URLs (`configuration; deployment evidence unavailable`).
 - **V13**: .env.example; compose.yaml; compose.local.yaml; .github/workflows/ci.yml:1-25; docs/ARCHITECTURE.md:1 (`configuration, documentation`).
 - **V14**: apps/api/src/artifacts.ts:292,308,356; apps/api/src/artifactStore.ts:16,73; docs/ARCHITECTURE.md:1 (`code, documentation`).
-- **V15**: apps/api/src/artifactUploadAdmission.ts:3-42; apps/api/src/artifactQuota.ts:13-51; apps/api/src/artifacts.ts:203-206; package-lock.json; .github/workflows/ci.yml:1-25; SECURITY.md; docs/security/verifications/2026-10-21-1504-utc.md (`code, configuration, documentation, test`).
+- **V15**: apps/api/src/artifactUploadAdmission.ts:3-42; apps/api/src/artifactQuota.ts:13-51; apps/api/src/artifacts.ts:203-206; package-lock.json; .github/workflows/ci.yml:1-25; SECURITY.md; docs/decisions/0044-applicable-asvs-audit-and-remediation-workflow.md; docs/security/verifications/2026-10-21-1504-utc.md (`code, configuration, documentation, test`).
 - **V16**: apps/api/src/index.ts:46-52; services/runner/app.py:75-82 (`code; log platform unavailable`).
 - **V17**: docs/ARCHITECTURE.md:1 (browser updates use page polling); no WebRTC/TURN/signaling/media-server feature found in reviewed application source (`code, documentation`).
 
@@ -346,7 +346,7 @@ The pinned inventory was validated and all 345 matrix rows were reconciled again
 | `v5.0.0-V14.3.1` | 1 | unknown | needs information | not attempted | [apps/api/src/artifacts.ts:292,308,356; apps/api/src/artifactStore.ts:16,73; docs/ARCHITECTURE.md:1] (code, documentation) | low | Document data classification, encryption-at-rest, backup, retention, and cache policy; confirm storage-provider controls. |
 | `v5.0.0-V14.3.2` | 2 | unknown | needs information | not attempted | [apps/api/src/artifacts.ts:292,308,356; apps/api/src/artifactStore.ts:16,73; docs/ARCHITECTURE.md:1] (code, documentation) | low | Document data classification, encryption-at-rest, backup, retention, and cache policy; confirm storage-provider controls. |
 | `v5.0.0-V14.3.3` | 2 | unknown | needs information | not attempted | [apps/api/src/artifacts.ts:292,308,356; apps/api/src/artifactStore.ts:16,73; docs/ARCHITECTURE.md:1] (code, documentation) | low | Document data classification, encryption-at-rest, backup, retention, and cache policy; confirm storage-provider controls. |
-| `v5.0.0-V15.1.1` | 1 | applicable | not covered | not attempted | [apps/api/src/workflowDefinition.ts:28,88; apps/api/src/artifacts.ts:240; package-lock.json; .github/workflows/ci.yml:1-25] (code, configuration) | medium | Add dependency remediation policy and SBOM; review lockfile/dependency health, production build contents, and concurrency controls. |
+| `v5.0.0-V15.1.1` | 1 | applicable | partially covered | not attempted | [SECURITY.md; docs/decisions/0044-applicable-asvs-audit-and-remediation-workflow.md; docs/security/README.md; package-lock.json; .github/workflows/ci.yml:1-25] (documentation, configuration) | medium | Hive now documents risk-based targets for confirmed security gaps, but lacks third-party component-specific remediation timeframes and a general library update cadence; define those and add an SBOM. |
 | `v5.0.0-V15.1.2` | 2 | applicable | not covered | not attempted | [apps/api/src/workflowDefinition.ts:28,88; apps/api/src/artifacts.ts:240; package-lock.json; .github/workflows/ci.yml:1-25] (code, configuration) | medium | Add dependency remediation policy and SBOM; review lockfile/dependency health, production build contents, and concurrency controls. |
 | `v5.0.0-V15.1.3` | 2 | applicable | not covered | not attempted | [apps/api/src/workflowDefinition.ts:28,88; apps/api/src/artifacts.ts:240; package-lock.json; .github/workflows/ci.yml:1-25] (code, configuration) | medium | Add dependency remediation policy and SBOM; review lockfile/dependency health, production build contents, and concurrency controls. |
 | `v5.0.0-V15.1.4` | 3 | applicable | not covered | not attempted | [apps/api/src/workflowDefinition.ts:28,88; apps/api/src/artifacts.ts:240; package-lock.json; .github/workflows/ci.yml:1-25] (code, configuration) | medium | Add dependency remediation policy and SBOM; review lockfile/dependency health, production build contents, and concurrency controls. |
