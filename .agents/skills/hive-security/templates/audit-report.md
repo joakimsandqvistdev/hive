@@ -34,11 +34,13 @@
 
 Report numerator/denominator and percentage for catalog evidence coverage, all-level Hive applicability coverage, and applicable L1+L2 progress. Show status counts and the separate L1+L2 conformance result. Link the current needs-information and not-applicable registers.
 
-For a full audit, include a disposition row for every applicable L1+L2 requirement (expected baseline: 188; recalculate from current inventory and N/A register). For a targeted audit, include every requested requirement. Use only `no issue identified`, `finding(s)`, `blocked: needs information`, or `not assessed` as audit dispositions, with a short evidence pointer or reason. State the exact counts in each disposition and reconcile them to the audit scope. An audit disposition is not an implementation status or verification result.
+For a full audit, include a disposition row for every applicable L1+L2 requirement (expected baseline: 188; recalculate from current inventory and N/A register). For a targeted audit, include every requested requirement. Use only `no issue identified`, `finding(s)`, `blocked: needs information`, or `not assessed` as audit dispositions. For every row, describe the requirement-specific evidence examined and review/check performed; do not reuse a generic chapter-level evidence pointer. State the exact counts in each disposition and reconcile them to the audit scope.
 
-| ASVS requirement | Audit disposition | Evidence / finding IDs |
+Explain prominently that `no issue identified` means no actionable vulnerability emerged from the documented review; it is not a test result, a verification pass, or evidence that the requirement is covered. Give counts by check type (static review, test review, tests run, configuration review, runtime checks, or other types) and separately identify requirements not individually reviewed. Use `not assessed` when no requirement-specific review was completed. Never let summary counts imply checks were run when they were not.
+
+| ASVS requirement | Audit disposition | Requirement-specific review and evidence | Check type / result |
 |---|---|---|
-| `v5.0.0-{id}` | {disposition} | {file/lines, report section, or reason} |
+| `v5.0.0-{id}` | {disposition} | {what evidence was examined and what review was performed; or reason blocked/not assessed} | {static review, test review/run, configuration review, runtime check, or N/A} |
 
 ## Checks performed
 

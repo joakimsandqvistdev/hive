@@ -2,7 +2,7 @@
 
 Current register derived from the whole-repository inspection. Unknowns remain applicable for coverage calculations and do not count as covered.
 
-Last assessed: 2026-10-21; commit `8d33c98`. Reconciled all listed requirement IDs against the current inspection; unavailable runtime, provider, and operator evidence remains unresolved.
+Last assessed: 2026-10-21; commit `3315468` plus uncommitted working-tree changes. Reconciled all 100 listed requirement IDs against the current inspection; the upload-admission implementation did not supply the unavailable production, runtime, provider, or operator evidence, so these entries remain unresolved.
 
 | ASVS requirement | Information/evidence needed | Why repository evidence is insufficient | Owner/source (if known) | Status / resolution note |
 |---|---|---|---|---|
