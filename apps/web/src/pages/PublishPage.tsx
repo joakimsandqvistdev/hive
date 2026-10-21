@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
-import { ActionIcon, Alert, Badge, Button, Card, Group, Image, Loader, Pagination, Paper, SegmentedControl, SimpleGrid, Stack, Tabs, Text, Textarea, TextInput, Title } from "@mantine/core";
+import { ActionIcon, Alert, Badge, Box, Button, Card, Group, Image, Loader, Pagination, Paper, SegmentedControl, SimpleGrid, Stack, Tabs, Text, Textarea, TextInput, Title } from "@mantine/core";
 import { apiFetch, apiUrl } from "../apiClient";
+import { AppIcon } from "../components/AppIcon";
 import { ConfirmActionModal } from "../components/ConfirmActionModal";
 import { useFlashMessages } from "../components/FlashMessages";
 import { formatFileSize } from "../formatters";
@@ -10,12 +11,21 @@ import type { AppView } from "../navigation/navigationState";
 type LibraryImage = { id: string; displayName: string; mediaType: string; byteSize: number; createdAt: string; publicationCaption?: string | null };
 type InstagramAccount = { id: string; username: string };
 type PublicationMedia = { artifactId: string; displayName: string; mediaType: string; position: number; altText: string; sourcePublicationId: string | null };
-type Draft = { id: string; accountId: string; caption: string; updatedAt: string; media: PublicationMedia[] };
+type Draft = { id: string; accountId: string; caption: string; updatedAt: string; media: (PublicationMedia & { byteSize?: number })[] };
 type PostActivity = Draft & { status: "queued" | "publishing" | "published" | "awaiting_review"; errorSummary: string | null; publishedAt: string | null };
 type AwaitingImage = { runId: string; sourcePublicationId: string; artifactId: string; displayName: string; mediaType: string; workflowName: string; caption?: string | null; createdAt: string };
+type ReviewItem = AwaitingImage;
 type SelectedMedia = { artifactId: string; displayName: string; mediaType: string; byteSize?: number; sourcePublicationId: string | null };
 type PublishPageProps = { onNavigate: (view: AppView) => void };
-const pageSize = 12;
+const pageSize = 10;
+const reviewPageSize = 10;
+
+function ActivityThumbnail({ artifactId, alt }: { artifactId: string; alt: string }) {
+  const [unavailable, setUnavailable] = useState(false);
+  return <Box w={42} h={42} style={{ flex: "0 0 auto", overflow: "hidden", borderRadius: 6 }}>
+    {unavailable ? <Box role="img" aria-label={`${alt || "Media"} unavailable`} w={42} h={42} bg="gray.1" c="gray.6" style={{ display: "grid", placeItems: "center" }}><AppIcon name="media" size={21} /></Box> : <Image src={apiUrl(`/api/artifacts/${artifactId}/thumbnail`)} alt={alt} w={42} h={42} fit="cover" onError={() => setUnavailable(true)} />}
+  </Box>;
+}
 
 export function PublishPage({ onNavigate }: PublishPageProps) {
   const { showFlash } = useFlashMessages();
@@ -24,9 +34,17 @@ export function PublishPage({ onNavigate }: PublishPageProps) {
   const [drafts, setDrafts] = useState<Draft[]>([]);
   const [activity, setActivity] = useState<PostActivity[]>([]);
   const [awaitingImages, setAwaitingImages] = useState<AwaitingImage[]>([]);
+  const [reviewItems, setReviewItems] = useState<ReviewItem[]>([]);
+  const [skippedReviewIds, setSkippedReviewIds] = useState<string[]>([]);
+  const [activeReviewId, setActiveReviewId] = useState<string | null>(null);
+  const [reviewPage, setReviewPage] = useState(1);
+  const [reviewSaving, setReviewSaving] = useState(false);
   const [mediaSource, setMediaSource] = useState("library");
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
+  const [awaitingPage, setAwaitingPage] = useState(1);
+  const [draftsPage, setDraftsPage] = useState(1);
+  const [activityPage, setActivityPage] = useState(1);
   const [total, setTotal] = useState(0);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [selectedCache, setSelectedCache] = useState<Record<string, SelectedMedia>>({});
@@ -56,12 +74,37 @@ export function PublishPage({ onNavigate }: PublishPageProps) {
     setActivity(body.items);
   }, []);
 
-  const refreshAwaiting = useCallback(async () => {
-    const response = await apiFetch("/api/instagram/awaiting-publish");
+  const refreshAwaiting = useCallback(async (draftId?: string | null) => {
+    const params = new URLSearchParams();
+    if (draftId) params.set("draftId", draftId);
+    const response = await apiFetch(`/api/instagram/awaiting-publish${params.size ? `?${params}` : ""}`);
     if (!response.ok) throw new Error("Could not load runs awaiting publish.");
     const body = await response.json() as { items: AwaitingImage[] };
     setAwaitingImages(body.items);
   }, []);
+
+  const refreshReview = useCallback(async () => {
+    const response = await apiFetch("/api/instagram/awaiting-review");
+    if (!response.ok) throw new Error("Could not load runs awaiting review.");
+    const body = await response.json() as { items: ReviewItem[] };
+    setReviewItems(body.items);
+    return body.items;
+  }, []);
+
+  const markRunNotificationsRead = async (runId: string) => {
+    const response = await apiFetch(`/api/notifications/runs/${runId}/read`, { method: "POST" });
+    if (!response.ok) throw new Error("Could not mark this run’s activity notifications as read.");
+    window.dispatchEvent(new Event("hive:notifications-refresh"));
+  };
+
+  const refreshReviewPass = async () => {
+    setSkippedReviewIds([]);
+    setActiveReviewId(null);
+    setReviewPage(1);
+    try {
+      await refreshReview();
+    } catch (error) { showFlash({ tone: "error", title: "Review queue", message: error instanceof Error ? error.message : "Could not load runs awaiting review." }); }
+  };
 
   const refreshImages = useCallback(async () => {
     const params = new URLSearchParams({ page: String(page), pageSize: String(pageSize), type: "image", saveState: "saved", search });
@@ -85,8 +128,9 @@ export function PublishPage({ onNavigate }: PublishPageProps) {
     void refreshDrafts().catch((error) => { if (active) showFlash({ tone: "error", title: "Drafts", message: error instanceof Error ? error.message : "Could not load drafts." }); });
     void refreshActivity().catch((error) => { if (active) showFlash({ tone: "error", title: "Publish", message: error instanceof Error ? error.message : "Could not load publishing activity." }); });
     void refreshAwaiting().catch((error) => { if (active) showFlash({ tone: "error", title: "Awaiting publish", message: error instanceof Error ? error.message : "Could not load runs awaiting publish." }); });
+    void refreshReview().catch((error) => { if (active) showFlash({ tone: "error", title: "Review queue", message: error instanceof Error ? error.message : "Could not load runs awaiting review." }); });
     return () => { active = false; };
-  }, [refreshActivity, refreshAwaiting, refreshDrafts, showFlash]);
+  }, [refreshActivity, refreshAwaiting, refreshDrafts, refreshReview, showFlash]);
 
   useEffect(() => {
     let active = true;
@@ -98,7 +142,62 @@ export function PublishPage({ onNavigate }: PublishPageProps) {
   }, [refreshImages, showFlash]);
 
   useVisiblePolling(() => { void refreshActivity().catch(() => {}); }, 5000, activeTab === "activity");
-  useVisiblePolling(() => { void refreshAwaiting().catch(() => {}); }, 5000, activeTab === "compose" && mediaSource === "awaiting");
+  useVisiblePolling(() => { void refreshAwaiting(activeDraftId).catch(() => {}); }, 5000, activeTab === "compose" && mediaSource === "awaiting");
+  useVisiblePolling(() => { void refreshReview().catch(() => {}); }, 5000, activeTab === "review");
+
+  const reviewQueue = reviewItems.filter((item) => !skippedReviewIds.includes(item.sourcePublicationId));
+  const activeReview = reviewQueue.find((item) => item.sourcePublicationId === activeReviewId) ?? reviewQueue[0] ?? null;
+  const reviewPageCount = Math.max(1, Math.ceil(reviewQueue.length / reviewPageSize));
+  const currentReviewPage = Math.min(reviewPage, reviewPageCount);
+  const visibleReviewItems = reviewQueue.slice((currentReviewPage - 1) * reviewPageSize, currentReviewPage * reviewPageSize);
+  const awaitingPageCount = Math.max(1, Math.ceil(awaitingImages.length / pageSize));
+  const currentAwaitingPage = Math.min(awaitingPage, awaitingPageCount);
+  const visibleAwaitingImages = awaitingImages.slice((currentAwaitingPage - 1) * pageSize, currentAwaitingPage * pageSize);
+  const draftsPageCount = Math.max(1, Math.ceil(drafts.length / pageSize));
+  const currentDraftsPage = Math.min(draftsPage, draftsPageCount);
+  const visibleDrafts = drafts.slice((currentDraftsPage - 1) * pageSize, currentDraftsPage * pageSize);
+  const activityPageCount = Math.max(1, Math.ceil(activity.length / pageSize));
+  const currentActivityPage = Math.min(activityPage, activityPageCount);
+  const visibleActivity = activity.slice((currentActivityPage - 1) * pageSize, currentActivityPage * pageSize);
+  const activeDraft = activeDraftId ? drafts.find((draft) => draft.id === activeDraftId) : undefined;
+  const draftLibraryItems: LibraryImage[] = (activeDraft?.media ?? []).filter((item) => item.sourcePublicationId === null).map((item) => ({ id: item.artifactId, displayName: item.displayName, mediaType: item.mediaType, byteSize: item.byteSize ?? 0, createdAt: activeDraft!.updatedAt }));
+  const visibleLibraryItems = [...draftLibraryItems, ...items.filter((item) => !draftLibraryItems.some((draftItem) => draftItem.id === item.id))];
+
+  const skipReviewItem = async () => {
+    if (!activeReview) return;
+    setReviewSaving(true);
+    try {
+      await markRunNotificationsRead(activeReview.runId);
+      const index = reviewQueue.findIndex((item) => item.sourcePublicationId === activeReview.sourcePublicationId);
+      setSkippedReviewIds((current) => current.includes(activeReview.sourcePublicationId) ? current : [...current, activeReview.sourcePublicationId]);
+      const nextIndex = reviewQueue.length ? (index + 1) % reviewQueue.length : -1;
+      setActiveReviewId(reviewQueue[nextIndex]?.sourcePublicationId ?? null);
+      if (nextIndex >= 0) setReviewPage(Math.floor(nextIndex / reviewPageSize) + 1);
+    } finally { setReviewSaving(false); }
+  };
+
+  const completeReviewItem = async (item: ReviewItem, action: "approve" | "discard") => {
+    setReviewSaving(true);
+    try {
+    const index = reviewQueue.findIndex((candidate) => candidate.sourcePublicationId === item.sourcePublicationId);
+    const nextItem = reviewQueue.slice(index + 1).find((candidate) => candidate.sourcePublicationId !== item.sourcePublicationId) ??
+      reviewQueue.find((candidate) => candidate.sourcePublicationId !== item.sourcePublicationId);
+    const nextId = nextItem?.sourcePublicationId ?? null;
+    const response = await apiFetch(`/api/instagram/publications/${item.sourcePublicationId}/${action}`, { method: "POST" });
+    if (!response.ok) throw new Error(action === "approve" ? "Could not approve this run." : "Could not discard this run.");
+    await markRunNotificationsRead(item.runId);
+    setReviewItems((current) => current.filter((candidate) => candidate.sourcePublicationId !== item.sourcePublicationId));
+    setAwaitingImages((current) => action === "discard" ? current.filter((candidate) => candidate.sourcePublicationId !== item.sourcePublicationId) : current);
+    setSkippedReviewIds((current) => current.filter((id) => id !== item.sourcePublicationId));
+    setActiveReviewId(nextId);
+    if (nextItem) {
+      const nextIndex = reviewQueue.findIndex((candidate) => candidate.sourcePublicationId === nextId);
+      setReviewPage(Math.floor(Math.max(0, nextIndex - (nextIndex > index ? 1 : 0)) / reviewPageSize) + 1);
+    }
+    if (action === "discard") void refreshAwaiting().catch(() => {});
+    showFlash({ tone: "success", title: action === "approve" ? "Run approved" : "Run discarded", message: action === "approve" ? "It remains available in Awaiting publish." : "The run is marked Succeeded and removed from publishing." });
+    } finally { setReviewSaving(false); }
+  };
 
   const selected: SelectedMedia[] = selectedIds.flatMap((id) => {
     const cached = selectedCache[id];
@@ -111,12 +210,19 @@ export function PublishPage({ onNavigate }: PublishPageProps) {
   const chooseImage = (item: SelectedMedia) => {
     const id = item.artifactId;
     setSelectedCache((current) => ({ ...current, [id]: item }));
-    setSelectedIds((current) => {
-      if (current.includes(id)) return current.filter((item) => item !== id);
-      if (current.length >= 10) { showFlash({ tone: "warning", title: "Carousel limit", message: "Instagram posts can contain up to 10 images." }); return current; }
-      return [...current, id];
-    });
-    setPreviewIndex(0);
+    const existingIndex = selectedIds.indexOf(id);
+    if (existingIndex >= 0) {
+      const nextIds = selectedIds.filter((selectedId) => selectedId !== id);
+      setSelectedIds(nextIds);
+      setPreviewIndex((current) => {
+        if (current === existingIndex) return nextIds.length ? Math.min(existingIndex, nextIds.length - 1) : 0;
+        return existingIndex < current ? current - 1 : current;
+      });
+      return;
+    }
+    if (selectedIds.length >= 10) { showFlash({ tone: "warning", title: "Carousel limit", message: "Instagram posts can contain up to 10 images." }); return; }
+    setSelectedIds([...selectedIds, id]);
+    setPreviewIndex(selectedIds.length);
   };
   const seedAltText = (artifactId: string, caption?: string | null) => {
     if (caption == null || selectedIds.includes(artifactId) || altTextById[artifactId] !== undefined) return;
@@ -147,6 +253,7 @@ export function PublishPage({ onNavigate }: PublishPageProps) {
     if (!response.ok || !body.publication) throw new Error(body.message ?? "Could not save this draft.");
     setActiveDraftId(body.publication.id);
     await refreshDrafts();
+    await refreshAwaiting(body.publication.id);
     return body.publication.id;
   };
 
@@ -173,6 +280,7 @@ export function PublishPage({ onNavigate }: PublishPageProps) {
         if (!response.ok) throw new Error("Could not delete this draft.");
         setDrafts((current) => current.filter((draft) => draft.id !== deleteDraftTarget.id));
         if (activeDraftId === deleteDraftTarget.id) { setActiveDraftId(null); setSelectedIds([]); setAltTextById({}); setCaption(""); }
+        await refreshAwaiting(activeDraftId === deleteDraftTarget.id ? null : activeDraftId);
         setDeleteDraftTarget(null);
         setConfirmAction(null);
         showFlash({ tone: "success", title: "Draft deleted", message: "The draft was removed." });
@@ -199,6 +307,7 @@ export function PublishPage({ onNavigate }: PublishPageProps) {
     setPreviewIndex(0);
     setMediaSource("library");
     setActiveTab("compose");
+    void refreshAwaiting(draft.id).catch((error) => showFlash({ tone: "error", title: "Awaiting publish", message: error instanceof Error ? error.message : "Could not load runs awaiting publish." }));
   };
 
   const moveSelected = (index: number, direction: -1 | 1) => {
@@ -221,44 +330,75 @@ export function PublishPage({ onNavigate }: PublishPageProps) {
     setPreviewIndex((current) => current === from ? to : current > from && current <= to ? current - 1 : current < from && current >= to ? current + 1 : current);
   };
 
+  const instagramPreview = <Paper withBorder p="md" radius="md">
+    <Group justify="space-between" mb="sm"><Text fw={600}>Instagram preview</Text><Text size="xs" c="dimmed">{selected.length ? `Slide ${previewIndex + 1} of ${selected.length}` : "Select media to preview"}</Text></Group>
+    {selected[previewIndex] ? <Stack align="center" gap="xs"><Paper withBorder radius="md" p="xs" w="min(100%, 330px)"><Group gap="xs" mb="xs"><div className="publish-preview-avatar" /><Text size="xs" fw={600}>@{account?.username ?? "your account"}</Text></Group><Image src={apiUrl(`/api/artifacts/${selected[previewIndex]!.artifactId}/preview`)} alt={`Slide ${previewIndex + 1}`} fit="contain" mah={360} radius="sm" /><Text size="xs" lineClamp={2} mt="xs"><strong>@{account?.username}</strong>　{caption || "Your caption will appear here."}</Text></Paper><Group><Button variant="subtle" size="xs" disabled={previewIndex === 0} onClick={() => setPreviewIndex((value) => value - 1)}>Previous</Button><Button variant="subtle" size="xs" disabled={previewIndex >= selected.length - 1} onClick={() => setPreviewIndex((value) => value + 1)}>Next slide</Button></Group></Stack> : <Text size="sm" c="dimmed" ta="center" py="xl">Choose one or more images to preview your Instagram post.</Text>}
+  </Paper>;
+
   return <Stack className="workspace-page" gap="md">
     <Group className="page-header" justify="space-between" align="flex-end">
-      <div><Title order={1} className="page-title">Publish</Title><Text size="sm" c="dimmed">Compose Instagram posts from saved images and runs awaiting publish.</Text></div>
+      <div><Title order={1} className="page-title">Publish</Title><Text size="sm" c="dimmed">Review workflow posts, then compose and publish Instagram media.</Text></div>
       <Button variant="default" onClick={() => setActiveTab("drafts")}>Drafts ({drafts.length})</Button>
     </Group>
     {!loading && !account && <Alert color="hiveWarning" title="Connect an Instagram account first">Connect your Instagram professional account to publish media from Hive.<Button ml="sm" variant="light" size="xs" onClick={() => onNavigate("accounts")}>Open Accounts</Button></Alert>}
-    <Tabs value={activeTab} onChange={setActiveTab} keepMounted={false}>
-      <Tabs.List><Tabs.Tab value="compose">Create post</Tabs.Tab><Tabs.Tab value="drafts">Drafts ({drafts.length})</Tabs.Tab><Tabs.Tab value="activity">Activity</Tabs.Tab></Tabs.List>
+    <Tabs value={activeTab} onChange={(value) => {
+      if (value === "review" && activeTab !== "review") { setSkippedReviewIds([]); void refreshReview().catch((error) => showFlash({ tone: "error", title: "Review queue", message: error instanceof Error ? error.message : "Could not load runs awaiting review." })); }
+      setActiveTab(value);
+    }} keepMounted={false}>
+      <Tabs.List><Tabs.Tab value="review">Review ({reviewQueue.length})</Tabs.Tab><Tabs.Tab value="compose">Create post</Tabs.Tab><Tabs.Tab value="drafts">Drafts ({drafts.length})</Tabs.Tab><Tabs.Tab value="activity">Activity</Tabs.Tab></Tabs.List>
+      <Tabs.Panel value="review" pt="md">
+        {reviewItems.length ? <SimpleGrid cols={{ base: 1, lg: 2 }} spacing="md" verticalSpacing="md" style={{ alignItems: "start" }}>
+          <Paper withBorder p="md" radius="md">
+            <Group justify="space-between" mb="sm"><div><Text fw={600}>Awaiting review</Text><Text size="xs" c="dimmed">{reviewQueue.length} left in this pass</Text></div><Button variant="default" size="xs" onClick={refreshReviewPass}>Refresh</Button></Group>
+            <Stack gap="xs">{visibleReviewItems.map((item) => {
+              const isCurrent = activeReview?.sourcePublicationId === item.sourcePublicationId;
+              return <Paper key={item.sourcePublicationId} withBorder p="xs" radius="sm" role="button" tabIndex={0} aria-pressed={isCurrent} onClick={() => setActiveReviewId(item.sourcePublicationId)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setActiveReviewId(item.sourcePublicationId); } }} style={{ cursor: "pointer", borderColor: isCurrent ? "var(--mantine-color-hiveSky-6)" : undefined, background: isCurrent ? "var(--mantine-color-hiveSky-0)" : undefined }}>
+              <Group wrap="nowrap" gap="sm" align="center"><Image src={apiUrl(`/api/artifacts/${item.artifactId}/thumbnail`)} alt="" w={54} h={54} fit="cover" radius="sm" /><div style={{ minWidth: 0, flex: 1 }}><Text size="sm" fw={500} lineClamp={1}>{item.workflowName}</Text><Text size="xs" c="dimmed">Run {item.runId.slice(0, 8)}</Text><Text size="xs" c="dimmed" lineClamp={1}>{item.displayName}</Text></div>{isCurrent ? <Group gap={4} wrap="nowrap"><Button size="xs" variant="default" disabled={reviewSaving} onClick={() => { void skipReviewItem().catch((error) => showFlash({ tone: "error", title: "Review", message: error instanceof Error ? error.message : "Could not mark this run’s notifications as read." })); }}>Skip</Button><Button size="xs" color="hiveError" variant="light" loading={reviewSaving} onClick={() => { void completeReviewItem(item, "discard").catch((error) => showFlash({ tone: "error", title: "Review", message: error instanceof Error ? error.message : "Could not discard this run." })); }}>Discard</Button><Button size="xs" loading={reviewSaving} onClick={() => { void completeReviewItem(item, "approve").catch((error) => showFlash({ tone: "error", title: "Review", message: error instanceof Error ? error.message : "Could not approve this run." })); }}>Approve</Button></Group> : <Badge color="hiveWarning" variant="light">Next</Badge>}</Group>
+            </Paper>; })}
+            {reviewQueue.length === 0 && <Text size="sm" c="dimmed" ta="center" py="md">All runs in this pass were skipped. Refresh to show them again.</Text>}
+            {reviewQueue.length > reviewPageSize && <Group justify="space-between" mt="sm"><Text size="xs" c="dimmed">{(currentReviewPage - 1) * reviewPageSize + 1}–{Math.min(currentReviewPage * reviewPageSize, reviewQueue.length)} of {reviewQueue.length}</Text><Pagination size="sm" total={reviewPageCount} value={currentReviewPage} onChange={setReviewPage} /></Group>}
+            </Stack>
+          </Paper>
+          <Paper withBorder p="md" radius="md">
+            {activeReview ? <Stack gap="md">
+              <Group justify="space-between"><div><Text fw={600}>{activeReview.workflowName}</Text><Text size="xs" c="dimmed">Run {activeReview.runId} · Awaiting publish</Text></div><Badge color="hiveWarning" variant="light">Instagram post</Badge></Group>
+              <Paper withBorder p="xs" radius="md" bg="gray.0"><Image src={apiUrl(`/api/artifacts/${activeReview.artifactId}/preview`)} alt={activeReview.displayName} fit="contain" mah={620} /></Paper>
+              <div><Text size="sm" fw={600} mb={4}>Caption</Text><Paper withBorder p="sm" radius="sm"><Text size="sm" style={{ whiteSpace: "pre-wrap" }}>{activeReview.caption || "No caption was added."}</Text></Paper></div>
+            </Stack> : <Stack align="center" py="xl" gap="xs"><Text fw={600}>You’re caught up for now</Text><Text size="sm" c="dimmed">Skipped runs will appear again the next time you open Review.</Text></Stack>}
+          </Paper>
+        </SimpleGrid> : <Paper withBorder p="xl" radius="md"><Stack align="center" gap="xs"><Text fw={600}>No runs awaiting review</Text><Text size="sm" c="dimmed">Manual Instagram posts from workflow runs will appear here.</Text></Stack></Paper>}
+      </Tabs.Panel>
       <Tabs.Panel value="compose" pt="md">
         {loading ? <Group justify="center" py="xl"><Loader size="sm" /></Group> : <SimpleGrid cols={{ base: 1, xl: 2 }} spacing="md">
           <Paper withBorder p="md" radius="md">
             <Group justify="space-between" mb="sm"><div><Text fw={600}>Choose media</Text><Text size="xs" c="dimmed">Select 1–10 images. Multiple images publish as a carousel.</Text></div><Badge variant="light" color="hiveSky">{selectedIds.length} selected</Badge></Group>
-            <SegmentedControl fullWidth mb="sm" value={mediaSource} onChange={setMediaSource} data={[{ label: "Media Library", value: "library" }, { label: `Awaiting publish (${awaitingImages.length})`, value: "awaiting" }]} />
+            <SegmentedControl fullWidth mb="sm" value={mediaSource} onChange={(value) => { setMediaSource(value); if (value === "awaiting") setAwaitingPage(1); }} data={[{ label: "Media Library", value: "library" }, { label: `Awaiting publish (${awaitingImages.length})`, value: "awaiting" }]} />
             {mediaSource === "library" ? <>
             <TextInput label="Search saved images" placeholder="Search by file name" value={search} onChange={(event) => { setSearch(event.currentTarget.value); setPage(1); }} mb="sm" />
-            {items.length ? <SimpleGrid cols={{ base: 2, sm: 3 }} spacing="xs">
-              {items.map((item) => {
+            {items.length ? <Stack gap="xs">
+              {visibleLibraryItems.map((item) => {
                 const isSelected = selectedIds.includes(item.id);
                 const order = selectedIds.indexOf(item.id);
                 return <Card key={item.id} className={`publish-media-card${isSelected ? " is-selected" : ""}`} withBorder p={5} radius="sm" onClick={() => chooseLibraryImage(item)} role="checkbox" aria-checked={isSelected} tabIndex={0} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); chooseLibraryImage(item); } }}>
-                  <div className="publish-media-image-wrap"><Image src={apiUrl(`/api/artifacts/${item.id}/thumbnail`)} alt={item.displayName} fit="cover" className="publish-media-image" /><span className={`publish-media-selection${isSelected ? " is-selected" : ""}`}>{isSelected ? order + 1 : ""}</span></div>
-                  <Text size="xs" fw={500} lineClamp={1} mt={5}>{item.displayName}</Text><Text size="xs" c="dimmed">{formatFileSize(item.byteSize)}</Text>
+                  <Group wrap="nowrap" gap="sm"><ActivityThumbnail artifactId={item.id} alt={item.displayName} /><div style={{ flex: 1, minWidth: 0 }}><Text size="sm" fw={500} lineClamp={1}>{item.displayName}</Text><Text size="xs" c="dimmed">{item.byteSize ? formatFileSize(item.byteSize) : "Saved image"}</Text></div>{isSelected && <Badge variant="light" color="hiveSky" aria-label={`Selected as slide ${order + 1}`}>{order + 1}</Badge>}</Group>
                 </Card>;
               })}
-            </SimpleGrid> : <Text size="sm" c="dimmed" py="xl" ta="center">No saved images match. Save an image in Media Library to use it here.</Text>}
+            </Stack> : <Text size="sm" c="dimmed" py="xl" ta="center">No saved images match. Save an image in Media Library to use it here.</Text>}
             <Group justify="space-between" mt="md"><Text size="xs" c="dimmed">{total} saved images</Text><Pagination size="sm" total={Math.max(1, Math.ceil(total / pageSize))} value={page} onChange={setPage} disabled={total <= pageSize} /></Group>
             </> : <Stack gap="xs">
-              {awaitingImages.length ? awaitingImages.map((item) => {
+              {awaitingImages.length ? visibleAwaitingImages.map((item) => {
                 const isSelected = selectedIds.includes(item.artifactId);
                 const order = selectedIds.indexOf(item.artifactId);
                 return <Card key={item.sourcePublicationId} className={`publish-media-card${isSelected ? " is-selected" : ""}`} withBorder p="xs" radius="sm" onClick={() => chooseAwaitingImage(item)} role="checkbox" aria-checked={isSelected} tabIndex={0} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); chooseAwaitingImage(item); } }}>
-                  <Group wrap="nowrap" gap="sm"><div className="publish-media-image-wrap"><Image src={apiUrl(`/api/artifacts/${item.artifactId}/thumbnail`)} alt={item.displayName} w={58} h={58} fit="cover" radius="sm" /><span className={`publish-media-selection${isSelected ? " is-selected" : ""}`}>{isSelected ? order + 1 : ""}</span></div><div style={{ flex: 1, minWidth: 0 }}><Text size="sm" fw={500} lineClamp={1}>{item.displayName}</Text><Text size="xs" c="dimmed" lineClamp={1}>{item.workflowName} · Run {item.runId.slice(0, 8)}</Text><Badge size="xs" color="hiveWarning" variant="light" mt={4}>Awaiting publish</Badge></div></Group>
+                  <Group wrap="nowrap" gap="sm"><ActivityThumbnail artifactId={item.artifactId} alt={item.displayName} /><div style={{ flex: 1, minWidth: 0 }}><Text size="sm" fw={500} lineClamp={1}>{item.displayName}</Text><Text size="xs" c="dimmed" lineClamp={1}>{item.workflowName} · Run {item.runId.slice(0, 8)}</Text><Badge size="xs" color={item.sourcePublicationId && item.sourcePublicationId === activeDraft?.media.find((mediaItem) => mediaItem.artifactId === item.artifactId)?.sourcePublicationId ? "hiveSky" : "hiveWarning"} variant="light" mt={4}>{item.sourcePublicationId && activeDraft?.media.some((mediaItem) => mediaItem.sourcePublicationId === item.sourcePublicationId) ? "In this draft" : "Awaiting publish"}</Badge></div>{isSelected && <Badge variant="light" color="hiveSky" aria-label={`Selected as slide ${order + 1}`}>{order + 1}</Badge>}</Group>
                 </Card>;
               }) : <Text size="sm" c="dimmed" py="xl" ta="center">No image runs are awaiting publish.</Text>}
+              {awaitingImages.length > 0 && <Group justify="space-between" mt="sm"><Text size="xs" c="dimmed">{(currentAwaitingPage - 1) * pageSize + 1}–{Math.min(currentAwaitingPage * pageSize, awaitingImages.length)} of {awaitingImages.length} runs</Text><Pagination size="sm" total={awaitingPageCount} value={currentAwaitingPage} onChange={setAwaitingPage} disabled={awaitingImages.length <= pageSize} /></Group>}
               <Text size="xs" c="dimmed">Selected runs stay Awaiting publish until Instagram confirms success.</Text>
             </Stack>}
           </Paper>
           <Stack gap="md">
+            {instagramPreview}
             <Paper withBorder p="md" radius="md">
               <Group justify="space-between" mb="sm"><Text fw={600}>Post details</Text>{activeDraftId && <Badge color="gray" variant="light">Draft</Badge>}</Group>
               <Stack gap="sm">
@@ -274,23 +414,21 @@ export function PublishPage({ onNavigate }: PublishPageProps) {
                 <Group justify="space-between"><Button variant="default" loading={saving} disabled={!selectedIds.length || !account} onClick={() => { setSaving(true); void saveDraft().then(() => showFlash({ tone: "success", title: "Draft saved", message: "Your Instagram post draft is saved." })).catch((error) => showFlash({ tone: "error", title: "Draft", message: error instanceof Error ? error.message : "Could not save the draft." })).finally(() => setSaving(false)); }}>Save draft</Button><Button loading={saving} disabled={!selectedIds.length || !account} onClick={() => setConfirmAction("publish")}>Review and publish</Button></Group>
               </Stack>
             </Paper>
-            <Paper withBorder p="md" radius="md">
-              <Group justify="space-between" mb="sm"><Text fw={600}>Instagram preview</Text><Text size="xs" c="dimmed">{selected.length ? `Slide ${previewIndex + 1} of ${selected.length}` : "Select media to preview"}</Text></Group>
-              {selected[previewIndex] ? <Stack align="center" gap="xs"><Paper withBorder radius="md" p="xs" w="min(100%, 330px)"><Group gap="xs" mb="xs"><div className="publish-preview-avatar" /><Text size="xs" fw={600}>@{account?.username ?? "your account"}</Text></Group><Image src={apiUrl(`/api/artifacts/${selected[previewIndex]!.artifactId}/preview`)} alt={`Slide ${previewIndex + 1}`} fit="contain" mah={360} radius="sm" /><Text size="xs" lineClamp={2} mt="xs"><strong>@{account?.username}</strong>　{caption || "Your caption will appear here."}</Text></Paper><Group><Button variant="subtle" size="xs" disabled={previewIndex === 0} onClick={() => setPreviewIndex((value) => value - 1)}>Previous</Button><Button variant="subtle" size="xs" disabled={previewIndex >= selected.length - 1} onClick={() => setPreviewIndex((value) => value + 1)}>Next slide</Button></Group></Stack> : <Text size="sm" c="dimmed" ta="center" py="xl">Choose one or more images to preview your Instagram post.</Text>}
-            </Paper>
           </Stack>
         </SimpleGrid>}
       </Tabs.Panel>
       <Tabs.Panel value="drafts" pt="md">
         <Paper withBorder p="md" radius="md">
-          <Group justify="space-between" mb="md"><div><Text fw={600}>Saved drafts</Text><Text size="xs" c="dimmed">Continue editing a draft or remove it.</Text></div><Button onClick={() => { setActiveDraftId(null); setSelectedIds([]); setAltTextById({}); setCaption(""); setActiveTab("compose"); }}>New post</Button></Group>
-          {loading ? <Loader size="sm" /> : drafts.length ? <Stack gap="xs">{drafts.map((draft) => <Paper withBorder p="sm" radius="sm" key={draft.id}><Group justify="space-between" wrap="nowrap"><Group wrap="nowrap" gap="sm"><Group gap={4}>{draft.media.slice(0, 3).map((item) => <Image key={item.artifactId} src={apiUrl(`/api/artifacts/${item.artifactId}/thumbnail`)} alt="" w={44} h={44} fit="cover" radius="sm" />)}</Group><div><Text size="sm" fw={500}>{draft.media.length} image{draft.media.length === 1 ? "" : "s"} · @{account?.username ?? "Instagram"}</Text><Text size="xs" c="dimmed" lineClamp={1}>{draft.caption || "No caption"}</Text><Text size="xs" c="dimmed">Updated {new Date(draft.updatedAt).toLocaleString()}</Text></div></Group><Group gap="xs" wrap="nowrap"><Button variant="default" size="xs" onClick={() => openDraft(draft)}>Open</Button><ActionIcon variant="subtle" color="hiveError" aria-label="Delete draft" onClick={() => { setDeleteDraftTarget(draft); setConfirmAction("delete-draft"); }}>×</ActionIcon></Group></Group></Paper>)}</Stack> : <Text size="sm" c="dimmed" ta="center" py="xl">No saved drafts yet.</Text>}
+          <Group justify="space-between" mb="md"><div><Text fw={600}>Saved drafts</Text><Text size="xs" c="dimmed">Continue editing a draft or remove it.</Text></div><Button onClick={() => { setActiveDraftId(null); setSelectedIds([]); setAltTextById({}); setCaption(""); setActiveTab("compose"); void refreshAwaiting().catch(() => {}); }}>New post</Button></Group>
+          {loading ? <Loader size="sm" /> : drafts.length ? <Stack gap="xs">{visibleDrafts.map((draft) => <Paper withBorder p="sm" radius="sm" key={draft.id}><Group justify="space-between" wrap="nowrap"><Group wrap="nowrap" gap="sm"><Group gap={4}>{draft.media.slice(0, 3).map((item) => <Image key={item.artifactId} src={apiUrl(`/api/artifacts/${item.artifactId}/thumbnail`)} alt="" w={44} h={44} fit="cover" radius="sm" />)}</Group><div><Text size="sm" fw={500}>{draft.media.length} image{draft.media.length === 1 ? "" : "s"} · @{account?.username ?? "Instagram"}</Text><Text size="xs" c="dimmed" lineClamp={1}>{draft.caption || "No caption"}</Text><Text size="xs" c="dimmed">Updated {new Date(draft.updatedAt).toLocaleString()}</Text></div></Group><Group gap="xs" wrap="nowrap"><Button variant="default" size="xs" onClick={() => openDraft(draft)}>Open</Button><ActionIcon variant="subtle" color="hiveError" aria-label="Delete draft" onClick={() => { setDeleteDraftTarget(draft); setConfirmAction("delete-draft"); }}>×</ActionIcon></Group></Group></Paper>)}</Stack> : <Text size="sm" c="dimmed" ta="center" py="xl">No saved drafts yet.</Text>}
+          {drafts.length > 0 && <Group justify="space-between" mt="md"><Text size="xs" c="dimmed">{(currentDraftsPage - 1) * pageSize + 1}–{Math.min(currentDraftsPage * pageSize, drafts.length)} of {drafts.length} drafts</Text><Pagination size="sm" total={draftsPageCount} value={currentDraftsPage} onChange={setDraftsPage} disabled={drafts.length <= pageSize} /></Group>}
         </Paper>
       </Tabs.Panel>
       <Tabs.Panel value="activity" pt="md">
         <Paper withBorder p="md" radius="md">
           <Group justify="space-between" mb="md"><div><Text fw={600}>Publishing activity</Text><Text size="xs" c="dimmed">Instagram posts composed from library images and runs awaiting publish.</Text></div><Button variant="default" onClick={() => void refreshActivity()}>Refresh</Button></Group>
-          {activity.length ? <Stack gap="xs">{activity.map((post) => <Paper withBorder p="sm" radius="sm" key={post.id}><Group justify="space-between" wrap="nowrap"><Group wrap="nowrap" gap="sm"><Group gap={4}>{post.media.slice(0, 3).map((item) => <Image key={item.artifactId} src={apiUrl(`/api/artifacts/${item.artifactId}/thumbnail`)} alt="" w={42} h={42} fit="cover" radius="sm" />)}</Group><div><Group gap="xs"><Text size="sm" fw={500}>{post.media.length} image{post.media.length === 1 ? "" : "s"}</Text><Badge color={post.status === "published" ? "hiveSuccess" : post.status === "awaiting_review" ? "hiveWarning" : "hiveSky"} variant="light">{post.status.replaceAll("_", " ")}</Badge></Group><Text size="xs" c="dimmed" lineClamp={1}>{post.caption || "No caption"}</Text>{post.errorSummary && <Text size="xs" c="hiveError">{post.errorSummary}</Text>}{post.status === "awaiting_review" && <Text size="xs" c="dimmed">If Instagram’s result is uncertain, check the account before retrying.</Text>}</div></Group>{post.status === "awaiting_review" && <Button size="xs" variant="default" onClick={() => { setRetryTarget(post); setConfirmAction("retry"); }}>Review and retry</Button>}</Group></Paper>)}</Stack> : <Text size="sm" c="dimmed" ta="center" py="xl">No standalone posts yet.</Text>}
+          {activity.length ? <Stack gap="xs">{visibleActivity.map((post) => <Paper withBorder p="sm" radius="sm" key={post.id}><Group justify="space-between" wrap="nowrap"><Group wrap="nowrap" gap="sm"><Group gap={4}>{post.media.slice(0, 3).map((item) => <ActivityThumbnail key={item.artifactId} artifactId={item.artifactId} alt={item.displayName} />)}</Group><div><Group gap="xs"><Text size="sm" fw={500}>{post.media.length} image{post.media.length === 1 ? "" : "s"}</Text><Badge color={post.status === "published" ? "hiveSuccess" : post.status === "awaiting_review" ? "hiveWarning" : "hiveSky"} variant="light">{post.status.replaceAll("_", " ")}</Badge></Group><Text size="xs" c="dimmed" lineClamp={1}>{post.caption || "No caption"}</Text>{post.errorSummary && <Text size="xs" c="hiveError">{post.errorSummary}</Text>}{post.status === "awaiting_review" && <Text size="xs" c="dimmed">If Instagram’s result is uncertain, check the account before retrying.</Text>}</div></Group>{post.status === "awaiting_review" && <Button size="xs" variant="default" onClick={() => { setRetryTarget(post); setConfirmAction("retry"); }}>Review and retry</Button>}</Group></Paper>)}</Stack> : <Text size="sm" c="dimmed" ta="center" py="xl">No standalone posts yet.</Text>}
+          {activity.length > 0 && <Group justify="space-between" mt="md"><Text size="xs" c="dimmed">{(currentActivityPage - 1) * pageSize + 1}–{Math.min(currentActivityPage * pageSize, activity.length)} of {activity.length} posts</Text><Pagination size="sm" total={activityPageCount} value={currentActivityPage} onChange={setActivityPage} disabled={activity.length <= pageSize} /></Group>}
         </Paper>
       </Tabs.Panel>
     </Tabs>

@@ -60,7 +60,9 @@ export function NotificationsBell() {
     void refresh();
     const interval = window.setInterval(() => void refresh(), 30_000);
     window.addEventListener("focus", refresh);
-    return () => { window.clearInterval(interval); window.removeEventListener("focus", refresh); };
+    const refreshOnReviewAction = () => { void refresh(); };
+    window.addEventListener("hive:notifications-refresh", refreshOnReviewAction);
+    return () => { window.clearInterval(interval); window.removeEventListener("focus", refresh); window.removeEventListener("hive:notifications-refresh", refreshOnReviewAction); };
   }, [refresh]);
 
   const markRead = async (notification: RunNotification, openRun: boolean) => {

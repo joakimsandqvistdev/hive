@@ -288,6 +288,20 @@
       "when": 1792526024125,
       "tag": "0040_past_shockwave",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1792584406167,
+      "tag": "0041_strong_sentinels",
+      "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1792585399824,
+      "tag": "0042_suppress_duplicate_publish_success_notification",
+      "breakpoints": true
     }
   ]
 }

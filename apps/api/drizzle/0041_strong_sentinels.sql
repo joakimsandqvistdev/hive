@@ -1,0 +1,1 @@
+ALTER TABLE "instagram_publications" ADD COLUMN "reviewed_at" timestamp with time zone;

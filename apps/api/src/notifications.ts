@@ -33,6 +33,20 @@ router.post("/read-all", async (req, res, next) => {
   } catch (error) { next(error); }
 });
 
+router.post("/runs/:runId/read", async (req, res, next) => {
+  if (!validOrigin(req, res)) return;
+  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(req.params.runId)) {
+    res.status(400).json({ error: "invalid_run_id" });
+    return;
+  }
+  try {
+    const updated = await db.update(notifications).set({ readAt: new Date() })
+      .where(and(eq(notifications.runId, req.params.runId), eq(notifications.userId, userId(res)), isNull(notifications.readAt)))
+      .returning({ id: notifications.id });
+    res.json({ markedRead: updated.length });
+  } catch (error) { next(error); }
+});
+
 router.post("/:id/read", async (req, res, next) => {
   if (!validOrigin(req, res)) return;
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(req.params.id)) {

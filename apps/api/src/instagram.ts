@@ -1,5 +1,5 @@
 import { createCipheriv, createDecipheriv, createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
-import { and, asc, desc, eq, gt, inArray, isNull } from "drizzle-orm";
+import { and, asc, desc, eq, gt, inArray, isNull, sql } from "drizzle-orm";
 import { Router } from "express";
 import sharp from "sharp";
 import { db, pool } from "./db.js";
@@ -70,13 +70,36 @@ const parseDraftMedia = (value: unknown): DraftMediaInput[] | null => {
   return media;
 };
 
-router.get("/awaiting-publish", requireAuthenticatedUser, async (_req, res, next) => {
+router.get("/awaiting-publish", requireAuthenticatedUser, async (req, res, next) => {
+  try {
+    const draftId = typeof req.query.draftId === "string" && validUuid(req.query.draftId) ? req.query.draftId : null;
+    const result = await pool.query<{ run_id: string; publication_id: string; artifact_id: string; display_name: string; media_type: string; workflow_name: string; caption: string | null; created_at: Date }>(`
+      SELECT r.id AS run_id, p.id AS publication_id, a.id AS artifact_id, a.display_name, a.media_type, p.caption,
+        COALESCE(r.workflow_snapshot_json->>'name', 'Workflow') AS workflow_name, r.created_at
+      FROM runs r
+      JOIN instagram_publications p ON p.run_id=r.id AND p.user_id=r.user_id
+      JOIN artifacts a ON a.id=p.artifact_id AND a.user_id=p.user_id AND a.data_type_id='image'
+      WHERE r.user_id=$1 AND r.status='awaiting_publish'
+        AND (p.status='awaiting_review' OR ($2::uuid IS NOT NULL AND EXISTS (
+          SELECT 1 FROM instagram_publication_media pm
+          JOIN instagram_publications d ON d.id=pm.publication_id AND d.user_id=$1 AND d.status='draft' AND d.run_id IS NULL
+          WHERE pm.source_publication_id=p.id AND d.id=$2
+        )))
+        AND (NOT EXISTS (SELECT 1 FROM instagram_publication_media pm WHERE pm.source_publication_id=p.id) OR ($2::uuid IS NOT NULL AND EXISTS (
+          SELECT 1 FROM instagram_publication_media pm WHERE pm.source_publication_id=p.id AND pm.publication_id=$2
+        )))
+      ORDER BY r.created_at DESC, p.created_at DESC`, [ownerId(res), draftId]);
+    res.json({ items: result.rows.map((item) => ({ runId: item.run_id, sourcePublicationId: item.publication_id, artifactId: item.artifact_id, displayName: item.display_name, mediaType: item.media_type, workflowName: item.workflow_name, caption: item.caption, createdAt: item.created_at })) });
+  } catch (error) { next(error); }
+});
+
+router.get("/awaiting-review", requireAuthenticatedUser, async (_req, res, next) => {
   try {
     const result = await pool.query<{ run_id: string; publication_id: string; artifact_id: string; display_name: string; media_type: string; workflow_name: string; caption: string | null; created_at: Date }>(`
       SELECT r.id AS run_id, p.id AS publication_id, a.id AS artifact_id, a.display_name, a.media_type, p.caption,
         COALESCE(r.workflow_snapshot_json->>'name', 'Workflow') AS workflow_name, r.created_at
       FROM runs r
-      JOIN instagram_publications p ON p.run_id=r.id AND p.user_id=r.user_id AND p.status='awaiting_review'
+      JOIN instagram_publications p ON p.run_id=r.id AND p.user_id=r.user_id AND p.status='awaiting_review' AND p.reviewed_at IS NULL
       JOIN artifacts a ON a.id=p.artifact_id AND a.user_id=p.user_id AND a.data_type_id='image'
       WHERE r.user_id=$1 AND r.status='awaiting_publish'
         AND NOT EXISTS (SELECT 1 FROM instagram_publication_media pm WHERE pm.source_publication_id=p.id)
@@ -123,7 +146,7 @@ router.get("/drafts", requireAuthenticatedUser, async (_req, res, next) => {
   try {
     const drafts = await db.select().from(instagramPublications).where(and(eq(instagramPublications.userId, ownerId(res)), isNull(instagramPublications.runId), eq(instagramPublications.status, "draft"))).orderBy(desc(instagramPublications.updatedAt));
     if (!drafts.length) { res.json({ items: [] }); return; }
-    const media = await db.select({ publicationId: instagramPublicationMedia.publicationId, artifactId: artifacts.id, displayName: artifacts.displayName, mediaType: artifacts.mediaType, position: instagramPublicationMedia.position, altText: instagramPublicationMedia.altText, sourcePublicationId: instagramPublicationMedia.sourcePublicationId })
+    const media = await db.select({ publicationId: instagramPublicationMedia.publicationId, artifactId: artifacts.id, displayName: artifacts.displayName, mediaType: artifacts.mediaType, byteSize: artifacts.byteSize, position: instagramPublicationMedia.position, altText: instagramPublicationMedia.altText, sourcePublicationId: instagramPublicationMedia.sourcePublicationId })
       .from(instagramPublicationMedia).innerJoin(artifacts, and(eq(artifacts.id, instagramPublicationMedia.artifactId), eq(artifacts.userId, ownerId(res)))).where(inArray(instagramPublicationMedia.publicationId, drafts.map((item) => item.id))).orderBy(asc(instagramPublicationMedia.position));
     const byPublication = new Map<string, typeof media>();
     for (const item of media) byPublication.set(item.publicationId, [...(byPublication.get(item.publicationId) ?? []), item]);
@@ -287,12 +310,26 @@ router.post("/publications/:id/discard", requireAuthenticatedUser, async (req, r
     const resolved = await db.transaction(async (tx) => {
       const [item] = await tx.select().from(instagramPublications).where(and(eq(instagramPublications.id, String(req.params.id)), eq(instagramPublications.userId, ownerId(res)))).limit(1).for("update");
       if (!item || item.status !== "awaiting_review") return false;
-      await tx.update(instagramPublications).set({ status: "discarded", updatedAt: new Date() }).where(eq(instagramPublications.id, item.id));
-      if (item.runId) await tx.update(runs).set({ status: "succeeded", finishedAt: new Date() }).where(and(eq(runs.id, item.runId), eq(runs.userId, ownerId(res)), eq(runs.status, "awaiting_publish")));
+      await tx.update(instagramPublications).set({ status: "discarded", reviewedAt: new Date(), updatedAt: new Date() }).where(eq(instagramPublications.id, item.id));
+      if (item.runId) {
+        await tx.execute(sql`SELECT set_config('hive.suppress_run_success_notification', 'on', true)`);
+        await tx.update(runs).set({ status: "succeeded", finishedAt: new Date() }).where(and(eq(runs.id, item.runId), eq(runs.userId, ownerId(res)), eq(runs.status, "awaiting_publish")));
+      }
       return true;
     });
     if (!resolved) { res.status(409).json({ error: "publication_not_discardable" }); return; }
     res.json({ status: "discarded" });
+  } catch (error) { next(error); }
+});
+
+router.post("/publications/:id/approve", requireAuthenticatedUser, async (req, res, next) => {
+  if (!validOrigin(req)) { res.status(403).json({ error: "invalid_origin" }); return; }
+  try {
+    const [item] = await db.update(instagramPublications).set({ reviewedAt: new Date(), updatedAt: new Date() })
+      .where(and(eq(instagramPublications.id, String(req.params.id)), eq(instagramPublications.userId, ownerId(res)), eq(instagramPublications.status, "awaiting_review"), isNull(instagramPublications.reviewedAt)))
+      .returning({ id: instagramPublications.id });
+    if (!item) { res.status(409).json({ error: "publication_not_reviewable" }); return; }
+    res.json({ status: "approved" });
   } catch (error) { next(error); }
 });
 

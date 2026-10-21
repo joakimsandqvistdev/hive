@@ -358,6 +358,7 @@ export const instagramPublications = pgTable("instagram_publications", {
   containerId: text("container_id"),
   instagramMediaId: text("instagram_media_id"),
   errorSummary: text("error_summary"),
+  reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   publishedAt: timestamp("published_at", { withTimezone: true }),
