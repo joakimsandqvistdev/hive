@@ -6,7 +6,8 @@ import { isIP } from "node:net";
 import { Router, raw } from "express";
 import sharp from "sharp";
 import { Agent, fetch as undiciFetch } from "undici";
-import { artifactPath, readArtifact, removeArtifact, saveUpload } from "./artifactStore.js";
+import { artifactPath, detectUpload, readArtifact, removeArtifact, saveUpload } from "./artifactStore.js";
+import { ArtifactQuotaError, withArtifactQuota } from "./artifactQuota.js";
 import { parseArtifactByteRange } from "./artifactRange.js";
 import { db, pool } from "./db.js";
 import { isPublicAddress } from "./publicAddress.js";
@@ -210,14 +211,22 @@ router.post("/upload", (req, res, next) => {
     const [workflow] = await db.select({ id: workflows.id }).from(workflows).where(and(eq(workflows.id, sourceWorkflowId), eq(workflows.userId, res.locals.userId as string))).limit(1);
     if (!workflow) { res.status(404).json({ error: "workflow_not_found" }); return; }
   }
-  let stored: Awaited<ReturnType<typeof saveUpload>>;
-  try { stored = await saveUpload(req.body, dataTypeId); }
+  try { detectUpload(req.body, dataTypeId); }
   catch (error) { res.status(400).json({ error: "invalid_upload", message: error instanceof Error ? error.message : "Invalid upload." }); return; }
+  let stored: Awaited<ReturnType<typeof saveUpload>> | undefined;
   try {
     const displayName = String(req.query.name ?? "upload").replace(/[^a-zA-Z0-9._ -]/g, "_").slice(0, 120) || "upload";
-    const [artifact] = await db.insert(artifacts).values({ ...stored, dataTypeId, userId: res.locals.userId as string, displayName, runId: null, runNodeId: null, savedToLibrary, sourceWorkflowId }).returning();
+    const artifact = await withArtifactQuota(res.locals.userId as string, req.body.length, async (tx) => {
+      stored = await saveUpload(req.body, dataTypeId);
+      const [created] = await tx.insert(artifacts).values({ ...stored, dataTypeId, userId: res.locals.userId as string, displayName, runId: null, runNodeId: null, savedToLibrary, sourceWorkflowId }).returning();
+      return created;
+    });
     res.status(201).json({ artifact });
-  } catch (error) { await removeArtifact(stored.storageKey); next(error); }
+  } catch (error) {
+    if (stored) { await db.delete(artifacts).where(eq(artifacts.id, stored.id)); await removeArtifact(stored.storageKey); }
+    if (error instanceof ArtifactQuotaError) { res.status(429).json({ error: "storage_quota_exceeded", scope: error.scope, message: error.scope === "user" ? "Your media storage quota has been reached. Delete media or contact your administrator." : "Hive's shared media storage quota has been reached. Contact your administrator." }); return; }
+    next(error);
+  }
 });
 router.post("/import-url", async (req, res, next) => {
   if (req.get("origin") !== (process.env.WEB_ORIGIN ?? "http://localhost:5173")) { res.status(403).json({ error: "invalid_origin" }); return; }
@@ -242,12 +251,24 @@ router.post("/import-url", async (req, res, next) => {
       if (!response.ok || Number(response.headers.get("content-length") ?? 0) > maxBytes || !response.body) { res.status(400).json({ error: "media_import_failed" }); return; }
       const chunks: Buffer[] = []; let total = 0;
       for await (const chunk of response.body) { const bytes = Buffer.from(chunk); total += bytes.length; if (total > maxBytes) { res.status(413).json({ error: "request_too_large" }); return; } chunks.push(bytes); }
-      const stored = await saveUpload(Buffer.concat(chunks), dataTypeId);
+      const bytes = Buffer.concat(chunks);
+      try { detectUpload(bytes, dataTypeId); }
+      catch { res.status(400).json({ error: "media_import_failed" }); return; }
+      let storedArtifact: Awaited<ReturnType<typeof saveUpload>> | undefined;
       try {
         const displayName = decodeURIComponent(parsed.pathname.split("/").filter(Boolean).at(-1) ?? "imported-media").replace(/[^a-zA-Z0-9._ -]/g, "_").slice(0, 120) || "imported-media";
-        const [artifact] = await db.insert(artifacts).values({ ...stored, dataTypeId, userId: ownerId, displayName, runId: null, runNodeId: null, savedToLibrary: false, sourceWorkflowId: workflowId ?? null }).returning();
+        const artifact = await withArtifactQuota(ownerId, bytes.length, async (tx) => {
+          const stored = await saveUpload(bytes, dataTypeId);
+          storedArtifact = stored;
+          const [created] = await tx.insert(artifacts).values({ ...stored, dataTypeId, userId: ownerId, displayName, runId: null, runNodeId: null, savedToLibrary: false, sourceWorkflowId: workflowId ?? null }).returning();
+          return created;
+        });
         res.status(201).json({ artifact });
-      } catch (error) { await removeArtifact(stored.storageKey); throw error; }
+      } catch (error) {
+        if (storedArtifact) { await db.delete(artifacts).where(eq(artifacts.id, storedArtifact.id)); await removeArtifact(storedArtifact.storageKey); }
+        if (error instanceof ArtifactQuotaError) { res.status(429).json({ error: "storage_quota_exceeded", scope: error.scope, message: error.scope === "user" ? "Your media storage quota has been reached. Delete media or contact your administrator." : "Hive's shared media storage quota has been reached. Contact your administrator." }); return; }
+        throw error;
+      }
     } finally { await dispatcher.close(); }
   } catch (error) {
     if (error instanceof TypeError) { res.status(400).json({ error: "media_import_failed" }); return; }

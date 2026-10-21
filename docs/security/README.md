@@ -8,7 +8,7 @@ The workflow instructions are in [`.agents/skills/hive-security/SKILL.md`](../..
 |---|---|
 | `security-inspect` | Assess requirement coverage and update the current inspection matrix and two exclusion registers. |
 | `security-audit` | Find and report evidence-backed vulnerabilities. Creates a dated report under `audits/`. |
-| `security-fix` | Fix selected findings, attempt all open findings, or prepare a plan. The skill asks you to choose one before proceeding. |
+| `security-fix` | Fix selected findings, attempt all open findings, or prepare a plan. The skill asks you to choose one before proceeding and saves a dated fix record under `fixes/`. |
 | `security-verify` | Check changes marked “change made, verification pending.” Creates a dated report under `verifications/`. |
 
 These are modes in one skill, not separate slash commands. Invoke `$hive-security` and name the mode. For example:

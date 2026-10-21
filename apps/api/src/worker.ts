@@ -3,6 +3,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import { setTimeout as delay } from "node:timers/promises";
 import { db, pool } from "./db.js";
 import { readArtifact, removeArtifact, saveJpeg, saveMp4, savePng, saveWav } from "./artifactStore.js";
+import { withArtifactQuota } from "./artifactQuota.js";
 import { artifacts, instagramAccounts, instagramPublicationMedia, instagramPublications, runs } from "./schema.js";
 import { claimNextRun, failRun, finishCancelledRun, finishRun, finishRunNode, hasQueuedModelUse, heartbeatRun, runCancellationRequested, setRunNodeRunning, type ClaimedRun } from "./runQueue.js";
 import { workflowExecutionOrder } from "./workflowExecutionOrder.js";
@@ -60,10 +61,15 @@ async function execute(run: ClaimedRun, signal: AbortSignal): Promise<void> {
       const expectedType = mediaPort === "video" ? "video" : "image";
       if (!artifact || artifact.dataTypeId !== expectedType || (artifact.runId !== null && artifact.runId !== run.id)) throw new Error("Connected publishing media is unavailable.");
       if (mediaPort === "image" && artifact.mediaType !== "image/jpeg") {
-        const jpeg = await saveJpeg(await sharp(await readArtifact(artifact.storageKey)).jpeg({ quality: 92, mozjpeg: true }).toBuffer());
+        const bytes = await sharp(await readArtifact(artifact.storageKey)).jpeg({ quality: 92, mozjpeg: true }).toBuffer();
+        let jpeg: Awaited<ReturnType<typeof saveJpeg>> | undefined;
         try {
-          [artifact] = await db.insert(artifacts).values({ ...jpeg, userId: run.user_id, runId: run.id, runNodeId: node.id, dataTypeId: "image", mediaType: "image/jpeg", displayName: `${node.label}.jpg` }).returning();
-        } catch (error) { await removeArtifact(jpeg.storageKey); throw error; }
+          artifact = await withArtifactQuota(run.user_id, bytes.length, async (tx) => {
+            jpeg = await saveJpeg(bytes);
+            const [created] = await tx.insert(artifacts).values({ ...jpeg, userId: run.user_id, runId: run.id, runNodeId: node.id, dataTypeId: "image", mediaType: "image/jpeg", displayName: `${node.label}.jpg` }).returning();
+            return created;
+          });
+        } catch (error) { if (jpeg) { await db.delete(artifacts).where(eq(artifacts.id, jpeg.id)); await removeArtifact(jpeg.storageKey); } throw error; }
       }
       const step = await setRunNodeRunning(run.id, node.id, workerId, { accountId: account.id, mediaArtifactId: artifact.id });
       if (!step) throw new Error("Worker lease was lost before publication was queued.");
@@ -84,14 +90,18 @@ async function execute(run: ClaimedRun, signal: AbortSignal): Promise<void> {
         const processing = await setRunNodeRunning(run.id, node.id, workerId, { settings });
         if (!processing) throw new Error("Worker lease was lost before video processing.");
         const bytes = await renderStillImageVideo({ storageKey: image.storageKey, mediaType: image.mediaType, bytes: await readArtifact(image.storageKey) }, audio ? { storageKey: audio.storageKey, mediaType: audio.mediaType, bytes: await readArtifact(audio.storageKey) } : undefined, settings, signal);
-        const stored = await saveMp4(bytes);
-        let inserted = false;
+        let stored: Awaited<ReturnType<typeof saveMp4>> | undefined;
         try {
-          await db.insert(artifacts).values({ ...stored, userId: run.user_id, runId: run.id, runNodeId: node.id, dataTypeId: "video", mediaType: "video/mp4", displayName: `${node.label}.mp4` }); inserted = true;
+          stored = await withArtifactQuota(run.user_id, bytes.length, async (tx) => {
+            const saved = await saveMp4(bytes);
+            stored = saved;
+            await tx.insert(artifacts).values({ ...saved, userId: run.user_id, runId: run.id, runNodeId: node.id, dataTypeId: "video", mediaType: "video/mp4", displayName: `${node.label}.mp4` });
+            return saved;
+          });
           const output = { dataTypeId: "video", artifactId: stored.id };
           if (!await finishRunNode(run.id, node.id, workerId, output)) throw new Error("Worker lease was lost after video processing.");
           outputs.set(node.id, output);
-        } catch (error) { if (inserted) await db.delete(artifacts).where(eq(artifacts.id, stored.id)); await removeArtifact(stored.storageKey); throw error; }
+        } catch (error) { if (stored) { await db.delete(artifacts).where(eq(artifacts.id, stored.id)); await removeArtifact(stored.storageKey); } throw error; }
         continue;
       }
       const settings = parseTextOverlaySettings(object(node.parameters));
@@ -103,14 +113,18 @@ async function execute(run: ClaimedRun, signal: AbortSignal): Promise<void> {
       const [artifact] = await db.select().from(artifacts).where(and(eq(artifacts.id, imageId), eq(artifacts.userId, run.user_id))).limit(1);
       if (!artifact || artifact.dataTypeId !== "image" || (artifact.runId !== null && artifact.runId !== run.id)) throw new Error("Connected image is unavailable.");
       const rendered = await renderTextOverlay(await readArtifact(artifact.storageKey), text, settings);
-      const stored = await savePng(rendered);
-      let inserted = false;
+      let stored: Awaited<ReturnType<typeof savePng>> | undefined;
       try {
-        await db.insert(artifacts).values({ ...stored, userId: run.user_id, runId: run.id, runNodeId: node.id, dataTypeId: "image", mediaType: "image/png", displayName: `${node.label}.png` }); inserted = true;
+        stored = await withArtifactQuota(run.user_id, rendered.length, async (tx) => {
+          const saved = await savePng(rendered);
+          stored = saved;
+          await tx.insert(artifacts).values({ ...saved, userId: run.user_id, runId: run.id, runNodeId: node.id, dataTypeId: "image", mediaType: "image/png", displayName: `${node.label}.png` });
+          return saved;
+        });
         const output = { dataTypeId: "image", artifactId: stored.id };
         if (!await finishRunNode(run.id, node.id, workerId, output)) throw new Error("Worker lease was lost after processing.");
         outputs.set(node.id, output);
-      } catch (error) { if (inserted) await db.delete(artifacts).where(eq(artifacts.id, stored.id)); await removeArtifact(stored.storageKey); throw error; }
+      } catch (error) { if (stored) { await db.delete(artifacts).where(eq(artifacts.id, stored.id)); await removeArtifact(stored.storageKey); } throw error; }
       continue;
     }
     const resolvedSettings = resolveModelSettings(node);
@@ -144,14 +158,18 @@ async function execute(run: ClaimedRun, signal: AbortSignal): Promise<void> {
       outputs.set(node.id, output);
       continue;
     }
-    const stored = runnerInput.modality === "video" ? await saveMp4(bytes) : runnerInput.modality === "audio" ? await saveWav(bytes) : await savePng(bytes);
-    let inserted = false;
+    let stored: Awaited<ReturnType<typeof saveMp4 | typeof saveWav | typeof savePng>> | undefined;
     try {
-      await db.insert(artifacts).values({ ...stored, userId: run.user_id, runId: run.id, runNodeId: node.id, dataTypeId: runnerInput.outputDataTypeId, mediaType: runnerInput.mediaType, displayName: `${node.label}.${runnerInput.extension}` }); inserted = true;
+      stored = await withArtifactQuota(run.user_id, bytes.length, async (tx) => {
+        const saved = runnerInput.modality === "video" ? await saveMp4(bytes) : runnerInput.modality === "audio" ? await saveWav(bytes) : await savePng(bytes);
+        stored = saved;
+        await tx.insert(artifacts).values({ ...saved, userId: run.user_id, runId: run.id, runNodeId: node.id, dataTypeId: runnerInput.outputDataTypeId, mediaType: runnerInput.mediaType, displayName: `${node.label}.${runnerInput.extension}` });
+        return saved;
+      });
       const output = { dataTypeId: runnerInput.outputDataTypeId, artifactId: stored.id };
       if (!await finishRunNode(run.id, node.id, workerId, output)) throw new Error("Worker lease was lost after model execution.");
       outputs.set(node.id, output);
-    } catch (error) { if (inserted) await db.delete(artifacts).where(eq(artifacts.id, stored.id)); await removeArtifact(stored.storageKey); throw error; }
+    } catch (error) { if (stored) { await db.delete(artifacts).where(eq(artifacts.id, stored.id)); await removeArtifact(stored.storageKey); } throw error; }
   }
   await finishRun(run.id, workerId);
 }

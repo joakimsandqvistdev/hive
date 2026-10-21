@@ -3,20 +3,21 @@
 Assessment date: 2026-10-21
 Commit assessed: `601f4c4`
 Scope: Whole repository, repository evidence only. Ignored `.env`, `.data`, dependencies and build output were excluded. No runtime, cloud, identity-provider console, or production checks were performed.
+Verification update: 2026-10-21, local checkout at `78d5219` plus unstaged artifact-quota changes. Only `v5.0.0-V5.2.4` was updated; other rows retain the original assessment outcomes.
 
 ## Summary
 
 - Pinned inventory: **345** requirements (L1 70, L2 183, L3 92).
-- Status counts: covered 49; partially covered 47; not covered 64; needs information 100; not applicable 85; not assessed 0.
-- Catalog evidence coverage: **14.2% (49/345)**.
-- Hive applicability coverage, all levels: **18.8% (49/260)**; denominator excludes 85 evidence-backed not-applicable requirements.
+- Status counts: covered 50; partially covered 47; not covered 63; needs information 100; not applicable 85; not assessed 0.
+- Catalog evidence coverage: **14.5% (50/345)**.
+- Hive applicability coverage, all levels: **19.2% (50/260)**; denominator excludes 85 evidence-backed not-applicable requirements.
 - Applicable L1+L2 progress toward Hive’s 70% tracking target: **25.0% (47/188)**; target not met.
 - L1+L2 status counts: covered 47; partially covered 37; not covered 36; needs information 68; not applicable 65.
-- L1+L2 ASVS conformance: **not demonstrated**. No runtime verification was performed; no requirement has verification outcome `pass`.
+- L1+L2 ASVS conformance: **not demonstrated**. The only verification pass is for L3 requirement `v5.0.0-V5.2.4`; no applicable L1+L2 requirement has outcome `pass`.
 
 ## Method and limits
 
-The pinned inventory was validated before assessment. I reviewed the source and configuration areas relevant to the inventory, repository documentation, accepted architecture decisions, Compose configuration, the model runner, and CI configuration. Existing tests were considered as repository evidence, but no tests were run for this inspection. Status is based on the checked-in repository only. `covered` means code or configuration evidence supports the requirement; it does not mean the control passed operational testing. Deployment and identity-provider settings remain unknown. The matrix uses one implementation status per requirement; every verification outcome is `not attempted`. Follow-up is listed for partial, missing, and unknown controls. N/A entries are limited to feature areas with scope evidence. This inspection is not a vulnerability audit or penetration test.
+The pinned inventory was validated before assessment. I reviewed the source and configuration areas relevant to the inventory, repository documentation, accepted architecture decisions, Compose configuration, the model runner, and CI configuration. Existing tests were considered as repository evidence, but no tests were run for the initial inspection. Status is based on repository evidence. `covered` means code or configuration evidence supports the requirement; it does not mean the control passed operational testing. Deployment and identity-provider settings remain unknown. One later local database/API verification was performed for `v5.0.0-V5.2.4`; other rows retain their original verification outcomes. Follow-up is listed for partial, missing, and unknown controls. N/A entries are limited to feature areas with scope evidence. This inspection is not a vulnerability audit or penetration test.
 
 ## Evidence index
 
@@ -136,7 +137,7 @@ The pinned inventory was validated before assessment. I reviewed the source and 
 | `v5.0.0-V5.2.1` | 1 | applicable | covered | not attempted | [apps/api/src/artifacts.ts:201-240; apps/api/src/artifactStore.ts:6-73; docs/decisions/0032-media-storage-cleanup-planner.md:16] (code, documentation) | medium | Repository implementation evidence supports the control; runtime behavior was not verified. |
 | `v5.0.0-V5.2.2` | 1 | applicable | covered | not attempted | [apps/api/src/artifacts.ts:201-240; apps/api/src/artifactStore.ts:6-73; docs/decisions/0032-media-storage-cleanup-planner.md:16] (code, documentation) | medium | Repository implementation evidence supports the control; runtime behavior was not verified. |
 | `v5.0.0-V5.2.3` | 2 | not applicable | not applicable | not attempted | [apps/api/src/artifacts.ts:201-240; apps/api/src/artifactStore.ts:6-73; docs/decisions/0032-media-storage-cleanup-planner.md:16] (code, documentation) | high | Hive has no feature or component in this requirement scope; evidence and revisit condition are listed in the not-applicable register. |
-| `v5.0.0-V5.2.4` | 3 | applicable | not covered | not attempted | [apps/api/src/artifacts.ts:201-240; apps/api/src/artifactStore.ts:6-73; docs/decisions/0032-media-storage-cleanup-planner.md:16] (code, documentation) | high | Define per-user storage quotas and image pixel limits; decide whether uploaded media requires malware scanning. |
+| `v5.0.0-V5.2.4` | 3 | applicable | covered | pass | [apps/api/src/artifactQuota.ts:13,27,35-51; apps/api/src/artifacts.ts:219-228; compose.local.yaml:34-37,93-96; docs/security/verifications/2026-10-21.md] (code, configuration, runtime) | high | Local byte and file quota checks passed; verify that the deployed instance quota is below artifact-volume capacity. |
 | `v5.0.0-V5.2.5` | 3 | not applicable | not applicable | not attempted | [apps/api/src/artifacts.ts:201-240; apps/api/src/artifactStore.ts:6-73; docs/decisions/0032-media-storage-cleanup-planner.md:16] (code, documentation) | high | Hive has no feature or component in this requirement scope; evidence and revisit condition are listed in the not-applicable register. |
 | `v5.0.0-V5.2.6` | 3 | applicable | not covered | not attempted | [apps/api/src/artifacts.ts:201-240; apps/api/src/artifactStore.ts:6-73; docs/decisions/0032-media-storage-cleanup-planner.md:16] (code, documentation) | high | Define per-user storage quotas and image pixel limits; decide whether uploaded media requires malware scanning. |
 | `v5.0.0-V5.3.1` | 1 | applicable | covered | not attempted | [apps/api/src/artifacts.ts:201-240; apps/api/src/artifactStore.ts:6-73; docs/decisions/0032-media-storage-cleanup-planner.md:16] (code, documentation) | medium | Repository implementation evidence supports the control; runtime behavior was not verified. |

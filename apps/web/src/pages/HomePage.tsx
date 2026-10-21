@@ -4,7 +4,7 @@ import type { AppView } from "../navigation/navigationState";
 import { AppIcon } from "../components/AppIcon";
 
 const stages = [
-  { icon: "accounts", number: "01", title: "Prepare", description: "Connect an Instagram account, organize images and audio, and choose downloadable AI models for your work." },
+  { icon: "accounts", number: "01", title: "Prepare", description: "Connect an Instagram account, organize media within storage quotas, and choose downloadable AI models for your work." },
   { icon: "workflows", number: "02", title: "Create", description: "Connect inputs, AI models, image and video tools, and reusable Custom Nodes in a visual workflow." },
   { icon: "jobs", number: "03", title: "Automate", description: "Run a workflow when you need it, on a schedule, or from a signed webhook trigger." },
   { icon: "publish", number: "04", title: "Publish", description: "Review workflow posts awaiting publish, then compose Instagram posts and carousels from saved images or approved runs." },
