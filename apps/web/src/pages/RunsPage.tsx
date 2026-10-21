@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ActionIcon, Alert, Badge, Button, Group, Loader, Modal, MultiSelect, Paper, Popover, Stack, Table, Text, Title, Tooltip } from "@mantine/core";
+import { ActionIcon, Alert, Badge, Button, Group, Image, Loader, Modal, MultiSelect, Paper, Popover, Stack, Table, Text, Title, Tooltip } from "@mantine/core";
 import { apiFetch, apiUrl } from "../apiClient";
 import { ConfirmActionModal } from "../components/ConfirmActionModal";
 import { PaginatedTableFooter } from "../components/PaginatedTableFooter";
@@ -16,6 +16,30 @@ import { notifyNavigationSummaryChanged } from "../navigation/navigationSummary"
 import type { AppView } from "../navigation/navigationState";
 
 const PAGE_SIZE = 10;
+
+function AudioFileGlyph() {
+  return <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M3 10v4m4-7v10m4-13v16m4-13v10m4-7v4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" /></svg>;
+}
+
+function VideoFileGlyph() {
+  return <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="1.5" stroke="currentColor" strokeWidth="1.7" /><path d="M3 9h18M8 4 5 9m9-5-3 5m9-5-3 5M8 9v11m8-11v11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>;
+}
+
+function TextFileGlyph() {
+  return <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 3.5h8l4 4v13H6zM14 3.5v4h4M9 12h6M9 15.5h6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg>;
+}
+
+function RunThumbnail({ preview }: { preview: NonNullable<Run["preview"]> }) {
+  const [imageFailed, setImageFailed] = useState(false);
+  useEffect(() => setImageFailed(false), [preview.artifactId]);
+  if (preview.artifactId && preview.dataTypeId === "image" && !imageFailed) {
+    return <Image className="media-row-thumbnail run-row-thumbnail" src={apiUrl(`/api/artifacts/${preview.artifactId}/thumbnail`)} alt="" fit="cover" w={50} h={50} onError={() => setImageFailed(true)} />;
+  }
+  const type = ["audio", "video", "text"].includes(preview.dataTypeId) ? preview.dataTypeId : "media";
+  return <span className={`media-row-thumbnail media-row-thumbnail-${type} run-row-thumbnail`} aria-hidden="true">
+    {type === "audio" ? <AudioFileGlyph /> : type === "video" ? <VideoFileGlyph /> : type === "text" ? <TextFileGlyph /> : <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="3.5" y="4" width="17" height="16" rx="2" stroke="currentColor" strokeWidth="1.6" /><circle cx="9" cy="9.5" r="1.5" stroke="currentColor" strokeWidth="1.5" /><path d="m5 17 4.2-4 3.1 2.7 2.3-2 4.4 3.3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>}
+  </span>;
+}
 
 function runIdFromHash() {
   return window.location.hash.match(/^#runs\/([0-9a-f-]+)$/i)?.[1] ?? null;
@@ -257,6 +281,7 @@ export function RunsPage({ onNavigate }: { onNavigate: (view: AppView) => void }
   }, [detail?.run.id]);
 
   const rows = result?.items.map((run) => <Table.Tr key={run.id} role="button" tabIndex={0} aria-label={`View run for ${run.workflowSnapshotJson?.name ?? "workflow"}`} onClick={() => setSelectedId(run.id)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); setSelectedId(run.id); } }} style={{ cursor: "pointer" }}>
+    <Table.Td className="run-thumbnail-cell"><RunThumbnail preview={run.preview ?? { dataTypeId: "media" }} /></Table.Td>
     <Table.Td><Group gap="xs" wrap="nowrap"><Text className="inventory-row-title" fw={600} size="sm">{run.workflowSnapshotJson?.name ?? "Workflow"}</Text>{run.jobId && <Badge size="xs" color="hiveSky" variant="light">Job</Badge>}{run.triggerName && <Badge size="xs" color="hiveSky" variant="light">{run.triggerName}</Badge>}</Group><Text size="xs" c="dimmed" ff="monospace">{run.id.slice(0, 8)}{run.scheduledFor ? " · Scheduled " + date(run.scheduledFor) : ""}</Text></Table.Td>
     <Table.Td><Badge variant="light" color={statusColor(run.status)}>{run.status.replaceAll("_", " ")}</Badge></Table.Td>
     <Table.Td><Text size="sm" c="dimmed">{timingLabel(run.startedAt, run.finishedAt, now, run.status === "awaiting_publish")}</Text></Table.Td>
@@ -279,7 +304,7 @@ export function RunsPage({ onNavigate }: { onNavigate: (view: AppView) => void }
     <Paper className="inventory-list workspace-table-panel" withBorder radius="md">
       {loading ? <Group justify="center" p="xl"><Loader size="sm" /><Text size="sm" c="dimmed">Loading runs…</Text></Group>
         : result?.total === 0 ? <Stack className="workspace-empty" align="center" gap="sm"><Badge color="hiveSky" variant="light">Run history</Badge><Title order={2} size="h3">No runs yet</Title><Text c="dimmed" ta="center" maw={480}>Open a saved workflow and choose Run workflow to queue its current definition for execution.</Text><Button variant="light" onClick={() => onNavigate("workflows")}>Browse workflows</Button></Stack>
-          : <><Table.ScrollContainer minWidth={900}><Table className="inventory-table run-inventory-table" highlightOnHover withRowBorders><Table.Thead><Table.Tr><Table.Th>Workflow</Table.Th><Table.Th>Status</Table.Th><Table.Th>Duration</Table.Th><Table.Th>Result</Table.Th><Table.Th>Actions</Table.Th></Table.Tr></Table.Thead><Table.Tbody>{rows}</Table.Tbody></Table></Table.ScrollContainer><PaginatedTableFooter total={result?.total ?? 0} itemName="run" page={page} totalPages={result?.totalPages ?? 0} onPageChange={setPage} /></>}
+          : <><Table.ScrollContainer minWidth={960}><Table className="inventory-table run-inventory-table" highlightOnHover withRowBorders><Table.Thead><Table.Tr><Table.Th>Preview</Table.Th><Table.Th>Workflow</Table.Th><Table.Th>Status</Table.Th><Table.Th>Duration</Table.Th><Table.Th>Result</Table.Th><Table.Th>Actions</Table.Th></Table.Tr></Table.Thead><Table.Tbody>{rows}</Table.Tbody></Table></Table.ScrollContainer><PaginatedTableFooter total={result?.total ?? 0} itemName="run" page={page} totalPages={result?.totalPages ?? 0} onPageChange={setPage} /></>}
     </Paper>
     <ConfirmActionModal opened={deleteTarget !== null} onClose={() => { if (!deletingId) setDeleteTarget(null); }} title="Delete run?" confirmLabel="Delete run" loading={deletingId !== null} onConfirm={() => void deleteRun()}>
       <Text>{deleteTarget?.status === "queued" ? <>Cancel and delete the queued run for <strong>{deleteTarget.workflowSnapshotJson?.name ?? "Workflow"}</strong>?</> : <>Delete the run for <strong>{deleteTarget?.workflowSnapshotJson?.name ?? "Workflow"}</strong>?</>}{deleteTarget?.status === "awaiting_publish" && <> Any pending Instagram publication will be discarded.</>} Its run history and generated media that has not been saved to the Media Library will be removed. Media saved to the library is kept. Uploaded input files are removed only when no workflow or other run still uses them.</Text>
@@ -294,12 +319,12 @@ export function RunsPage({ onNavigate }: { onNavigate: (view: AppView) => void }
         if (runIdFromHash()) window.location.hash = "runs";
       }}
       title="Run details"
-      size={1100}
+      size={detailError ? 520 : 1100}
       centered
-      classNames={{ content: "run-details-modal", body: "run-details-modal-body" }}
+      classNames={{ content: `run-details-modal${detailError ? " run-details-modal-error" : ""}`, body: `run-details-modal-body${detailError ? " run-details-modal-body-error" : ""}` }}
     >
       {!detail && !detailError ? <Group justify="center" p="xl"><Loader size="sm" /></Group>
-        : detailError ? <Alert color="hiveError" title="Could not load run">{detailError}</Alert>
+        : detailError ? <Alert className="run-load-error-notice" color="hiveError" icon={<RunErrorIcon />} title="Could not load run">{detailError}</Alert>
           : detail && <RunDetailsInspector
             detail={detail}
             onCompare={openComparison}
@@ -322,5 +347,6 @@ export function RunsPage({ onNavigate }: { onNavigate: (view: AppView) => void }
 
 
 function TrashIcon() { return <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="m19 6-1 14H6L5 6"/><path d="M10 11v5M14 11v5"/></svg>; }
+function RunErrorIcon() { return <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="9"/><path d="M12 8v5m0 3h.01"/></svg>; }
 function RetryIcon() { return <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M20 7v5h-5"/><path d="M4 17v-5h5"/><path d="M5.6 9a7 7 0 0 1 11.5-2L20 12"/><path d="M18.4 15a7 7 0 0 1-11.5 2L4 12"/></svg>; }
 function StopIcon() { return <svg width="17" height="17" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><rect x="5" y="5" width="14" height="14" rx="2" /></svg>; }

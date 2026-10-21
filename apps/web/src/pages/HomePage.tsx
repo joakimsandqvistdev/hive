@@ -67,7 +67,7 @@ export function HomePage({ onNavigate }: { onNavigate: (view: AppView) => void }
           <ThemeIcon className="home-capability-icon" variant="light" color="hiveSky" size={38} radius="sm"><AppIcon name="workflows" size={19} /></ThemeIcon>
           <Stack gap={4}>
             <Text className="home-capability-title">Built for a clear workflow</Text>
-          <Text className="home-capability-description">Connect each step visually, reuse shared logic with Custom Nodes, and inspect or compare results in run history. Review workflow posts, then compose Instagram posts from saved Media Library images and approved runs.</Text>
+          <Text className="home-capability-description">Connect each step visually, reuse shared logic with Custom Nodes, and inspect run previews or compare results in run history. Review workflow posts, then compose Instagram posts from saved Media Library images and approved runs.</Text>
           </Stack>
         </Group>
       </Paper>

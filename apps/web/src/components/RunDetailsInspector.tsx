@@ -1,6 +1,7 @@
 import { useEffect, useState, type Dispatch, type MutableRefObject, type SetStateAction } from "react";
 import { Alert, Badge, Button, Group, Image, Loader, Paper, Stack, Table, Text, Textarea } from "@mantine/core";
 import { apiFetch, apiUrl } from "../apiClient";
+import { WorkspaceTableAction, WorkspaceTableActions } from "./WorkspaceTableActions";
 import { formatFileSize } from "../formatters";
 import { active, date, nodeTypeLabel, statusColor, timingLabel } from "../runFormatting";
 import type { Artifact, Detail } from "../runTypes";
@@ -60,6 +61,38 @@ type RunDetailsInspectorProps = {
   downloadingId: string | null;
   downloadArtifact: (artifact: Artifact) => Promise<void>;
 };
+
+function RunOutputVisual({ artifact }: { artifact: Artifact }) {
+  const [imageFailed, setImageFailed] = useState(false);
+  useEffect(() => setImageFailed(false), [artifact.id]);
+  const kind = artifact.mediaType.split("/")[0];
+  if (kind === "image" && !imageFailed) {
+    return <Image className="media-row-thumbnail run-output-thumbnail" src={apiUrl(`/api/artifacts/${artifact.id}/thumbnail`)} alt="" fit="cover" w={42} h={42} onError={() => setImageFailed(true)} />;
+  }
+  return <span className={`media-row-thumbnail media-row-thumbnail-${kind} run-output-thumbnail`} aria-hidden="true">
+    {kind === "audio" ? <AudioFileGlyph /> : kind === "video" ? <VideoFileGlyph /> : kind === "text" ? <TextFileGlyph /> : <MediaFileGlyph />}
+  </span>;
+}
+
+function AudioFileGlyph() {
+  return <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M3 10v4m4-7v10m4-13v16m4-13v10m4-7v4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" /></svg>;
+}
+
+function VideoFileGlyph() {
+  return <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="1.5" stroke="currentColor" strokeWidth="1.7" /><path d="M3 9h18M8 4 5 9m9-5-3 5m9-5-3 5M8 9v11m8-11v11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>;
+}
+
+function TextFileGlyph() {
+  return <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M6 3.5h8l4 4v13H6zM14 3.5v4h4M9 12h6M9 15.5h6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" /></svg>;
+}
+
+function MediaFileGlyph() {
+  return <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><rect x="3.5" y="4" width="17" height="16" rx="2" stroke="currentColor" strokeWidth="1.6" /><circle cx="9" cy="9.5" r="1.5" stroke="currentColor" strokeWidth="1.5" /><path d="m5 17 4.2-4 3.1 2.7 2.3-2 4.4 3.3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" /></svg>;
+}
+
+function DownloadIcon() {
+  return <svg width="17" height="17" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M12 3.5v11m0 0 4-4m-4 4-4-4M5 16.5v3h14v-3" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" /></svg>;
+}
 
 export function RunDetailsInspector({
   detail,
@@ -130,10 +163,10 @@ export function RunDetailsInspector({
         </Stack> : inspectorSelection === "outputs" ? <Stack gap="sm">
           <div><Text fw={600} size="sm">Generated outputs</Text><Text size="xs" c="dimmed">Files created by this run</Text></div>
           {downloadError && <Alert color="hiveError" onClose={() => setDownloadError(null)} withCloseButton>{downloadError}</Alert>}
-          {detail.artifacts.length ? <Table className="run-inspector-output-table" withRowBorders><Table.Thead><Table.Tr><Table.Th>Output</Table.Th><Table.Th>Type</Table.Th><Table.Th>Size</Table.Th><Table.Th><span className="sr-only">Actions</span></Table.Th></Table.Tr></Table.Thead><Table.Tbody>{detail.artifacts.map((artifact) => {
+          {detail.artifacts.length ? <Table className="run-inspector-output-table" withRowBorders><Table.Thead><Table.Tr><Table.Th>Output</Table.Th><Table.Th>Size</Table.Th><Table.Th className="run-output-actions-heading"><span className="sr-only">Actions</span></Table.Th></Table.Tr></Table.Thead><Table.Tbody>{detail.artifacts.map((artifact) => {
             const node = detail.nodes.find((item) => item.nodeId === artifact.runNodeId);
             const label = node?.nodeSnapshotJson?.name ?? artifact.displayName;
-            return <Table.Tr key={artifact.id}><Table.Td><Text size="sm" fw={600}>{label}</Text><Text size="xs" c="dimmed" lineClamp={1}>{artifact.displayName}</Text></Table.Td><Table.Td><Badge variant="light" color="gray" size="sm">{artifact.mediaType.split("/")[0]}</Badge></Table.Td><Table.Td className="inventory-nowrap">{formatFileSize(artifact.byteSize)}</Table.Td><Table.Td><Button variant="subtle" size="compact-sm" loading={downloadingId === artifact.id} onClick={() => void downloadArtifact(artifact)}>Download</Button></Table.Td></Table.Tr>;
+            return <Table.Tr key={artifact.id}><Table.Td><Group className="run-output-file" gap="sm" wrap="nowrap"><RunOutputVisual artifact={artifact} /><div className="run-output-file-copy"><Text size="sm" fw={600} lineClamp={1}>{label}</Text><Text size="xs" c="dimmed" lineClamp={1}>{artifact.displayName}</Text></div></Group></Table.Td><Table.Td className="inventory-nowrap">{formatFileSize(artifact.byteSize)}</Table.Td><Table.Td className="run-output-actions-cell"><WorkspaceTableActions><WorkspaceTableAction label="Download" loading={downloadingId === artifact.id} onClick={() => void downloadArtifact(artifact)}><DownloadIcon /></WorkspaceTableAction></WorkspaceTableActions></Table.Td></Table.Tr>;
           })}</Table.Tbody></Table> : <Text size="sm" c="dimmed">Outputs will appear here when available.</Text>}
         </Stack> : (() => {
           const node = detail.nodes.find((item) => item.nodeId === inspectorSelection);

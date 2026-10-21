@@ -272,8 +272,49 @@ router.get("/", async (req, res, next) => {
       db.select({ total: count() }).from(runs).where(where),
     ]);
     const total = totals[0]?.total ?? 0;
+    const runIds = rows.map(({ run }) => run.id);
+    let pageNodes: typeof runNodes.$inferSelect[] = [];
+    let pageArtifacts: typeof artifacts.$inferSelect[] = [];
+    if (runIds.length) {
+      pageNodes = await db.select().from(runNodes).where(and(inArray(runNodes.runId, runIds), eq(runNodes.userId, ownerId)));
+      const outputIds = pageNodes.flatMap((node) => {
+        const output = node.outputJson as { artifactId?: unknown } | null;
+        return typeof output?.artifactId === "string" ? [output.artifactId] : [];
+      });
+      const artifactScope = outputIds.length
+        ? or(inArray(artifacts.runId, runIds), inArray(artifacts.id, outputIds))!
+        : inArray(artifacts.runId, runIds);
+      pageArtifacts = await db.select().from(artifacts).where(and(artifactScope, eq(artifacts.userId, ownerId)));
+    }
+    const previewByRun = new Map<string, { artifactId?: string; dataTypeId: string }>();
+    for (const { run } of rows) {
+      const snapshot = run.workflowSnapshotJson as unknown as { nodes?: Array<{ id: string }>; edges?: Array<{ source: string; target: string }> };
+      const order = workflowExecutionOrder(snapshot.nodes ?? [], snapshot.edges ?? []);
+      const rank = new Map(order.map((node, index) => [node.id, index]));
+      const nodeRows = pageNodes.filter((node) => node.runId === run.id)
+        .sort((left, right) => (rank.get(left.nodeId) ?? Number.MAX_SAFE_INTEGER) - (rank.get(right.nodeId) ?? Number.MAX_SAFE_INTEGER));
+      const runArtifacts = pageArtifacts.filter((artifact) => artifact.runId === run.id);
+      const images = nodeRows.slice().reverse().flatMap((node) => {
+        const image = runArtifacts.find((artifact) => artifact.runNodeId === node.nodeId && artifact.mediaType.startsWith("image/"));
+        return image ? [{ artifactId: image.id, dataTypeId: "image" }] : [];
+      });
+      if (images[0]) { previewByRun.set(run.id, images[0]); continue; }
+      const fallback = nodeRows.slice().reverse().map((node) => {
+        const output = node.outputJson as { dataTypeId?: unknown; text?: unknown; artifactId?: unknown } | null;
+        const snapshot = node.nodeSnapshotJson as { modality?: unknown; dataTypeId?: unknown };
+        const artifact = runArtifacts.find((item) => item.runNodeId === node.nodeId);
+        const value = artifact?.mediaType.split("/")[0] ?? output?.dataTypeId ?? snapshot.modality ?? snapshot.dataTypeId;
+        return { value, hasOutput: Boolean(artifact || typeof output?.text === "string" || output?.artifactId) };
+      }).find((item) => item.hasOutput && ["audio", "video", "text"].includes(String(item.value)))
+        ?? nodeRows.slice().reverse().map((node) => {
+          const snapshot = node.nodeSnapshotJson as { modality?: unknown; dataTypeId?: unknown };
+          return { value: snapshot.modality ?? snapshot.dataTypeId };
+        }).find((item) => ["audio", "video", "text"].includes(String(item.value)));
+      previewByRun.set(run.id, { dataTypeId: String(fallback?.value ?? "media") });
+    }
     const items = rows.map(({ run, deletion, triggerName }) => ({
       ...run,
+      preview: previewByRun.get(run.id) ?? { dataTypeId: "media" },
       triggerName,
       deletion: deletion ? { attemptCount: deletion.attemptCount, lastError: deletion.lastError, processing: Boolean(deletion.claimedBy && deletion.leaseExpiresAt && deletion.leaseExpiresAt > new Date()) } : null,
     }));

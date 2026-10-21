@@ -325,6 +325,8 @@ span.media-row-thumbnail { display: grid; place-items: center; background: var(-
 span.media-row-thumbnail svg { width: 23px; height: 23px; }
 span.media-row-thumbnail-audio { background: var(--mantine-color-gray-1); color: var(--mantine-color-gray-7); }
 span.media-row-thumbnail-video { background: var(--mantine-color-hiveSky-0); color: var(--mantine-color-hiveSky-7); }
+.run-thumbnail-cell { width: 76px; }
+.run-row-thumbnail { border-radius: var(--mantine-radius-sm); }
 .media-row-status { min-width: 0; }
 .media-date-cell { white-space: nowrap; }
 .media-detail-panel { display: flex; min-width: 0; min-height: 0; flex-direction: column; overflow-y: auto; background: var(--mantine-color-white); }
@@ -345,6 +347,12 @@ span.media-row-thumbnail-video { background: var(--mantine-color-hiveSky-0); col
 .media-empty { min-height: 180px; justify-content: center; }
 .run-details-modal { display: flex; height: min(850px, calc(100dvh - 32px)); max-height: calc(100dvh - 32px); flex-direction: column; overflow: hidden; }
 .run-details-modal-body { display: flex; min-height: 0; flex: 1 1 auto; overflow: auto; padding: var(--mantine-spacing-sm) var(--mantine-spacing-md); background: var(--mantine-color-gray-0); }
+.run-details-modal-error { width: min(520px, calc(100vw - 32px)); height: auto; min-height: 0; }
+.run-details-modal-body-error { display: block; min-height: 0; flex: 0 0 auto; overflow: visible; padding: var(--mantine-spacing-sm) var(--mantine-spacing-md); background: var(--mantine-color-white); }
+.run-load-error-notice { display: flex; width: 100%; align-items: center; gap: var(--mantine-spacing-sm); padding: var(--mantine-spacing-xs) 0; border: 0; background: transparent; }
+.run-load-error-notice .mantine-Alert-icon { display: grid; width: 32px; height: 32px; flex: 0 0 32px; place-items: center; margin: 0; border-radius: 50%; background: var(--mantine-color-hiveError-0); color: var(--mantine-color-hiveError-7); }
+.run-load-error-notice .mantine-Alert-title { margin-bottom: 2px; color: var(--mantine-color-hiveError-9); font-size: var(--mantine-font-size-sm); }
+.run-load-error-notice .mantine-Alert-message { color: var(--mantine-color-gray-7); font-size: var(--mantine-font-size-sm); }
 .run-inspector { display: flex; min-height: 0; flex: 1 1 auto; flex-direction: column; }
 .run-inspector-summary { min-height: 42px; padding: 0 2px 4px; }
 .run-publication-strip { display: flex; align-items: center; gap: var(--mantine-spacing-sm); border: 1px solid var(--mantine-color-gray-2); background: var(--mantine-color-white); }
@@ -385,6 +393,12 @@ span.media-row-thumbnail-video { background: var(--mantine-color-hiveSky-0); col
 .run-inspector-output-table th { color: var(--mantine-color-gray-6); font-size: var(--mantine-font-size-xs); font-weight: 600; }
 .run-inspector-output-table td,
 .run-inspector-output-table th { padding: 9px 10px; }
+.run-output-actions-heading,
+.run-output-actions-cell { width: 64px; text-align: right; }
+.run-output-file { min-width: 0; }
+.run-output-file-copy { min-width: 0; flex: 1 1 auto; }
+.run-output-thumbnail.media-row-thumbnail { width: 42px; height: 42px; flex: 0 0 42px; border-radius: var(--mantine-radius-sm); }
+.run-output-thumbnail.media-row-thumbnail svg { width: 21px; height: 21px; }
 .run-inspector-text-output { max-height: 300px; overflow: auto; border-color: var(--mantine-color-gray-2); background: var(--mantine-color-gray-0); }
 .run-inspector-text-output .mantine-Text-root:last-child { overflow-wrap: anywhere; }
 .webhook-credential-field { min-width: 0; display: grid; gap: 4px; }
@@ -488,7 +502,9 @@ span.media-row-thumbnail-video { background: var(--mantine-color-hiveSky-0); col
 }
 @media (max-width: 700px) {
   .run-details-modal { max-height: calc(100dvh - 12px); }
+  .run-details-modal-error { width: calc(100vw - 24px); }
   .run-details-modal-body { padding: var(--mantine-spacing-xs); }
+  .run-details-modal-body-error { padding: var(--mantine-spacing-xs) var(--mantine-spacing-sm); }
   .run-inspector-layout,
   .run-inspector-publication-content { grid-template-columns: minmax(0, 1fr); }
   .run-inspector-nav { order: 2; }
