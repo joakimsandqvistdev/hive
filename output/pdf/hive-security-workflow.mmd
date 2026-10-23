@@ -1,0 +1,84 @@
+# Hive security skill - workflow and exact assessment scope
+
+## 1. Recommended workflow
+
+```mermaid
+flowchart LR
+  START([Use the repo-local hive-security skill]) --> INSPECT[security-inspect<br/>Review the pinned inventory and repository evidence]
+  INSPECT --> INSPECT_OUT[Update current inspection matrix<br/>needs-information register<br/>not-applicable register<br/>uncovered requirements queue]
+  INSPECT_OUT --> AUDIT[security-audit<br/>Default: full applicable L1 + L2 scope]
+  TARGET[Optional: target one or more ASVS IDs from the queue] --> AUDIT
+  AUDIT --> AUDIT_SCOPE[Include needs-information requirements<br/>Exclude only exact evidence-backed N/A IDs and L3]
+  AUDIT_SCOPE --> AUDIT_REPORT[Review each requirement and record evidence,<br/>check type, disposition, and any unique finding<br/>Save a dated audit report]
+  AUDIT_REPORT --> CHOICE{security-fix asks you to choose}
+  CHOICE -->|1| SELECTED[Fix selected findings only]
+  CHOICE -->|2| ALL[Attempt all open findings in the report]
+  CHOICE -->|3| PLAN[Produce a remediation plan<br/>No code edits]
+  SELECTED --> FIX_REPORT[Apply selected edits and relevant safe checks<br/>Record fixed, pending, and unresolved items]
+  ALL --> FIX_REPORT
+  PLAN --> LATER([Choose an edit option later if desired])
+  FIX_REPORT --> VERIFY[security-verify<br/>Checks changes marked verification pending]
+  VERIFY --> VERIFY_RESULT{Evidence result}
+  VERIFY_RESULT -->|Sufficient evidence| PASS[Verified / pass]
+  VERIFY_RESULT -->|Defect remains| FAIL[Still open / fail]
+  VERIFY_RESULT -->|Runtime or deployment evidence missing| PENDING[Verification pending<br/>Keep gap visible]
+  PASS --> VERIFY_REPORT[Save a separate dated verification report<br/>Update matrix and matching queue entries]
+  FAIL --> VERIFY_REPORT
+  PENDING --> VERIFY_REPORT
+  VERIFY_REPORT --> REFRESH[After meaningful fixes or scope changes,<br/>run security-inspect again]
+  REFRESH --> INSPECT
+```
+
+## 2. Exact inventory and coverage arithmetic
+
+```mermaid
+flowchart TB
+  INVENTORY[Pinned OWASP ASVS 5.0.0 inventory<br/>345 requirements]
+  INVENTORY --> L1[L1: 70]
+  INVENTORY --> L2[L2: 183]
+  INVENTORY --> L3[L3: 92]
+  L1 --> BASELINE[L1 + L2 baseline: 253 of 345<br/>73.3% of this pinned catalog]
+  L2 --> BASELINE
+  BASELINE --> EXCLUDE[Subtract justified L1/L2 not-applicable IDs: 65<br/>18 L1 + 47 L2<br/>These are documented, not counted as covered]
+  EXCLUDE --> APPLICABLE[Applicable L1 + L2: 188<br/>Default full-audit denominator]
+  APPLICABLE --> COVERED[Covered: 47]
+  APPLICABLE --> PARTIAL[Partially covered: 40]
+  APPLICABLE --> MISSING[Not covered: 33]
+  APPLICABLE --> UNKNOWN[Needs information: 68<br/>Still applicable; not covered]
+  COVERED --> IMPL[Implementation coverage: 47 / 188 = 25.0%<br/>Hive target: 100%]
+  VERIFY[Verification passes: 0 / 188 = 0.0%<br/>L2 conformance needs 100% of applicable L1/L2 to pass] 
+  APPLICABLE --> VERIFY
+  AUDITNOTE[No issue identified is only an audit disposition.<br/>It is not proof of coverage, a test result, or a verification pass.]
+  AUDITNOTE -.-> APPLICABLE
+```
+
+## Exact recorded snapshot
+
+The latest inspection matrix is dated 2026-10-21 and assesses repository commit 1be166c. The follow-up verification report records commit 1be166c and was committed as 432ca3a. The report does not change the recorded L1/L2 results: 47 covered of 188 applicable, and 0 verification passes of 188.
+
+Across all 345 inventory rows, current inspection statuses are: 50 covered, 50 partially covered, 60 not covered, 100 needs information, 85 not applicable, and 0 not assessed. This yields catalog evidence coverage of 50/345 = 14.5%, and all-level applicability coverage of 50/260 = 19.2%.
+
+Within L1+L2, status counts are 47 covered, 40 partially covered, 33 not covered, 68 needs information, and 65 not applicable. The L1+L2 queue contains 73 partial/not-covered/not-assessed requirements and a separate 68 needs-information requirements.
+
+The latest audit correction says the 2026-10-21 audit had one unique finding linked to two requirement mappings; 186 of 188 requirements were not individually assessed. Therefore, the prior audit does not establish a clean review of all 188 items. HIVE-SEC-2026-002 remains verification pending because deployment-wide proxy, replica, and memory-limit evidence is unavailable.
+
+## Simple explanation
+
+- **Inspect** compares the repository with every pinned ASVS requirement and records what code evidence exists, what is incomplete, what does not apply, and what needs information.
+- **Audit** looks for concrete weaknesses. By default it covers all 188 applicable L1/L2 requirements in the recorded snapshot. Unknowns stay in scope. A no-issue result is not a pass.
+- **Fix** pauses for your choice: selected findings, all open findings in one report, or a plan without edits.
+- **Verify** checks a reported change against evidence. Missing deployment evidence keeps the result pending. It does not assume a change is safe just because code was edited.
+
+The 73.3% number is the L1+L2 share of this inventory (253/345). It is not a completion threshold. Hive's implementation target is 100% of the 188 applicable L1+L2 requirements; the 65 justified exclusions are omitted from that denominator, not counted as covered. Conformance separately requires a verification pass for every applicable L1/L2 requirement.
+
+## Commands
+
+Use one skill and name its mode; these are not separate slash commands:
+
+- `$hive-security security-inspect`
+- `$hive-security security-audit` (default: full applicable L1+L2 scope)
+- `$hive-security security-audit v5.0.0-Vx.y.z` (targeted audit)
+- `$hive-security security-fix` (choose one of the three options when asked)
+- `$hive-security security-verify` (name a report or finding if multiple scopes are available)
+
+Source of truth: docs/security/README.md, .agents/skills/hive-security/SKILL.md, docs/security/current-inspection.md, docs/security/uncovered-requirements.md, and dated audit/fix/verification reports.
